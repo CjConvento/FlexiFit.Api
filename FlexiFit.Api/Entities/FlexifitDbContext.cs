@@ -49,6 +49,8 @@ public partial class FlexifitDbContext : DbContext
 
     public virtual DbSet<UsrUserMetric> UsrUserMetrics { get; set; }
 
+    public virtual DbSet<UsrUserNotificationSetting> UsrUserNotificationSettings { get; set; }
+
     public virtual DbSet<UsrUserProfile> UsrUserProfiles { get; set; }
 
     public virtual DbSet<UsrUserProfileVersion> UsrUserProfileVersions { get; set; }
@@ -698,6 +700,56 @@ public partial class FlexifitDbContext : DbContext
             entity.HasOne(d => d.User).WithMany(p => p.UsrUserMetrics)
                 .HasForeignKey(d => d.UserId)
                 .HasConstraintName("FK_usr_user_metrics_user");
+        });
+
+        modelBuilder.Entity<UsrUserNotificationSetting>(entity =>
+        {
+            entity.HasKey(e => e.UserId).HasName("PK__user_not__B9BE370F9E422610");
+
+            entity.ToTable("usr_user_notification_settings");
+
+            entity.Property(e => e.UserId)
+                .ValueGeneratedNever()
+                .HasColumnName("user_id");
+
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("(getdate())")
+                .HasColumnType("datetime")
+                .HasColumnName("created_at");
+
+            entity.Property(e => e.MealReminderEnabled)
+                .HasColumnName("meal_reminder_enabled");
+
+            entity.Property(e => e.MealReminderTime)
+                .HasColumnName("meal_reminder_time");
+
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("(getdate())")
+                .HasColumnType("datetime")
+                .HasColumnName("updated_at");
+
+            entity.Property(e => e.WaterEndTime)
+                .HasColumnName("water_end_time");
+
+            entity.Property(e => e.WaterIntervalMinutes)
+                .HasColumnName("water_interval_minutes");
+
+            entity.Property(e => e.WaterReminderEnabled)
+                .HasColumnName("water_reminder_enabled");
+
+            entity.Property(e => e.WaterStartTime)
+                .HasColumnName("water_start_time");
+
+            entity.Property(e => e.WorkoutReminderEnabled)
+                .HasColumnName("workout_reminder_enabled");
+
+            entity.Property(e => e.WorkoutReminderTime)
+                .HasColumnName("workout_reminder_time");
+
+            entity.HasOne(d => d.User)
+                .WithOne(p => p.UsrUserNotificationSetting)
+                .HasForeignKey<UsrUserNotificationSetting>(d => d.UserId)
+                .HasConstraintName("FK_user_notification_settings_user");
         });
 
         modelBuilder.Entity<UsrUserProfile>(entity =>
