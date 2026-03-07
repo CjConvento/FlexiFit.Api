@@ -12,5 +12,9 @@
         public string? WaterStartTime { get; set; }
         public string? WaterEndTime { get; set; }
         public int? WaterIntervalMinutes { get; set; }
+
+        public int DailyWaterGoal { get; set; }
+        public int GlassSizeMl { get; set; }
+        public string? CalorieDisplayMode { get; set; }
     }
 }

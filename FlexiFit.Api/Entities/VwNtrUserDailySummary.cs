@@ -11,7 +11,7 @@ public partial class VwNtrUserDailySummary
 
     public int TargetNetCalories { get; set; }
 
-    public string GoalType { get; set; } = null!;
+    public string? NutritionGoal { get; set; }
 
     public int CaloriesConsumed { get; set; }
 

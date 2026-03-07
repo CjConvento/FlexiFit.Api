@@ -15,8 +15,6 @@ public partial class NtrDailyLog
 
     public int TargetNetCalories { get; set; }
 
-    public string GoalType { get; set; } = null!;
-
     public int CaloriesConsumed { get; set; }
 
     public int CaloriesBurned { get; set; }

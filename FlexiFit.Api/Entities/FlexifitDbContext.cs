@@ -79,7 +79,7 @@ public partial class FlexifitDbContext : DbContext
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
 #warning To protect potentially sensitive information in your connection string, you should move it out of source code. You can avoid scaffolding the connection string by using the Name= syntax to read it from configuration - see https://go.microsoft.com/fwlink/?linkid=2131148. For more guidance on storing connection strings, see https://go.microsoft.com/fwlink/?LinkId=723263.
-        => optionsBuilder.UseSqlServer("Server=DESKTOP-VKRMBR2\\SQLEXPRESS01;Database=FLEXIFIT;Trusted_Connection=True;TrustServerCertificate=True;");
+        => optionsBuilder.UseSqlServer("Server=192.168.1.246,1433;Database=FLEXIFIT;User Id=cy;Password=;TrustServerCertificate=True");
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -170,9 +170,6 @@ public partial class FlexifitDbContext : DbContext
             entity.Property(e => e.CaloriesConsumed).HasColumnName("calories_consumed");
             entity.Property(e => e.CycleId).HasColumnName("cycle_id");
             entity.Property(e => e.GoalMet).HasColumnName("goal_met");
-            entity.Property(e => e.GoalType)
-                .HasMaxLength(20)
-                .HasColumnName("goal_type");
             entity.Property(e => e.MarkedDoneAt)
                 .HasPrecision(0)
                 .HasColumnName("marked_done_at");
@@ -538,6 +535,9 @@ public partial class FlexifitDbContext : DbContext
             entity.Property(e => e.NutritionGoal)
                 .HasMaxLength(20)
                 .HasColumnName("nutrition_goal");
+            entity.Property(e => e.TargetWeightKg)
+                .HasColumnType("decimal(5, 2)")
+                .HasColumnName("target_weight_kg");
             entity.Property(e => e.UpdatedAt)
                 .HasPrecision(0)
                 .HasDefaultValueSql("(sysutcdatetime())")
@@ -711,44 +711,37 @@ public partial class FlexifitDbContext : DbContext
             entity.Property(e => e.UserId)
                 .ValueGeneratedNever()
                 .HasColumnName("user_id");
-
+            entity.Property(e => e.CalorieDisplayMode)
+                .HasMaxLength(20)
+                .IsUnicode(false)
+                .HasDefaultValue("remaining")
+                .HasColumnName("calorie_display_mode");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("(getdate())")
                 .HasColumnType("datetime")
                 .HasColumnName("created_at");
-
-            entity.Property(e => e.MealReminderEnabled)
-                .HasColumnName("meal_reminder_enabled");
-
-            entity.Property(e => e.MealReminderTime)
-                .HasColumnName("meal_reminder_time");
-
+            entity.Property(e => e.DailyWaterGoal)
+                .HasDefaultValue(8)
+                .HasColumnName("daily_water_goal");
+            entity.Property(e => e.GlassSizeMl)
+                .HasDefaultValue(250)
+                .HasColumnName("glass_size_ml");
+            entity.Property(e => e.MealReminderEnabled).HasColumnName("meal_reminder_enabled");
+            entity.Property(e => e.MealReminderTime).HasColumnName("meal_reminder_time");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("(getdate())")
                 .HasColumnType("datetime")
                 .HasColumnName("updated_at");
+            entity.Property(e => e.WaterEndTime).HasColumnName("water_end_time");
+            entity.Property(e => e.WaterIntervalMinutes).HasColumnName("water_interval_minutes");
+            entity.Property(e => e.WaterReminderEnabled).HasColumnName("water_reminder_enabled");
+            entity.Property(e => e.WaterStartTime).HasColumnName("water_start_time");
+            entity.Property(e => e.WorkoutReminderEnabled).HasColumnName("workout_reminder_enabled");
+            entity.Property(e => e.WorkoutReminderTime).HasColumnName("workout_reminder_time");
 
-            entity.Property(e => e.WaterEndTime)
-                .HasColumnName("water_end_time");
-
-            entity.Property(e => e.WaterIntervalMinutes)
-                .HasColumnName("water_interval_minutes");
-
-            entity.Property(e => e.WaterReminderEnabled)
-                .HasColumnName("water_reminder_enabled");
-
-            entity.Property(e => e.WaterStartTime)
-                .HasColumnName("water_start_time");
-
-            entity.Property(e => e.WorkoutReminderEnabled)
-                .HasColumnName("workout_reminder_enabled");
-
-            entity.Property(e => e.WorkoutReminderTime)
-                .HasColumnName("workout_reminder_time");
-
-            entity.HasOne(d => d.User)
-                .WithOne(p => p.UsrUserNotificationSetting)
+            entity.HasOne(d => d.User).WithOne(p => p.UsrUserNotificationSetting)
                 .HasForeignKey<UsrUserNotificationSetting>(d => d.UserId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_user_notification_settings_user");
         });
 
@@ -999,14 +992,14 @@ public partial class FlexifitDbContext : DbContext
             entity.Property(e => e.CaloriesBurned).HasColumnName("calories_burned");
             entity.Property(e => e.CaloriesConsumed).HasColumnName("calories_consumed");
             entity.Property(e => e.GoalMet).HasColumnName("goal_met");
-            entity.Property(e => e.GoalType)
-                .HasMaxLength(20)
-                .HasColumnName("goal_type");
             entity.Property(e => e.LogDate).HasColumnName("log_date");
             entity.Property(e => e.MarkedDoneAt)
                 .HasPrecision(0)
                 .HasColumnName("marked_done_at");
             entity.Property(e => e.NetCalories).HasColumnName("net_calories");
+            entity.Property(e => e.NutritionGoal)
+                .HasMaxLength(20)
+                .HasColumnName("nutrition_goal");
             entity.Property(e => e.TargetNetCalories).HasColumnName("target_net_calories");
             entity.Property(e => e.UserId).HasColumnName("user_id");
             entity.Property(e => e.WaterMl).HasColumnName("water_ml");
