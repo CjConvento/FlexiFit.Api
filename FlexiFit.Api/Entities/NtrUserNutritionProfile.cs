@@ -23,5 +23,7 @@ public partial class NtrUserNutritionProfile
 
     public bool IsProfileComplete { get; set; }
 
+    public decimal? TargetWeightKg { get; set; }
+
     public virtual UsrUser User { get; set; } = null!;
 }
