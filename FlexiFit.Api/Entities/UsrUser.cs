@@ -43,6 +43,8 @@ public partial class UsrUser
 
     public virtual ICollection<UsrUserMetric> UsrUserMetrics { get; set; } = new List<UsrUserMetric>();
 
+    public virtual UsrUserNotificationSetting? UsrUserNotificationSetting { get; set; }
+
     public virtual UsrUserProfile? UsrUserProfile { get; set; }
 
     public virtual UsrUserProfileVersion? UsrUserProfileVersion { get; set; }
