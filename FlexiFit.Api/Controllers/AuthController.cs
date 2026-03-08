@@ -31,24 +31,103 @@ public class AuthController : ControllerBase
     [HttpPost("register")]
     public async Task<ActionResult<AuthResponse>> Register([FromBody] RegisterRequest req)
     {
-        var decoded = await _firebase.VerifyAsync(req.FirebaseIdToken);
+        if (string.IsNullOrWhiteSpace(req.FirebaseIdToken))
+            return BadRequest("FirebaseIdToken is required.");
 
+        if (string.IsNullOrWhiteSpace(req.Name))
+            return BadRequest("Name is required.");
+
+        if (string.IsNullOrWhiteSpace(req.Username))
+            return BadRequest("Username is required.");
+
+        var decoded = await _firebase.VerifyAsync(req.FirebaseIdToken);
         var firebaseUid = decoded.Uid;
 
-        // email is optional in your table
         decoded.Claims.TryGetValue("email", out var emailObj);
         var email = emailObj?.ToString();
 
-        // If already exists -> idempotent (return token)
-        var existing = await _db.UsrUsers.FirstOrDefaultAsync(u => u.FirebaseUid == firebaseUid);
-        if (existing != null)
-        {
-            var tokenExisting = _jwt.CreateToken(existing.UserId, existing.FirebaseUid, existing.Role, existing.Email);
-            return Ok(new AuthResponse(tokenExisting, existing.UserId, existing.Role, existing.Status, existing.IsVerified));
-        }
+        if (string.IsNullOrWhiteSpace(email))
+            return BadRequest("Email not found in Firebase token.");
 
         var now = DateTime.UtcNow;
 
+        // 1) Existing by Firebase UID
+        var existingByFirebaseUid = await _db.UsrUsers
+            .FirstOrDefaultAsync(u => u.FirebaseUid == firebaseUid);
+
+        if (existingByFirebaseUid != null)
+        {
+            existingByFirebaseUid.Name = req.Name;
+            existingByFirebaseUid.Username = req.Username;
+            existingByFirebaseUid.Email = email;
+            existingByFirebaseUid.AuthProvider = "GOOGLE";
+            existingByFirebaseUid.IsVerified = true;
+            existingByFirebaseUid.UpdatedAt = now;
+
+            await _db.SaveChangesAsync();
+
+            var tokenExisting = _jwt.CreateToken(
+                existingByFirebaseUid.UserId,
+                existingByFirebaseUid.FirebaseUid,
+                existingByFirebaseUid.Role,
+                existingByFirebaseUid.Email
+            );
+
+            return Ok(new AuthResponse(
+                tokenExisting,
+                existingByFirebaseUid.UserId,
+                existingByFirebaseUid.Role,
+                existingByFirebaseUid.Status,
+                existingByFirebaseUid.IsVerified
+            ));
+        }
+
+        // 2) Existing by Email
+        var existingByEmail = await _db.UsrUsers
+            .FirstOrDefaultAsync(u => u.Email == email);
+
+        if (existingByEmail != null)
+        {
+            // Optional: prevent taking another user's username
+            var usernameUsedByOther = await _db.UsrUsers.AnyAsync(u =>
+                u.Username == req.Username && u.UserId != existingByEmail.UserId);
+
+            if (usernameUsedByOther)
+                return BadRequest("Username is already taken.");
+
+            existingByEmail.FirebaseUid = firebaseUid;
+            existingByEmail.Name = req.Name;
+            existingByEmail.Username = req.Username;
+            existingByEmail.AuthProvider = "GOOGLE";
+            existingByEmail.IsVerified = true;
+            existingByEmail.UpdatedAt = now;
+
+            await _db.SaveChangesAsync();
+
+            var tokenExisting = _jwt.CreateToken(
+                existingByEmail.UserId,
+                existingByEmail.FirebaseUid,
+                existingByEmail.Role,
+                existingByEmail.Email
+            );
+
+            return Ok(new AuthResponse(
+                tokenExisting,
+                existingByEmail.UserId,
+                existingByEmail.Role,
+                existingByEmail.Status,
+                existingByEmail.IsVerified
+            ));
+        }
+
+        // 3) Prevent duplicate username for new users
+        var usernameTaken = await _db.UsrUsers
+            .AnyAsync(u => u.Username == req.Username);
+
+        if (usernameTaken)
+            return BadRequest("Username is already taken.");
+
+        // 4) Create new user
         var user = new UsrUser
         {
             FirebaseUid = firebaseUid,
@@ -66,12 +145,23 @@ public class AuthController : ControllerBase
         _db.UsrUsers.Add(user);
         await _db.SaveChangesAsync();
 
-        var token = _jwt.CreateToken(user.UserId, user.FirebaseUid, user.Role, user.Email);
-        return Ok(new AuthResponse(token, user.UserId, user.Role, user.Status, user.IsVerified));
-    }
+        var token = _jwt.CreateToken(
+            user.UserId,
+            user.FirebaseUid,
+            user.Role,
+            user.Email
+        );
 
-// POST: /api/auth/login
-[HttpPost("login")]
+        return Ok(new AuthResponse(
+            token,
+            user.UserId,
+            user.Role,
+            user.Status,
+            user.IsVerified
+        ));
+    }
+    // POST: /api/auth/login
+    [HttpPost("login")]
 public async Task<ActionResult<AuthResponse>> Login([FromBody] LoginRequest req)
 {
     var decoded = await _firebase.VerifyAsync(req.FirebaseIdToken);
