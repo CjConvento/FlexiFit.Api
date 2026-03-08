@@ -12,9 +12,9 @@ namespace FlexiFit.Api.Controllers
     [Route("api/settings/notifications")]
     public class NotificationSettingsController : ControllerBase
     {
-        private readonly FlexifitDbContext _context;
+        private readonly FlexiFitDbContext _context;
 
-        public NotificationSettingsController(FlexifitDbContext context)
+        public NotificationSettingsController(FlexiFitDbContext context)
         {
             _context = context;
         }

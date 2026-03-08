@@ -4,13 +4,13 @@ using Microsoft.EntityFrameworkCore;
 
 namespace FlexiFit.Api.Entities;
 
-public partial class FlexifitDbContext : DbContext
+public partial class FlexiFitDbContext : DbContext
 {
-    public FlexifitDbContext()
+    public FlexiFitDbContext()
     {
     }
 
-    public FlexifitDbContext(DbContextOptions<FlexifitDbContext> options)
+    public FlexiFitDbContext(DbContextOptions<FlexiFitDbContext> options)
         : base(options)
     {
     }
@@ -302,6 +302,9 @@ public partial class FlexifitDbContext : DbContext
             entity.Property(e => e.FoodName)
                 .HasMaxLength(255)
                 .HasColumnName("food_name");
+            entity.Property(e => e.ImgFilename)
+                .HasMaxLength(255)
+                .HasColumnName("img_filename");
             entity.Property(e => e.IsActive)
                 .HasDefaultValue(true)
                 .HasColumnName("is_active");

@@ -49,7 +49,7 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 // DbContext (connection string name mo: FlexifitDb)
-builder.Services.AddDbContext<FlexifitDbContext>(options =>
+builder.Services.AddDbContext<FlexiFitDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("FlexifitDb")));
 
 // JWT
