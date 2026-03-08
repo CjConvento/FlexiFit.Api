@@ -65,8 +65,6 @@ public partial class FlexiFitDbContext : DbContext
 
     public virtual DbSet<UsrUserWorkoutProgress> UsrUserWorkoutProgresses { get; set; }
 
-    public virtual DbSet<VwNtrUserDailySummary> VwNtrUserDailySummaries { get; set; }
-
     public virtual DbSet<WrkProgramTemplate> WrkProgramTemplates { get; set; }
 
     public virtual DbSet<WrkProgramTemplateDay> WrkProgramTemplateDays { get; set; }
@@ -620,6 +618,10 @@ public partial class FlexiFitDbContext : DbContext
 
             entity.ToTable("usr_users");
 
+            entity.HasIndex(e => e.FirebaseUid, "UQ_usr_users_firebase_uid").IsUnique();
+
+            entity.HasIndex(e => e.Username, "UQ_usr_users_username").IsUnique();
+
             entity.HasIndex(e => e.Email, "UX_usr_users_email")
                 .IsUnique()
                 .HasFilter("([email] IS NOT NULL)");
@@ -631,9 +633,10 @@ public partial class FlexiFitDbContext : DbContext
                 .HasFilter("([username] IS NOT NULL)");
 
             entity.Property(e => e.UserId).HasColumnName("user_id");
-            entity.Property(e => e.Address)
-                .HasMaxLength(255)
-                .HasColumnName("address");
+            entity.Property(e => e.AuthProvider)
+                .HasMaxLength(20)
+                .IsUnicode(false)
+                .HasColumnName("auth_provider");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(0)
                 .HasDefaultValueSql("(sysutcdatetime())")
@@ -656,12 +659,8 @@ public partial class FlexiFitDbContext : DbContext
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
                 .IsUnicode(false)
-                .HasDefaultValue("ACTIVE")
+                .HasDefaultValue("Active")
                 .HasColumnName("status");
-            entity.Property(e => e.AuthProvider)
-                .HasMaxLength(20)
-                .IsUnicode(false)
-                .HasColumnName("auth_provider");
             entity.Property(e => e.UpdatedAt)
                 .HasPrecision(0)
                 .HasDefaultValueSql("(sysutcdatetime())")
@@ -986,30 +985,6 @@ public partial class FlexiFitDbContext : DbContext
                 .HasForeignKey(d => d.UserId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_usr_user_workout_progress_user");
-        });
-
-        modelBuilder.Entity<VwNtrUserDailySummary>(entity =>
-        {
-            entity
-                .HasNoKey()
-                .ToView("vw_ntr_user_daily_summary");
-
-            entity.Property(e => e.ActivityBurnedKcal).HasColumnName("activity_burned_kcal");
-            entity.Property(e => e.ActivityMinutes).HasColumnName("activity_minutes");
-            entity.Property(e => e.CaloriesBurned).HasColumnName("calories_burned");
-            entity.Property(e => e.CaloriesConsumed).HasColumnName("calories_consumed");
-            entity.Property(e => e.GoalMet).HasColumnName("goal_met");
-            entity.Property(e => e.LogDate).HasColumnName("log_date");
-            entity.Property(e => e.MarkedDoneAt)
-                .HasPrecision(0)
-                .HasColumnName("marked_done_at");
-            entity.Property(e => e.NetCalories).HasColumnName("net_calories");
-            entity.Property(e => e.NutritionGoal)
-                .HasMaxLength(20)
-                .HasColumnName("nutrition_goal");
-            entity.Property(e => e.TargetNetCalories).HasColumnName("target_net_calories");
-            entity.Property(e => e.UserId).HasColumnName("user_id");
-            entity.Property(e => e.WaterMl).HasColumnName("water_ml");
         });
 
         modelBuilder.Entity<WrkProgramTemplate>(entity =>

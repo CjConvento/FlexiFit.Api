@@ -7,7 +7,7 @@ public partial class UsrUser
 {
     public int UserId { get; set; }
 
-    public string FirebaseUid { get; set; } = null!;
+    public string? FirebaseUid { get; set; }
 
     public string? Email { get; set; }
 
@@ -15,19 +15,17 @@ public partial class UsrUser
 
     public string? Username { get; set; }
 
-    public string? Address { get; set; }
-
     public bool IsVerified { get; set; }
 
     public string Role { get; set; } = null!;
 
     public string Status { get; set; } = null!;
 
-    public string AuthProvider { get; set; } = null!;
-
     public DateTime CreatedAt { get; set; }
 
     public DateTime UpdatedAt { get; set; }
+
+    public string AuthProvider { get; set; } = null!;
 
     public virtual ICollection<ActActivitySummary> ActActivitySummaries { get; set; } = new List<ActActivitySummary>();
 
