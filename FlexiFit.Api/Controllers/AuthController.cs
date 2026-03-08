@@ -55,10 +55,10 @@ public class AuthController : ControllerBase
             Email = email,
             Name = req.Name,
             Username = req.Username,
-            Address = req.Address,
-            IsVerified = false,
+            IsVerified = true,
             Role = "USER",
             Status = "ACTIVE",
+            AuthProvider = "GOOGLE",
             CreatedAt = now,
             UpdatedAt = now
         };

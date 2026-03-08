@@ -651,13 +651,17 @@ public partial class FlexiFitDbContext : DbContext
             entity.Property(e => e.Role)
                 .HasMaxLength(20)
                 .IsUnicode(false)
-                .HasDefaultValue("Member")
+                .HasDefaultValue("USER")
                 .HasColumnName("role");
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
                 .IsUnicode(false)
-                .HasDefaultValue("Active")
+                .HasDefaultValue("ACTIVE")
                 .HasColumnName("status");
+            entity.Property(e => e.AuthProvider)
+                .HasMaxLength(20)
+                .IsUnicode(false)
+                .HasColumnName("auth_provider");
             entity.Property(e => e.UpdatedAt)
                 .HasPrecision(0)
                 .HasDefaultValueSql("(sysutcdatetime())")

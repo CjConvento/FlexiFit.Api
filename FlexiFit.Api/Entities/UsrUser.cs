@@ -23,6 +23,8 @@ public partial class UsrUser
 
     public string Status { get; set; } = null!;
 
+    public string AuthProvider { get; set; } = null!;
+
     public DateTime CreatedAt { get; set; }
 
     public DateTime UpdatedAt { get; set; }

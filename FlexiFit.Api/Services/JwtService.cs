@@ -21,9 +21,10 @@ public class JwtService
 
         var claims = new List<Claim>
         {
-            new Claim(JwtRegisteredClaimNames.Sub, userId.ToString()),
-            new Claim("uid", firebaseUid),
+            new Claim("user_id", userId.ToString()),
+            new Claim("firebase_uid", firebaseUid),
             new Claim(ClaimTypes.Role, role),
+            new Claim(JwtRegisteredClaimNames.Sub, userId.ToString())
         };
 
         if (!string.IsNullOrWhiteSpace(email))
