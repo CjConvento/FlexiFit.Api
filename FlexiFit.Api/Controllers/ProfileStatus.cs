@@ -11,9 +11,9 @@ namespace FlexiFit.Api.Controllers
     [Authorize]
     public class ProfileStatusController : ControllerBase
     {
-        private readonly FlexifitDbContext _context;
+        private readonly FlexiFitDbContext _context;
 
-        public ProfileStatusController(FlexifitDbContext context)
+        public ProfileStatusController(FlexiFitDbContext context)
         {
             _context = context;
         }

@@ -5,8 +5,8 @@ namespace FlexiFit.Api.Services;
 
 public class DeviceTokenService
 {
-    private readonly FlexifitDbContext _db;
-    public DeviceTokenService(FlexifitDbContext db) => _db = db;
+    private readonly FlexiFitDbContext _db;
+    public DeviceTokenService(FlexiFitDbContext db) => _db = db;
 
     public async Task UpsertAsync(int userId, string fcmToken, string platform = "android")
     {

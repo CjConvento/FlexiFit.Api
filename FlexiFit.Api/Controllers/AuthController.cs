@@ -11,12 +11,12 @@ namespace FlexiFit.Api.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly DeviceTokenService _deviceTokenService;
-    private readonly FlexifitDbContext _db;
+    private readonly FlexiFitDbContext _db;
     private readonly FirebaseTokenVerifier _firebase;
     private readonly JwtService _jwt;
 
     public AuthController(
-        FlexifitDbContext db,
+        FlexiFitDbContext db,
         JwtService jwt,
         FirebaseTokenVerifier firebase,
         DeviceTokenService deviceTokenService)   // ADD THIS

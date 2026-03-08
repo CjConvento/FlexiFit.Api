@@ -9,9 +9,9 @@ namespace FlexiFit.Api.Controllers
     [Route("api/mobile")]
     public class MobileController : ControllerBase
     {
-        private readonly FlexifitDbContext _context;
+        private readonly FlexiFitDbContext _context;
 
-        public MobileController(FlexifitDbContext context)
+        public MobileController(FlexiFitDbContext context)
         {
             _context = context;
         }
