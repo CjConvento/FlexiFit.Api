@@ -13,7 +13,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Controllers
 builder.Services.AddControllers();
 
-// Swagger (works on most templates)
+// Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -48,39 +48,47 @@ builder.Services.AddSwaggerGen(options =>
         }
     });
 });
-// DbContext (connection string name mo: FlexifitDb)
+
+// DbContext
 builder.Services.AddDbContext<FlexiFitDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("FlexifitDb")));
 
-// JWT
+// Custom JWT setup
 var jwtSection = builder.Configuration.GetSection("Jwt");
 var jwtKey = jwtSection["Key"] ?? throw new InvalidOperationException("Jwt:Key is missing in appsettings.json");
+var jwtIssuer = jwtSection["Issuer"] ?? throw new InvalidOperationException("Jwt:Issuer is missing in appsettings.json");
+var jwtAudience = jwtSection["Audience"] ?? throw new InvalidOperationException("Jwt:Audience is missing in appsettings.json");
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        var projectId = builder.Configuration["Firebase:ProjectId"]; // or hardcode for now
-        Console.WriteLine("PROJECT ID: " + projectId);
-        options.Authority = $"https://securetoken.google.com/{projectId}";
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
-            ValidIssuer = $"https://securetoken.google.com/{projectId}",
+            ValidIssuer = jwtIssuer,
+
             ValidateAudience = true,
-            ValidAudience = projectId,
-            ValidateLifetime = true
+            ValidAudience = jwtAudience,
+
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(jwtKey)
+            ),
+
+            ClockSkew = TimeSpan.Zero
         };
     });
 
 builder.Services.AddAuthorization();
 
-// Firebase Admin init (make sure file exists)
+// Firebase Admin init
 var serviceAccountPath = Path.Combine(
     builder.Environment.ContentRootPath,
     "Credentials",
     "firebase-service-account.json");
 
-// ✅ Prevent duplicate initialization
 if (FirebaseApp.DefaultInstance == null)
 {
     FirebaseApp.Create(new AppOptions
@@ -89,24 +97,21 @@ if (FirebaseApp.DefaultInstance == null)
     });
 }
 
-// Your custom services (later)
+// Services
 builder.Services.AddScoped<JwtService>();
 builder.Services.AddScoped<FirebaseTokenVerifier>();
 builder.Services.AddScoped<DeviceTokenService>();
 
 var app = builder.Build();
 
-// Swagger on Development
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
-
 }
 
-// ⭐ ADD THIS
+app.UseHttpsRedirection();
 app.UseStaticFiles();
-
 app.UseAuthentication();
 app.UseAuthorization();
 

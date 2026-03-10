@@ -19,12 +19,12 @@ public class AuthController : ControllerBase
         FlexiFitDbContext db,
         JwtService jwt,
         FirebaseTokenVerifier firebase,
-        DeviceTokenService deviceTokenService)   // ADD THIS
+        DeviceTokenService deviceTokenService)
     {
         _db = db;
         _jwt = jwt;
         _firebase = firebase;
-        _deviceTokenService = deviceTokenService; // ASSIGN THIS
+        _deviceTokenService = deviceTokenService;
     }
 
     // POST: /api/auth/register
@@ -66,6 +66,15 @@ public class AuthController : ControllerBase
 
             await _db.SaveChangesAsync();
 
+            if (!string.IsNullOrWhiteSpace(req.FcmToken))
+            {
+                await _deviceTokenService.UpsertAsync(
+                    existingByFirebaseUid.UserId,
+                    req.FcmToken,
+                    "android"
+                );
+            }
+
             var tokenExisting = _jwt.CreateToken(
                 existingByFirebaseUid.UserId,
                 existingByFirebaseUid.FirebaseUid,
@@ -88,7 +97,6 @@ public class AuthController : ControllerBase
 
         if (existingByEmail != null)
         {
-            // Optional: prevent taking another user's username
             var usernameUsedByOther = await _db.UsrUsers.AnyAsync(u =>
                 u.Username == req.Username && u.UserId != existingByEmail.UserId);
 
@@ -103,6 +111,15 @@ public class AuthController : ControllerBase
             existingByEmail.UpdatedAt = now;
 
             await _db.SaveChangesAsync();
+
+            if (!string.IsNullOrWhiteSpace(req.FcmToken))
+            {
+                await _deviceTokenService.UpsertAsync(
+                    existingByEmail.UserId,
+                    req.FcmToken,
+                    "android"
+                );
+            }
 
             var tokenExisting = _jwt.CreateToken(
                 existingByEmail.UserId,
@@ -145,6 +162,15 @@ public class AuthController : ControllerBase
         _db.UsrUsers.Add(user);
         await _db.SaveChangesAsync();
 
+        if (!string.IsNullOrWhiteSpace(req.FcmToken))
+        {
+            await _deviceTokenService.UpsertAsync(
+                user.UserId,
+                req.FcmToken,
+                "android"
+            );
+        }
+
         var token = _jwt.CreateToken(
             user.UserId,
             user.FirebaseUid,
@@ -160,27 +186,44 @@ public class AuthController : ControllerBase
             user.IsVerified
         ));
     }
+
     // POST: /api/auth/login
     [HttpPost("login")]
-public async Task<ActionResult<AuthResponse>> Login([FromBody] LoginRequest req)
-{
-    var decoded = await _firebase.VerifyAsync(req.FirebaseIdToken);
-    var firebaseUid = decoded.Uid;
-
-    var user = await _db.UsrUsers.FirstOrDefaultAsync(u => u.FirebaseUid == firebaseUid);
-    if (user == null)
-        return Unauthorized("User not registered in FlexiFit database. Call /api/auth/register first.");
-
-    if (!string.Equals(user.Status, "ACTIVE", StringComparison.OrdinalIgnoreCase))
-        return Unauthorized("Account is not active.");
-
-    // ✅ SAVE/UPDATE FCM TOKEN HERE (before creating/returning response)
-    if (!string.IsNullOrWhiteSpace(req.FcmToken))
+    public async Task<ActionResult<AuthResponse>> Login([FromBody] LoginRequest req)
     {
-        await _deviceTokenService.UpsertAsync(user.UserId, req.FcmToken, "android");
-    }
+        if (string.IsNullOrWhiteSpace(req.FirebaseIdToken))
+            return BadRequest("FirebaseIdToken is required.");
 
-    var token = _jwt.CreateToken(user.UserId, user.FirebaseUid, user.Role, user.Email);
-    return Ok(new AuthResponse(token, user.UserId, user.Role, user.Status, user.IsVerified));
-}
+        var decoded = await _firebase.VerifyAsync(req.FirebaseIdToken);
+        var firebaseUid = decoded.Uid;
+
+        var user = await _db.UsrUsers
+            .FirstOrDefaultAsync(u => u.FirebaseUid == firebaseUid);
+
+        if (user == null)
+            return Unauthorized("User not registered in FlexiFit database. Call /api/auth/register first.");
+
+        if (!string.Equals(user.Status, "ACTIVE", StringComparison.OrdinalIgnoreCase))
+            return Unauthorized("Account is not active.");
+
+        if (!string.IsNullOrWhiteSpace(req.FcmToken))
+        {
+            await _deviceTokenService.UpsertAsync(user.UserId, req.FcmToken, "android");
+        }
+
+        var token = _jwt.CreateToken(
+            user.UserId,
+            user.FirebaseUid,
+            user.Role,
+            user.Email
+        );
+
+        return Ok(new AuthResponse(
+            token,
+            user.UserId,
+            user.Role,
+            user.Status,
+            user.IsVerified
+        ));
+    }
 }
