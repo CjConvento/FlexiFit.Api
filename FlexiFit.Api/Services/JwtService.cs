@@ -24,7 +24,8 @@ public class JwtService
             new Claim("user_id", userId.ToString()),
             new Claim("firebase_uid", firebaseUid),
             new Claim(ClaimTypes.Role, role),
-            new Claim(JwtRegisteredClaimNames.Sub, userId.ToString())
+            new Claim(JwtRegisteredClaimNames.Sub, userId.ToString()),
+            new Claim(ClaimTypes.NameIdentifier, userId.ToString())
         };
 
         if (!string.IsNullOrWhiteSpace(email))
