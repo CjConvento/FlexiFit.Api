@@ -33,6 +33,10 @@ public partial class WrkWorkout
 
     public string? VideoUrl { get; set; }
 
+    public string? ImgFilename { get; set; }
+
+    public int? Duration { get; set; }
+
     public virtual ICollection<WrkProgramTemplateDaytypeWorkout> WrkProgramTemplateDaytypeWorkouts { get; set; } = new List<WrkProgramTemplateDaytypeWorkout>();
 
     public virtual ICollection<WrkWorkoutLoadStep> WrkWorkoutLoadSteps { get; set; } = new List<WrkWorkoutLoadStep>();
