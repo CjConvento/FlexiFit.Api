@@ -4,7 +4,6 @@ public record RegisterRequest(
     string FirebaseIdToken,
     string? Name,
     string? Username,
-    string? Address,
     string? FcmToken          // NEW
 );
 
