@@ -65,6 +65,8 @@ public partial class FlexiFitDbContext : DbContext
 
     public virtual DbSet<UsrUserWorkoutProgress> UsrUserWorkoutProgresses { get; set; }
 
+    public virtual DbSet<UsrUserWorkoutSession> UsrUserWorkoutSessions { get; set; }
+
     public virtual DbSet<WrkProgramTemplate> WrkProgramTemplates { get; set; }
 
     public virtual DbSet<WrkProgramTemplateDay> WrkProgramTemplateDays { get; set; }
@@ -987,6 +989,24 @@ public partial class FlexiFitDbContext : DbContext
                 .HasConstraintName("FK_usr_user_workout_progress_user");
         });
 
+        modelBuilder.Entity<UsrUserWorkoutSession>(entity =>
+        {
+            entity.HasKey(e => e.SessionId).HasName("PK__usr_user__69B13FDC2EAF043E");
+
+            entity.ToTable("usr_user_workout_sessions");
+
+            entity.Property(e => e.SessionId).HasColumnName("session_id");
+            entity.Property(e => e.CompletedAt).HasColumnName("completed_at");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entity.Property(e => e.ProgramInstanceId).HasColumnName("program_instance_id");
+            entity.Property(e => e.StartedAt).HasColumnName("started_at");
+            entity.Property(e => e.Status)
+                .HasMaxLength(20)
+                .HasColumnName("status");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.WorkoutDay).HasColumnName("workout_day");
+        });
+
         modelBuilder.Entity<WrkProgramTemplate>(entity =>
         {
             entity.HasKey(e => e.ProgramId).HasName("PK__wrk_prog__3A7890AC32B98A84");
@@ -1126,12 +1146,16 @@ public partial class FlexiFitDbContext : DbContext
             entity.Property(e => e.DifficultyLevel)
                 .HasMaxLength(20)
                 .HasColumnName("difficulty_level");
+            entity.Property(e => e.Duration).HasColumnName("duration");
             entity.Property(e => e.Environment)
                 .HasMaxLength(30)
                 .HasColumnName("environment");
             entity.Property(e => e.Equipment)
                 .HasMaxLength(50)
                 .HasColumnName("equipment");
+            entity.Property(e => e.ImgFilename)
+                .HasMaxLength(255)
+                .HasColumnName("img_filename");
             entity.Property(e => e.IsActive)
                 .HasDefaultValue(true)
                 .HasColumnName("is_active");

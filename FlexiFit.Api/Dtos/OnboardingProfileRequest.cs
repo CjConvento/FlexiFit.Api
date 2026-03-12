@@ -13,15 +13,15 @@ namespace FlexiFit.Api.Dtos
 
         [Required]
         [Range(100, 250)]
-        public double HeightCm { get; set; }
+        public int HeightCm { get; set; } // Changed to int
 
         [Required]
         [Range(30, 300)]
-        public double WeightKg { get; set; }
+        public int WeightKg { get; set; } // Changed to int
 
         [Required]
         [Range(30, 300)]
-        public double TargetWeightKg { get; set; }
+        public int TargetWeightKg { get; set; } // Changed to int
 
         public bool UpperBodyInjury { get; set; }
         public bool LowerBodyInjury { get; set; }

@@ -224,5 +224,77 @@ namespace FlexiFit.Api.Controllers
                 userId = user.UserId
             });
         }
+
+        [Authorize]
+        [HttpGet("dashboard")]
+        public async Task<IActionResult> GetDashboard()
+        {
+            var userId = GetUserId();
+            if (userId == null)
+            {
+                return Unauthorized(new { message = "invalid token: no user_id claim" });
+            }
+
+            // Nutrition profile
+            var nutrition = await _context.NtrUserNutritionProfiles
+                .FirstOrDefaultAsync(x => x.UserId == userId.Value);
+
+            // Latest metrics
+            var metrics = await _context.UsrUserMetrics
+                .Where(x => x.UserId == userId.Value)
+                .OrderByDescending(x => x.RecordedAt)
+                .FirstOrDefaultAsync();
+
+            // Current fitness level / goal
+            var profileVersion = await _context.UsrUserProfileVersions
+                .Where(x => x.UserId == userId.Value && x.IsCurrent)
+                .FirstOrDefaultAsync();
+
+            // Active program instance
+            var programInstance = await _context.UsrUserProgramInstances
+                .Where(x => x.UserId == userId.Value && x.Status == "Active")
+                .FirstOrDefaultAsync();
+
+            string? programName = null;
+
+            if (programInstance != null)
+            {
+                var template = await _context.WrkProgramTemplates
+                    .FirstOrDefaultAsync(p => p.ProgramId == programInstance.ProgramId);
+
+                programName = template?.ProgramName;
+            }
+
+            // Current workout session (kung meron)
+            var workoutSession = await _context.UsrUserWorkoutSessions
+                .Where(x => x.UserId == userId.Value && x.Status == "InProgress")
+                .OrderByDescending(x => x.StartedAt)
+                .FirstOrDefaultAsync();
+
+            return Ok(new
+            {
+                fitnessLevel = profileVersion?.FitnessLevelSelected,
+                goal = profileVersion?.GoalSelected,
+
+                weight = metrics?.CurrentWeightKg,
+                targetWeight = nutrition?.TargetWeightKg,
+
+                nutritionGoal = nutrition?.NutritionGoal,
+                activityLevel = nutrition?.ActivityLevel,
+
+                program = new
+                {
+                    id = programInstance?.ProgramId,
+                    name = programName,
+                    cycle = programInstance?.CycleNo
+                },
+
+                currentWorkoutSession = workoutSession == null ? null : new
+                {
+                    sessionId = workoutSession.SessionId,
+                    startedAt = workoutSession.StartedAt
+                }
+            });
+        }
     }
 }
