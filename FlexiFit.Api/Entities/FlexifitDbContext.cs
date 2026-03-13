@@ -390,6 +390,9 @@ public partial class FlexiFitDbContext : DbContext
                 .HasPrecision(0)
                 .HasDefaultValueSql("(sysutcdatetime())")
                 .HasColumnName("created_at");
+            entity.Property(e => e.Description)
+                .HasMaxLength(500)
+                .HasColumnName("description");
             entity.Property(e => e.DietaryType)
                 .HasMaxLength(40)
                 .HasColumnName("dietary_type");
@@ -871,6 +874,9 @@ public partial class FlexiFitDbContext : DbContext
             entity.HasIndex(e => new { e.UserId, e.ProgramId, e.ProfileVersionId, e.CycleNo }, "UX_usr_user_program_instances_unique").IsUnique();
 
             entity.Property(e => e.InstanceId).HasColumnName("instance_id");
+            entity.Property(e => e.ChangeReason)
+                .HasMaxLength(50)
+                .HasColumnName("change_reason");
             entity.Property(e => e.CompletedAt)
                 .HasPrecision(0)
                 .HasColumnName("completed_at");
@@ -878,6 +884,9 @@ public partial class FlexiFitDbContext : DbContext
                 .HasPrecision(0)
                 .HasDefaultValueSql("(sysutcdatetime())")
                 .HasColumnName("created_at");
+            entity.Property(e => e.CurrentDayNo)
+                .HasDefaultValue(1)
+                .HasColumnName("current_day_no");
             entity.Property(e => e.CycleNo).HasColumnName("cycle_no");
             entity.Property(e => e.FitnessLevelAtStart)
                 .HasMaxLength(20)

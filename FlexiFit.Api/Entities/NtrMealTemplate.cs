@@ -17,6 +17,8 @@ public partial class NtrMealTemplate
 
     public DateTime UpdatedAt { get; set; }
 
+    public string? Description { get; set; }
+
     public virtual ICollection<NtrMealPlanCalendar> NtrMealPlanCalendars { get; set; } = new List<NtrMealPlanCalendar>();
 
     public virtual ICollection<NtrTemplateDay> NtrTemplateDays { get; set; } = new List<NtrTemplateDay>();
