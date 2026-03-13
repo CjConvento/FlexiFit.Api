@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 //using FlexiFit.Api.Dtos;
 //using FlexiFit.Api.Entities;
 //using Microsoft.AspNetCore.Authorization;
@@ -171,6 +172,8 @@
 //    }
 //}
 =======
+=======
+>>>>>>> efbc9c77e5a6aebe9e725c1e5d4a0e9617bfa9c5
 ﻿using FlexiFit.Api.Dtos;
 using FlexiFit.Api.Entities;
 using Microsoft.AspNetCore.Authorization;
@@ -341,5 +344,9 @@ namespace FlexiFit.Api.Controllers
             return int.TryParse(raw, out var id) ? id : null;
         }
     }
+<<<<<<< HEAD
+}
+>>>>>>> efbc9c77e5a6aebe9e725c1e5d4a0e9617bfa9c5
+=======
 }
 >>>>>>> efbc9c77e5a6aebe9e725c1e5d4a0e9617bfa9c5
