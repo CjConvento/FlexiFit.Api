@@ -23,6 +23,10 @@ public partial class UsrUserProgramInstance
 
     public DateTime CreatedAt { get; set; }
 
+    public int CurrentDayNo { get; set; }
+
+    public string? ChangeReason { get; set; }
+
     public virtual ICollection<DailyProgressLog> DailyProgressLogs { get; set; } = new List<DailyProgressLog>();
 
     public virtual UsrUserProfileVersion ProfileVersion { get; set; } = null!;
