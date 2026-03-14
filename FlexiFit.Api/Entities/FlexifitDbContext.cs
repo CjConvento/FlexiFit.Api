@@ -47,6 +47,8 @@ public partial class FlexiFitDbContext : DbContext
 
     public virtual DbSet<UsrUser> UsrUsers { get; set; }
 
+    public virtual DbSet<UsrUserGeneralAchievement> UsrUserGeneralAchievements { get; set; }
+
     public virtual DbSet<UsrUserMetric> UsrUserMetrics { get; set; }
 
     public virtual DbSet<UsrUserNotificationSetting> UsrUserNotificationSettings { get; set; }
@@ -293,6 +295,9 @@ public partial class FlexiFitDbContext : DbContext
                 .HasPrecision(0)
                 .HasDefaultValueSql("(sysutcdatetime())")
                 .HasColumnName("created_at");
+            entity.Property(e => e.Description)
+                .HasMaxLength(200)
+                .HasColumnName("description");
             entity.Property(e => e.DietaryType)
                 .HasMaxLength(40)
                 .HasColumnName("dietary_type");
@@ -674,6 +679,29 @@ public partial class FlexiFitDbContext : DbContext
                 .HasMaxLength(50)
                 .HasColumnName("username");
         });
+
+            modelBuilder.Entity<UsrUserGeneralAchievement>(entity =>
+            {
+                entity.HasKey(e => e.AchievementId).HasName("PK__usr_user__3C492E83641FAE87");
+
+                entity.ToTable("usr_user_general_achievements");
+
+                entity.Property(e => e.AchievementId).HasColumnName("achievement_id");
+                entity.Property(e => e.BadgeKey)
+                    .HasMaxLength(50)
+                    .HasColumnName("badge_key");
+                entity.Property(e => e.UnlockedAt)
+                    .HasDefaultValueSql("(getutcdate())")
+                    .HasColumnType("datetime")
+                    .HasColumnName("unlocked_at");
+                entity.Property(e => e.UserId).HasColumnName("user_id");
+
+                entity.HasOne(d => d.User).WithMany(p => p.UsrUserGeneralAchievements)
+                    .HasPrincipalKey(p => p.UserId)
+                    .HasForeignKey(d => d.UserId)
+                    .OnDelete(DeleteBehavior.ClientSetNull)
+                    .HasConstraintName("FK_UserBadges");
+            });
 
         modelBuilder.Entity<UsrUserMetric>(entity =>
         {

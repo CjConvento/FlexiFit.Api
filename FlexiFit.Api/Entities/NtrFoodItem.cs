@@ -37,6 +37,8 @@ public partial class NtrFoodItem
 
     public string? ImgFilename { get; set; }
 
+    public string? Description { get; set; }
+
     public virtual ICollection<NtrDailyMealItemLog> NtrDailyMealItemLogs { get; set; } = new List<NtrDailyMealItemLog>();
 
     public virtual ICollection<NtrTemplateMealItem> NtrTemplateMealItems { get; set; } = new List<NtrTemplateMealItem>();
