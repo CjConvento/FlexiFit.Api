@@ -24,4 +24,6 @@ public partial class UsrUserProfile
     public DateTime UpdatedAt { get; set; }
 
     public virtual UsrUser User { get; set; } = null!;
+
+    public virtual ICollection<UsrUserGeneralAchievement> UsrUserGeneralAchievements { get; set; } = new List<UsrUserGeneralAchievement>();
 }

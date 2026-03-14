@@ -3,6 +3,7 @@ using FlexiFit.Api.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 
 namespace FlexiFit.Api.Controllers
 {
@@ -17,20 +18,16 @@ namespace FlexiFit.Api.Controllers
             _context = context;
         }
 
-        private string? GetFirebaseUid()
-        {
-            return User.FindFirst("firebase_uid")?.Value;
-        }
-
+        #region Helpers
         private int? GetUserId()
         {
-            var raw = User.FindFirst("user_id")?.Value;
+            var raw = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("user_id")?.Value;
             return int.TryParse(raw, out var id) ? id : null;
         }
 
         private static string MapNutritionGoal(string bodyGoal)
         {
-            return bodyGoal.Trim().ToLower() switch
+            return bodyGoal?.Trim().ToLower() switch
             {
                 "lose_weight" => "LOSE",
                 "muscle_gain" => "GAIN",
@@ -39,189 +36,39 @@ namespace FlexiFit.Api.Controllers
             };
         }
 
+        private double CalculateBMI(decimal? weight, decimal? height)
+        {
+            if (weight == null || height == null || height <= 0) return 0;
+            var heightInMeters = (double)height / 100;
+            var bmi = (double)weight / (heightInMeters * heightInMeters);
+            return Math.Round(bmi, 1);
+        }
+        #endregion
+
         [Authorize]
-        [HttpPost("bootstrap")]
+        [HttpGet("bootstrap")]
         public async Task<IActionResult> Bootstrap()
         {
-            var firebaseUid = GetFirebaseUid();
-            if (string.IsNullOrWhiteSpace(firebaseUid))
-            {
-                return Unauthorized(new { message = "invalid token: no firebase_uid claim" });
-            }
-
-            var user = await _context.UsrUsers
-                .FirstOrDefaultAsync(u => u.FirebaseUid == firebaseUid);
-
-            if (user == null)
-            {
-                return Unauthorized(new { message = "user not found" });
-            }
-
-            user.UpdatedAt = DateTime.UtcNow;
-            await _context.SaveChangesAsync();
-
-            var nutritionProfile = await _context.NtrUserNutritionProfiles
-                .FirstOrDefaultAsync(x => x.UserId == user.UserId);
-
-            var profileComplete = nutritionProfile != null && nutritionProfile.IsProfileComplete;
-
-            return Ok(new
-            {
-                profileComplete,
-                userId = user.UserId
-            });
-        }
-
-        [Authorize]
-        [HttpPost("onboarding/profile")]
-        public async Task<IActionResult> SubmitOnboardingProfile([FromBody] OnboardingProfileRequest request)
-        {
-            if (!ModelState.IsValid)
-            {
-                return ValidationProblem(ModelState);
-            }
-
-            if (request.SelectedPrograms.Count > 4)
-            {
-                return BadRequest(new
-                {
-                    message = "You can select up to 4 programs only."
-                });
-            }
-
             var userId = GetUserId();
-            if (userId == null)
-            {
-                return Unauthorized(new { message = "invalid token: no user_id claim" });
-            }
+            if (userId == null) return Unauthorized();
 
-            var user = await _context.UsrUsers
-                .FirstOrDefaultAsync(u => u.UserId == userId.Value);
+            // 1. Check Profile & Program
+            var profile = await _context.UsrUserProfileVersions.FirstOrDefaultAsync(p => p.UserId == userId && p.IsCurrent);
+            var programInstance = await _context.UsrUserProgramInstances.FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
 
-            if (user == null)
-            {
-                return Unauthorized(new { message = "user not found" });
-            }
-
-            using var tx = await _context.Database.BeginTransactionAsync();
-
-            // 1) usr_user_profiles
-            var profile = await _context.UsrUserProfiles
-                .FirstOrDefaultAsync(x => x.UserId == userId.Value);
-
-            if (profile == null)
-            {
-                profile = new UsrUserProfile
-                {
-                    UserId = userId.Value,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                };
-                _context.UsrUserProfiles.Add(profile);
-            }
-
-            profile.Gender = request.Gender;
-            profile.UpdatedAt = DateTime.UtcNow;
-
-            // 2) usr_user_profile_versions
-            var oldVersions = await _context.UsrUserProfileVersions
-                .Where(x => x.UserId == userId.Value && x.IsCurrent)
-                .ToListAsync();
-
-            foreach (var old in oldVersions)
-            {
-                old.IsCurrent = false;
-            }
-
-            var primaryGoal = request.FitnessGoals.FirstOrDefault()
-                              ?? request.BodyGoal
-                              ?? "maintain_weight";
-
-            var profileVersion = new UsrUserProfileVersion
-            {
-                UserId = userId.Value,
-                FitnessLevelSelected = request.FitnessLevel,
-                GoalSelected = primaryGoal,
-                CreatedAt = DateTime.UtcNow,
-                IsCurrent = true
-            };
-
-            _context.UsrUserProfileVersions.Add(profileVersion);
-            await _context.SaveChangesAsync();
-
-            // 3) usr_user_metrics
-            var metrics = new UsrUserMetric
-            {
-                UserId = userId.Value,
-                CurrentWeightKg = (decimal)request.WeightKg,
-                CurrentHeightCm = (decimal)request.HeightCm,
-                FitnessGoal = string.Join(",", request.FitnessGoals),
-                NutritionGoal = MapNutritionGoal(request.BodyGoal),
-                RecordedAt = DateTime.UtcNow
-            };
-            _context.UsrUserMetrics.Add(metrics);
-
-            // 4) ntr_user_nutrition_profile
-            var nutrition = await _context.NtrUserNutritionProfiles
-                .FirstOrDefaultAsync(x => x.UserId == userId.Value);
-
-            if (nutrition == null)
-            {
-                nutrition = new NtrUserNutritionProfile
-                {
-                    UserId = userId.Value
-                };
-                _context.NtrUserNutritionProfiles.Add(nutrition);
-            }
-
-            nutrition.Age = request.Age;
-            nutrition.WeightKg = (decimal)request.WeightKg;
-            nutrition.HeightCm = (decimal)request.HeightCm;
-            nutrition.TargetWeightKg = (decimal)request.TargetWeightKg;
-            nutrition.NutritionGoal = MapNutritionGoal(request.BodyGoal);
-            nutrition.ActivityLevel = request.ActivityLevel;
-            nutrition.DietaryType = request.DietType;
-            nutrition.UpdatedAt = DateTime.UtcNow;
-            nutrition.IsProfileComplete = true;
-
-            // 5) usr_user_program_instances
-            var selectedTemplates = await _context.WrkProgramTemplates
-                .Where(p => request.SelectedPrograms.Contains(p.ProgramName))
-                .ToListAsync();
-
-            foreach (var template in selectedTemplates)
-            {
-                var exists = await _context.UsrUserProgramInstances.AnyAsync(x =>
-                    x.UserId == userId.Value &&
-                    x.ProgramId == template.ProgramId &&
-                    x.ProfileVersionId == profileVersion.ProfileVersionId &&
-                    x.CycleNo == 1);
-
-                if (!exists)
-                {
-                    _context.UsrUserProgramInstances.Add(new UsrUserProgramInstance
-                    {
-                        UserId = userId.Value,
-                        ProgramId = template.ProgramId,
-                        ProfileVersionId = profileVersion.ProfileVersionId,
-                        CycleNo = 1,
-                        Status = "Active",
-                        FitnessLevelAtStart = request.FitnessLevel,
-                        CreatedAt = DateTime.UtcNow
-                    });
-                }
-            }
-
-            user.UpdatedAt = DateTime.UtcNow;
-
-            await _context.SaveChangesAsync();
-            await tx.CommitAsync();
+            // 2. Check for In-Progress Workout
+            var activeSession = await _context.UsrUserWorkoutSessions
+                .Where(s => s.UserId == userId && s.Status == "InProgress")
+                .OrderByDescending(s => s.StartedAt)
+                .Select(s => new { s.SessionId, s.StartedAt })
+                .FirstOrDefaultAsync();
 
             return Ok(new
             {
-                message = "Profile submitted successfully",
-                profileComplete = true,
-                userId = user.UserId
+                isProfileComplete = profile != null,
+                status = (profile == null) ? "NEW" : "ACTIVE",
+                currentWorkoutSession = activeSession,
+                hasActiveProgram = programInstance != null
             });
         }
 
@@ -230,71 +77,188 @@ namespace FlexiFit.Api.Controllers
         public async Task<IActionResult> GetDashboard()
         {
             var userId = GetUserId();
-            if (userId == null)
-            {
-                return Unauthorized(new { message = "invalid token: no user_id claim" });
-            }
+            if (userId == null) return Unauthorized();
 
-            // Nutrition profile
-            var nutrition = await _context.NtrUserNutritionProfiles
-                .FirstOrDefaultAsync(x => x.UserId == userId.Value);
+            var today = DateTime.UtcNow.Date;
+            var todayDateOnly = DateOnly.FromDateTime(today); // Idagdag mo 'to babe!
 
-            // Latest metrics
-            var metrics = await _context.UsrUserMetrics
-                .Where(x => x.UserId == userId.Value)
-                .OrderByDescending(x => x.RecordedAt)
+            // 1. Get Core Data (Profile, Metrics, Nutrition Profile)
+            var profile = await _context.UsrUserProfileVersions.FirstOrDefaultAsync(p => p.UserId == userId && p.IsCurrent);
+            var metrics = await _context.UsrUserMetrics.Where(m => m.UserId == userId).OrderByDescending(m => m.RecordedAt).FirstOrDefaultAsync();
+            var nutritionProfile = await _context.NtrUserNutritionProfiles.FirstOrDefaultAsync(n => n.UserId == userId);
+
+            // 2. NUTRITION ENGINE
+            // Kunin ang cycle target para sa calories
+            var target = await _context.NtrUserCycleTargets
+                .Where(t => t.UserId == userId)
+                .OrderByDescending(t => t.CreatedAt)
                 .FirstOrDefaultAsync();
 
-            // Current fitness level / goal
-            var profileVersion = await _context.UsrUserProfileVersions
-                .Where(x => x.UserId == userId.Value && x.IsCurrent)
-                .FirstOrDefaultAsync();
+            // BINAGO: Mas mabilis 'to dahil sa summary record (NtrDailyLogs) na tayo kukuha ng Consumed Calories
+            var dailyLog = await _context.NtrDailyLogs
+                .FirstOrDefaultAsync(l => l.UserId == userId && l.PlanDate == todayDateOnly);
 
-            // Active program instance
+            // Imbes na mag-SumAsync sa ibang table, kunin na natin diretso sa summary record
+            var consumedToday = dailyLog?.CaloriesConsumed ?? 0;
+
+            // 3. ACTIVITY ENGINE: Calories Burned
+            var burnedToday = await _context.ActActivitySummaries
+                .Where(a => a.UserId == userId && a.LogDate == todayDateOnly) // <-- todayDateOnly dapat dito
+                .SumAsync(a => (double?)a.CaloriesBurned) ?? 0;
+
+            // 4. WORKOUT ENGINE: Active Program Details
             var programInstance = await _context.UsrUserProgramInstances
-                .Where(x => x.UserId == userId.Value && x.Status == "Active")
-                .FirstOrDefaultAsync();
+                .Include(p => p.Program) // Navigation from UsrUserProgramInstance to WrkProgramTemplate
+                .FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
 
-            string? programName = null;
+            // 5. CALENDAR ENGINE
+            // BINAGO: Gumamit ng .Include(c => c.Cycle) para ma-verify ang UserId mula sa parent table (Cycle)
+            var calendarDay = await _context.NtrMealPlanCalendars
+                .Include(c => c.Cycle)
+                .FirstOrDefaultAsync(c =>
+                    c.Cycle.UserId == userId &&
+                    c.Status == "ACTIVE" &&
+                    c.PlanDate == todayDateOnly);
 
-            if (programInstance != null)
-            {
-                var template = await _context.WrkProgramTemplates
-                    .FirstOrDefaultAsync(p => p.ProgramId == programInstance.ProgramId);
-
-                programName = template?.ProgramName;
-            }
-
-            // Current workout session (kung meron)
-            var workoutSession = await _context.UsrUserWorkoutSessions
-                .Where(x => x.UserId == userId.Value && x.Status == "InProgress")
-                .OrderByDescending(x => x.StartedAt)
-                .FirstOrDefaultAsync();
-
+            // --- RETURN OBJECT ---
             return Ok(new
             {
-                fitnessLevel = profileVersion?.FitnessLevelSelected,
-                goal = profileVersion?.GoalSelected,
+                fitnessLevel = profile?.FitnessLevelSelected ?? "Beginner",
+                goal = profile?.GoalSelected ?? "Maintain",
 
-                weight = metrics?.CurrentWeightKg,
-                targetWeight = nutrition?.TargetWeightKg,
+                // Metrics Card
+                weight = metrics?.CurrentWeightKg ?? 0,
+                bmi = CalculateBMI(metrics?.CurrentWeightKg, metrics?.CurrentHeightCm),
 
-                nutritionGoal = nutrition?.NutritionGoal,
-                activityLevel = nutrition?.ActivityLevel,
-
-                program = new
+                // Nutrition Engine Result (Circular Progress Bar data)
+                nutrition = new
                 {
-                    id = programInstance?.ProgramId,
-                    name = programName,
-                    cycle = programInstance?.CycleNo
+                    targetCalories = target?.DailyTargetNetCalories ?? 0,
+                    consumed = consumedToday,
+                    burned = burnedToday,
+
+                    // BINAGO: Added calculation for Net and Remaining para hindi na mag-compute ang Android side
+                    netCalories = consumedToday - burnedToday,
+                    remaining = (target?.DailyTargetNetCalories ?? 0) - (consumedToday - burnedToday)
                 },
 
-                currentWorkoutSession = workoutSession == null ? null : new
+                // Workout Progress Card
+                program = new
                 {
-                    sessionId = workoutSession.SessionId,
-                    startedAt = workoutSession.StartedAt
+                    name = programInstance?.Program?.ProgramName ?? "No Active Program",
+                    dayNo = programInstance?.CurrentDayNo ?? 1,
+                    isWorkoutDay = calendarDay?.IsWorkoutDay ?? false
                 }
             });
+        }
+
+        [Authorize]
+        [HttpGet("calendar-history")]
+        public async Task<IActionResult> GetCalendarHistory([FromQuery] int month, [FromQuery] int year, [FromQuery] string type)
+        {
+            var userId = GetUserId();
+            if (userId == null) return Unauthorized();
+
+            var history = new List<CalendarHistoryDto>();
+
+            if (type == "WORKOUT")
+            {
+                // Kukuha tayo sa Sessions table para malaman kung anong araw may natapos na workout
+                history = await _context.UsrUserWorkoutSessions
+                    .Where(s => s.UserId == userId &&
+                                s.StartedAt.Month == month &&
+                                s.StartedAt.Year == year &&
+                                s.Status == "Completed")
+                    .Select(s => new CalendarHistoryDto
+                    {
+                        Day = s.StartedAt.Day,
+                        IsCompleted = true,
+                        Summary = "Workout Done"
+                    })
+                    .Distinct() // Para hindi mag-duplicate kung dalawa workout sa isang araw
+                    .ToListAsync();
+            }
+            else if (type == "NUTRITION")
+            {
+                // Kukuha tayo sa DailyLogs summary table (yung ginamit natin sa Dashboard)
+                history = await _context.NtrDailyLogs
+                    .Where(l => l.UserId == userId &&
+                                l.PlanDate.Month == month &&
+                                l.PlanDate.Year == year &&
+                                l.CaloriesConsumed > 0)
+                    .Select(l => new CalendarHistoryDto
+                    {
+                        Day = l.PlanDate.Day,
+                        IsCompleted = true,
+                        Summary = $"{l.CaloriesConsumed} kcal"
+                    })
+                    .ToListAsync();
+            }
+
+            return Ok(history);
+        }
+
+        [Authorize]
+        [HttpPost("onboarding/profile")]
+        public async Task<IActionResult> SubmitOnboardingProfile([FromBody] OnboardingProfileRequest request)
+        {
+            if (!ModelState.IsValid) return ValidationProblem(ModelState);
+
+            var userId = GetUserId();
+            if (userId == null) return Unauthorized();
+
+            using var tx = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                // 1. Update/Create Base Profile
+                var profile = await _context.UsrUserProfiles.FirstOrDefaultAsync(x => x.UserId == userId);
+                if (profile == null)
+                {
+                    profile = new UsrUserProfile { UserId = userId.Value, CreatedAt = DateTime.UtcNow };
+                    _context.UsrUserProfiles.Add(profile);
+                }
+                profile.Gender = request.Gender;
+                profile.UpdatedAt = DateTime.UtcNow;
+
+                // 2. Versioning & Goal
+                var oldVersions = await _context.UsrUserProfileVersions.Where(x => x.UserId == userId && x.IsCurrent).ToListAsync();
+                foreach (var old in oldVersions) old.IsCurrent = false;
+
+                var profileVersion = new UsrUserProfileVersion
+                {
+                    UserId = userId.Value,
+                    FitnessLevelSelected = request.FitnessLevel,
+                    GoalSelected = request.BodyGoal ?? "Maintain",
+                    IsCurrent = true,
+                    CreatedAt = DateTime.UtcNow
+                };
+                _context.UsrUserProfileVersions.Add(profileVersion);
+
+                // 3. Metrics & Nutrition
+                var metrics = new UsrUserMetric
+                {
+                    UserId = userId.Value,
+                    CurrentWeightKg = (decimal)request.WeightKg,
+                    CurrentHeightCm = (decimal)request.HeightCm,
+                    NutritionGoal = MapNutritionGoal(request.BodyGoal),
+                    RecordedAt = DateTime.UtcNow
+                };
+                _context.UsrUserMetrics.Add(metrics);
+
+                // Save initial progress to kick off status
+                var user = await _context.UsrUsers.FindAsync(userId);
+                if (user != null) user.Status = "ACTIVE";
+
+                await _context.SaveChangesAsync();
+                await tx.CommitAsync();
+
+                return Ok(new { message = "Profile completed", status = "ACTIVE" });
+            }
+            catch (Exception)
+            {
+                await tx.RollbackAsync();
+                return StatusCode(500, "Internal Server Error during onboarding.");
+            }
         }
     }
 }

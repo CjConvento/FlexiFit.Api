@@ -34,4 +34,7 @@ public partial class UsrUserProgramInstance
     public virtual UsrUser User { get; set; } = null!;
 
     public virtual ICollection<UsrUserSessionInstance> UsrUserSessionInstances { get; set; } = new List<UsrUserSessionInstance>();
+
+    // Idagdag mo ito para maging valid ang .Include(p => p.Program)
+    public virtual WrkProgramTemplate Program { get; set; } = null!;
 }
