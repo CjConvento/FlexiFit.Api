@@ -41,6 +41,8 @@ public partial class UsrUser
 
     public virtual ICollection<UsrDeviceToken> UsrDeviceTokens { get; set; } = new List<UsrDeviceToken>();
 
+    public virtual ICollection<UsrNotificationHistory> UsrNotificationHistories { get; set; } = new List<UsrNotificationHistory>();
+
     public virtual ICollection<UsrUserMetric> UsrUserMetrics { get; set; } = new List<UsrUserMetric>();
 
     public virtual UsrUserNotificationSetting? UsrUserNotificationSetting { get; set; }

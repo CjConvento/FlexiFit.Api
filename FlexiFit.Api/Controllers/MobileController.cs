@@ -82,6 +82,12 @@ namespace FlexiFit.Api.Controllers
             var today = DateTime.UtcNow.Date;
             var todayDateOnly = DateOnly.FromDateTime(today); // Idagdag mo 'to babe!
 
+            // 1. KUNIN ANG USER DATA (Para sa Name at Email)
+            var user = await _context.UsrUsers
+                .Where(u => u.UserId == userId)
+                .Select(u => new { u.Name, u.Email }) // Siguraduhin na FullName at Email ang column names mo
+                .FirstOrDefaultAsync();
+
             // 1. Get Core Data (Profile, Metrics, Nutrition Profile)
             var profile = await _context.UsrUserProfileVersions.FirstOrDefaultAsync(p => p.UserId == userId && p.IsCurrent);
             var metrics = await _context.UsrUserMetrics.Where(m => m.UserId == userId).OrderByDescending(m => m.RecordedAt).FirstOrDefaultAsync();
@@ -123,6 +129,10 @@ namespace FlexiFit.Api.Controllers
             // --- RETURN OBJECT ---
             return Ok(new
             {
+                // ITO YUNG DAGDAG BABE:
+                userName = user?.Name ?? "User",
+                userEmail = user?.Email ?? "No Email",
+
                 fitnessLevel = profile?.FitnessLevelSelected ?? "Beginner",
                 goal = profile?.GoalSelected ?? "Maintain",
 
