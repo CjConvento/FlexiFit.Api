@@ -45,6 +45,8 @@ public partial class FlexiFitDbContext : DbContext
 
     public virtual DbSet<UsrDeviceToken> UsrDeviceTokens { get; set; }
 
+    public virtual DbSet<UsrNotificationHistory> UsrNotificationHistories { get; set; }
+
     public virtual DbSet<UsrUser> UsrUsers { get; set; }
 
     public virtual DbSet<UsrUserGeneralAchievement> UsrUserGeneralAchievements { get; set; }
@@ -622,6 +624,32 @@ public partial class FlexiFitDbContext : DbContext
                 .HasConstraintName("FK_usr_device_tokens_user");
         });
 
+        modelBuilder.Entity<UsrNotificationHistory>(entity =>
+        {
+            entity.ToTable("usr_notification_history");
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("(getdate())")
+                .HasColumnType("datetime")
+                .HasColumnName("created_at");
+            entity.Property(e => e.Message)
+                .HasMaxLength(500)
+                .HasColumnName("message");
+            entity.Property(e => e.Title)
+                .HasMaxLength(100)
+                .HasColumnName("title");
+            entity.Property(e => e.Type)
+                .HasMaxLength(20)
+                .IsUnicode(false)
+                .HasColumnName("type");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+
+            entity.HasOne(d => d.User).WithMany(p => p.UsrNotificationHistories)
+                .HasForeignKey(d => d.UserId)
+                .HasConstraintName("FK_notification_history_user");
+        });
+
         modelBuilder.Entity<UsrUser>(entity =>
         {
             entity.HasKey(e => e.UserId).HasName("PK__usr_user__B9BE370FB3CBFE25");
@@ -680,28 +708,28 @@ public partial class FlexiFitDbContext : DbContext
                 .HasColumnName("username");
         });
 
-            modelBuilder.Entity<UsrUserGeneralAchievement>(entity =>
-            {
-                entity.HasKey(e => e.AchievementId).HasName("PK__usr_user__3C492E83641FAE87");
+        modelBuilder.Entity<UsrUserGeneralAchievement>(entity =>
+        {
+            entity.HasKey(e => e.AchievementId).HasName("PK__usr_user__3C492E83641FAE87");
 
-                entity.ToTable("usr_user_general_achievements");
+            entity.ToTable("usr_user_general_achievements");
 
-                entity.Property(e => e.AchievementId).HasColumnName("achievement_id");
-                entity.Property(e => e.BadgeKey)
-                    .HasMaxLength(50)
-                    .HasColumnName("badge_key");
-                entity.Property(e => e.UnlockedAt)
-                    .HasDefaultValueSql("(getutcdate())")
-                    .HasColumnType("datetime")
-                    .HasColumnName("unlocked_at");
-                entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.AchievementId).HasColumnName("achievement_id");
+            entity.Property(e => e.BadgeKey)
+                .HasMaxLength(50)
+                .HasColumnName("badge_key");
+            entity.Property(e => e.UnlockedAt)
+                .HasDefaultValueSql("(getutcdate())")
+                .HasColumnType("datetime")
+                .HasColumnName("unlocked_at");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
 
-                entity.HasOne(d => d.User).WithMany(p => p.UsrUserGeneralAchievements)
-                    .HasPrincipalKey(p => p.UserId)
-                    .HasForeignKey(d => d.UserId)
-                    .OnDelete(DeleteBehavior.ClientSetNull)
-                    .HasConstraintName("FK_UserBadges");
-            });
+            entity.HasOne(d => d.User).WithMany(p => p.UsrUserGeneralAchievements)
+                .HasPrincipalKey(p => p.UserId)
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_UserBadges");
+        });
 
         modelBuilder.Entity<UsrUserMetric>(entity =>
         {
@@ -1062,6 +1090,9 @@ public partial class FlexiFitDbContext : DbContext
             entity.Property(e => e.DaysPerWeek)
                 .HasDefaultValue(7)
                 .HasColumnName("days_per_week");
+            entity.Property(e => e.Description)
+                .HasMaxLength(200)
+                .HasColumnName("description");
             entity.Property(e => e.Environment)
                 .HasMaxLength(30)
                 .HasColumnName("environment");

@@ -31,6 +31,8 @@ public partial class WrkProgramTemplate
 
     public DateTime UpdatedAt { get; set; }
 
+    public string? Description { get; set; }
+
     public virtual ICollection<WrkProgramTemplateDay> WrkProgramTemplateDays { get; set; } = new List<WrkProgramTemplateDay>();
 
     public virtual ICollection<WrkProgramTemplateDaytypeWorkout> WrkProgramTemplateDaytypeWorkouts { get; set; } = new List<WrkProgramTemplateDaytypeWorkout>();

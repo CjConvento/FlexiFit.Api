@@ -6,8 +6,15 @@
         public int DayNo { get; set; }
         public string DayType { get; set; } = "";
         public string Message { get; set; } = "";
-        public int TotalExercises => Warmups.Count + Workouts.Count; // Helper para sa UI progress
 
+        // --- IREREVISE: Dagdag para sa Android Sync ---
+        public int TotalDuration { get; set; }      // Mag-mamap sa totalDuration
+        public int TotalCalories { get; set; }      // Mag-mamap sa estimatedCalories
+        public string? FocusArea { get; set; }      // Mag-mamap sa focusArea
+        public string? Level { get; set; }          // Mag-mamap sa level
+                                                    // ----------------------------------------------
+
+        public int TotalExercises => Warmups.Count + Workouts.Count;
         public WorkoutProgramDto Program { get; set; } = new();
         public List<WorkoutExerciseDto> Warmups { get; set; } = new();
         public List<WorkoutExerciseDto> Workouts { get; set; } = new();
@@ -57,6 +64,6 @@
 
         // Eto ang secret sauce para sa Skip at Rest Day logic mo
         // Halimbawa: "DONE", "SKIPPED", or "REST_COMPLETED"
-        public string Status { get; set; } = "DONE";
+        public string Status { get; set; } = "Completed";
     }
 }
