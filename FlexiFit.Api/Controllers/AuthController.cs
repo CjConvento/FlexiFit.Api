@@ -1,8 +1,14 @@
-﻿using FlexiFit.Api.Dtos;
+﻿using Dapper;
+using FlexiFit.Api.Dtos;
 using FlexiFit.Api.Entities;
 using FlexiFit.Api.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
 
 namespace FlexiFit.Api.Controllers;
 
@@ -14,13 +20,19 @@ public class AuthController : ControllerBase
     private readonly FlexiFitDbContext _db;
     private readonly FirebaseTokenVerifier _firebase;
     private readonly JwtService _jwt;
+    private readonly IConfiguration _config; // Idagdag ito
+    private readonly string _connectionString; // Idagdag ito
 
-    public AuthController(FlexiFitDbContext db, JwtService jwt, FirebaseTokenVerifier firebase, DeviceTokenService deviceTokenService)
+    public AuthController(FlexiFitDbContext db, JwtService jwt, FirebaseTokenVerifier firebase, DeviceTokenService deviceTokenService, IConfiguration config)
     {
         _db = db;
         _jwt = jwt;
         _firebase = firebase;
         _deviceTokenService = deviceTokenService;
+        // Dito i-assign ang config at connection string
+        _config = config;
+        _connectionString = _config.GetConnectionString("FlexifitDb");
+
     }
 
     // POST: /api/auth/register
@@ -113,6 +125,61 @@ public class AuthController : ControllerBase
         return Ok(MapToAuthResponse(user));
     }
 
+    [HttpPost("logintoken")]
+    public async Task<IActionResult> LoginToken([FromBody] TokenAuth request)
+    {
+        using var connection = new SqlConnection(_connectionString);
+
+        try
+        {
+            var user = await connection.QueryFirstOrDefaultAsync<dynamic>(
+                "SELECT * FROM dbo.usr_users WHERE email = @email AND firebase_uid = @uid",
+                new { email = request.Email.Trim(), uid = request.FirebaseUid.Trim() });
+
+            if (user == null)
+            {
+                return Unauthorized(new { message = "User not found or UID mismatch." });
+            }
+
+            // PAKIAYOS DITO: user_id ang gamitin, hindi id
+            string userIdString = user.user_id.ToString();
+            string firebaseUidString = user.firebase_uid.ToString();
+
+            // Ipasa sa generator
+            var token = GenerateJwtToken(request.Email, userIdString, firebaseUidString);
+
+            return Ok(new { token = token });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, $"Database Error: {ex.Message}");
+        }
+    }
+
+    private string GenerateJwtToken(string email, string userId, string firebaseUid)
+    {
+        var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]));
+        var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
+
+        var claims = new[]
+        {
+        new Claim(ClaimTypes.Email, email), // Email claim
+        new Claim(ClaimTypes.NameIdentifier, userId), // Dito kumukuha ang 'userId'
+        new Claim("FirebaseUid", firebaseUid),        // Custom claim para sa Firebase ID
+        new Claim(ClaimTypes.Role, "Admin"),
+        new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+    };
+
+        var token = new JwtSecurityToken(
+            issuer: _config["Jwt:Issuer"],
+            audience: _config["Jwt:Audience"],
+            claims: claims,
+            expires: DateTime.Now.AddHours(8),
+            signingCredentials: credentials);
+
+        return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
     private AuthResponse MapToAuthResponse(UsrUser user)
     {
         var token = _jwt.CreateToken(
@@ -136,4 +203,5 @@ public class AuthController : ControllerBase
             photo                       // 7
         );
     }
+
 }
