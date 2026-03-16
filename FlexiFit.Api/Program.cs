@@ -102,6 +102,14 @@ builder.Services.AddScoped<JwtService>();
 builder.Services.AddScoped<FirebaseTokenVerifier>();
 builder.Services.AddScoped<DeviceTokenService>();
 
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAdminPanel",
+        policy => policy.WithOrigins("http://localhost:5100") // Port ng Admin Panel mo
+                        .AllowAnyMethod()
+                        .AllowAnyHeader());
+});
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -111,8 +119,12 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseStaticFiles();
+
+// --- ILAGAY ITO DITO ---
+app.UseCors("AllowAdminPanel");
+
 app.UseAuthentication();
-app.UseAuthorization();
+app.UseAuthorization(); 
 
 app.MapControllers();
 app.Run();
