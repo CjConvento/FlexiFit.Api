@@ -154,6 +154,7 @@ namespace FlexiFit.Api.Controllers
             }
         }
 
+        [Authorize]
         [HttpPost("upload-avatar")]
         [Consumes("multipart/form-data")]
         [DisableRequestSizeLimit]
