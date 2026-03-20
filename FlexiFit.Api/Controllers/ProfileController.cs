@@ -266,6 +266,7 @@ namespace FlexiFit.Api.Controllers
             return Ok(new { message = "Weight updated!" });
         }
 
+<<<<<<< HEAD
         [Authorize]
         [HttpGet("full")]
         public async Task<IActionResult> GetFullProfile()
@@ -390,6 +391,8 @@ namespace FlexiFit.Api.Controllers
             return Ok(response);
         }
 
+=======
+>>>>>>> a8456a38043692fdfc40a22fb1f9845660c78f0f
         // --- SIGURADUHIN NA NANDITO ITONG HELPER FUNCTION SA BABA ---
         private string CalculateBmiCategory(double bmi)
         {
