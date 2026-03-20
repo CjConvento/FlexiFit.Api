@@ -25,39 +25,52 @@ namespace FlexiFit.Api.Controllers
             var userId = await GetCurrentUserIdAsync();
             if (userId == null) return Unauthorized();
 
+            using var tx = await _context.Database.BeginTransactionAsync(); // Added Transaction para safe!
             try
             {
-                // 1. Reset Weight History (Mula sa UsrUserMetric)
-                var weightLogs = await _context.UsrUserMetrics
-                    .Where(x => x.UserId == userId).ToListAsync();
+                // 1. Reset Metrics (Weight History)
+                var weightLogs = await _context.UsrUserMetrics.Where(x => x.UserId == userId).ToListAsync();
                 _context.UsrUserMetrics.RemoveRange(weightLogs);
 
-                // 2. Reset Daily Progress & Streak (Mula sa DailyProgressLog)
-                var dailyLogs = await _context.DailyProgressLogs
-                    .Where(x => x.UserId == userId).ToListAsync();
+                // 2. Reset Daily Progress & Streak
+                var dailyLogs = await _context.DailyProgressLogs.Where(x => x.UserId == userId).ToListAsync();
                 _context.DailyProgressLogs.RemoveRange(dailyLogs);
 
-                // 3. Reset Water Intake History (Mula sa NtrWaterLog)
-                var waterLogs = await _context.NtrWaterLogs
-                    .Where(x => x.UserId == userId).ToListAsync();
+                // 3. Reset Water Intake
+                var waterLogs = await _context.NtrWaterLogs.Where(x => x.UserId == userId).ToListAsync();
                 _context.NtrWaterLogs.RemoveRange(waterLogs);
 
-                // 4. Reset Workout Sessions (Mula sa UsrUserWorkoutSession)
-                var workoutSessions = await _context.UsrUserWorkoutSessions
-                    .Where(x => x.UserId == userId).ToListAsync();
+                // --- 4. RESET WORKOUT SESSIONS (THE SAFE WAY) ---
+                var workoutSessions = await _context.UsrUserWorkoutSessions.Where(x => x.UserId == userId).ToListAsync();
+                var sessionIds = workoutSessions.Select(s => s.SessionId).ToList();
+
+                // 4a. BURAHIN MUNA ANG MGA EXERCISES (Child) bago ang Session (Parent)
+                var sessionWorkouts = await _context.UsrUserSessionWorkouts
+                    .Where(x => sessionIds.Contains(x.SessionId)).ToListAsync();
+                _context.UsrUserSessionWorkouts.RemoveRange(sessionWorkouts);
+
+                // 4b. Burahin ang Session-to-Instance links kung meron
+                var sessionInstances = await _context.UsrUserSessionInstances
+                    .Where(x => sessionIds.Contains(x.SessionId)).ToListAsync();
+                _context.UsrUserSessionInstances.RemoveRange(sessionInstances);
+
+                // 4c. Ngayon, safe na burahin ang mismong Sessions
                 _context.UsrUserWorkoutSessions.RemoveRange(workoutSessions);
 
-                // 5. Reset Achievements (Para fresh start talaga)
-                var achievements = await _context.UsrUserGeneralAchievements
-                    .Where(x => x.UserId == userId).ToListAsync();
+                // 5. Reset Achievements
+                var achievements = await _context.UsrUserGeneralAchievements.Where(x => x.UserId == userId).ToListAsync();
                 _context.UsrUserGeneralAchievements.RemoveRange(achievements);
 
                 await _context.SaveChangesAsync();
-                return Ok(new { message = "Your workouts, achievements, and nutrition and progress logs have been cleared." });
+                await tx.CommitAsync(); // Commit pag successful lahat
+
+                return Ok(new { message = "Gudis na babe! Your workouts, achievements, and logs have been cleared." });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"Error resetting progress: {ex.Message}");
+                await tx.RollbackAsync(); // Rollback pag may sumabog
+                var errorDetail = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
+                return StatusCode(500, $"Error resetting progress: {errorDetail}");
             }
         }
 
