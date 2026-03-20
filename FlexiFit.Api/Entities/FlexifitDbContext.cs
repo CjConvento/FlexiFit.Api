@@ -983,33 +983,27 @@ public partial class FlexiFitDbContext : DbContext
         modelBuilder.Entity<UsrUserSessionInstance>(entity =>
         {
             entity.HasKey(e => e.SessionId).HasName("PK__usr_user__69B13FDC28857219");
-
             entity.ToTable("usr_user_session_instances");
 
             entity.HasIndex(e => new { e.InstanceId, e.Status }, "IX_usr_user_session_instances_status");
-
             entity.HasIndex(e => new { e.InstanceId, e.MonthNo, e.WeekNo, e.DayNo }, "UX_usr_user_session_instances_unique").IsUnique();
 
             entity.Property(e => e.SessionId).HasColumnName("session_id");
-            entity.Property(e => e.CreatedAt)
-                .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
-                .HasColumnName("created_at");
-            entity.Property(e => e.DayNo).HasColumnName("day_no");
-            entity.Property(e => e.DayType)
-                .HasMaxLength(30)
-                .HasColumnName("day_type");
             entity.Property(e => e.InstanceId).HasColumnName("instance_id");
             entity.Property(e => e.MonthNo).HasColumnName("month_no");
-            entity.Property(e => e.Status)
-                .HasMaxLength(20)
-                .HasDefaultValue("PLANNED")
-                .HasColumnName("status");
             entity.Property(e => e.WeekNo).HasColumnName("week_no");
+            entity.Property(e => e.DayNo).HasColumnName("day_no");
+            entity.Property(e => e.DayType).HasMaxLength(30).HasColumnName("day_type");
+            entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("PLANNED").HasColumnName("status");
+            entity.Property(e => e.CreatedAt).HasPrecision(0).HasDefaultValueSql("(sysutcdatetime())").HasColumnName("created_at");
 
-            entity.HasOne(d => d.Instance).WithMany(p => p.UsrUserSessionInstances)
+            // ✅ ONLY relationship to Program Instance
+            entity.HasOne(d => d.Instance)
+                .WithMany(p => p.UsrUserSessionInstances)
                 .HasForeignKey(d => d.InstanceId)
                 .HasConstraintName("FK_usr_user_session_instances_instance");
+
+            // ❌ DO NOT add any relationship to UsrUserSessionWorkout here
         });
 
         modelBuilder.Entity<UsrUserSessionWorkout>(entity =>
@@ -1018,23 +1012,29 @@ public partial class FlexiFitDbContext : DbContext
 
             entity.ToTable("usr_user_session_workouts");
 
-            entity.HasIndex(e => new { e.SessionId, e.OrderNo }, "IX_usr_user_session_workouts_session");
-
             entity.Property(e => e.SessionWorkoutId).HasColumnName("session_workout_id");
+            entity.Property(e => e.SessionId).HasColumnName("session_id");
+            entity.Property(e => e.WorkoutId).HasColumnName("workout_id");
+            entity.Property(e => e.Sets).HasColumnName("sets");
+            entity.Property(e => e.Reps).HasColumnName("reps");
             entity.Property(e => e.LoadKg)
                 .HasColumnType("decimal(6, 2)")
                 .HasColumnName("load_kg");
             entity.Property(e => e.OrderNo)
                 .HasDefaultValue(1)
                 .HasColumnName("order_no");
-            entity.Property(e => e.Reps).HasColumnName("reps");
-            entity.Property(e => e.SessionId).HasColumnName("session_id");
-            entity.Property(e => e.Sets).HasColumnName("sets");
-            entity.Property(e => e.WorkoutId).HasColumnName("workout_id");
 
-            entity.HasOne(d => d.Session).WithMany(p => p.UsrUserSessionWorkouts)
-                .HasForeignKey(d => d.SessionId)
-                .HasConstraintName("FK_usr_user_session_workouts_session");
+            // ✅ Relationship to UsrUserWorkoutSession
+            entity.HasOne(e => e.Session)
+                .WithMany(e => e.UsrUserSessionWorkouts)
+                .HasForeignKey(e => e.SessionId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // ✅ Relationship to WrkWorkout
+            entity.HasOne(e => e.Workout)
+                .WithMany()
+                .HasForeignKey(e => e.WorkoutId)
+                .OnDelete(DeleteBehavior.ClientSetNull);
         });
 
         modelBuilder.Entity<UsrUserWorkoutProgress>(entity =>
@@ -1085,6 +1085,12 @@ public partial class FlexiFitDbContext : DbContext
                 .HasColumnName("status");
             entity.Property(e => e.UserId).HasColumnName("user_id");
             entity.Property(e => e.WorkoutDay).HasColumnName("workout_day");
+
+            // ✅ ADD THIS - Relationship to UsrUserSessionWorkout
+            entity.HasMany(e => e.UsrUserSessionWorkouts)
+                .WithOne(e => e.Session)
+                .HasForeignKey(e => e.SessionId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<WrkProgramTemplate>(entity =>
@@ -1259,6 +1265,13 @@ public partial class FlexiFitDbContext : DbContext
             entity.Property(e => e.WorkoutName)
                 .HasMaxLength(150)
                 .HasColumnName("workout_name");
+
+            // ✅ ADD THIS - Relationship to UsrUserSessionWorkout
+            // Kailangan ito para gumana ang .Include(sw => sw.Workout)
+            entity.HasMany(e => e.UsrUserSessionWorkouts)
+                .WithOne(e => e.Workout)
+                .HasForeignKey(e => e.WorkoutId)
+                .OnDelete(DeleteBehavior.ClientSetNull);
         });
 
         modelBuilder.Entity<WrkWorkoutLoadStep>(entity =>
