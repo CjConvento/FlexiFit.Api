@@ -35,5 +35,4 @@ public partial class UsrUserSessionInstance
 
     public virtual UsrUserProgramInstance Instance { get; set; } = null!;
 
-    public virtual ICollection<UsrUserSessionWorkout> UsrUserSessionWorkouts { get; set; } = new List<UsrUserSessionWorkout>();
 }
