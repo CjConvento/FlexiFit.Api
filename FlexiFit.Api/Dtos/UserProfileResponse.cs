@@ -4,6 +4,9 @@
     {
         public string Name { get; set; }
         public string Username { get; set; }
+
+        public string AvatarUrl { get; set; } // <--- DAGDAG MO ITO
+
         public int Age { get; set; }
         public string Gender { get; set; }
         public double HeightCm { get; set; }

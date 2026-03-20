@@ -2,56 +2,85 @@
 
 namespace FlexiFit.Api.Dtos
 {
+    using System.Text.Json.Serialization; // Import mo 'to babe
+
     public class OnboardingProfileRequest
     {
-        [Required]
-        [Range(7, 100)]
+        // --- DINAGDAG NATIN 'TO PARA SA USR_USER_PROFILES ---
+        [JsonPropertyName("Name")]
+        public string Name { get; set; } = "";
+
+        [JsonPropertyName("Username")]
+        public string Username { get; set; } = "";
+
+        [JsonPropertyName("Age")] // Match sa @SerializedName("Age")
         public int Age { get; set; }
 
-        [Required]
-        [RegularExpression("^(Male|Female)$", ErrorMessage = "Gender must be 'Male' or 'Female'")]
+        [JsonPropertyName("Gender")]
         public string Gender { get; set; } = "";
 
-        [Required]
-        [Range(100, 250)]
-        public decimal HeightCm { get; set; } // Changed to decimal for BMI precision
+        [JsonPropertyName("HeightCm")]
+        public decimal HeightCm { get; set; }
 
-        [Required]
-        [Range(30, 300)]
-        public decimal WeightKg { get; set; } // Changed to decimal
+        [JsonPropertyName("WeightKg")]
+        public decimal WeightKg { get; set; }
 
-        [Required]
-        [Range(30, 300)]
-        public decimal TargetWeightKg { get; set; } // Changed to decimal
+        [JsonPropertyName("TargetWeightKg")]
+        public decimal TargetWeightKg { get; set; }
 
-        // Health concerns (Guds na 'to)
+        [JsonPropertyName("UpperBodyInjury")]
         public bool UpperBodyInjury { get; set; }
+
+        [JsonPropertyName("LowerBodyInjury")]
         public bool LowerBodyInjury { get; set; }
+
+        [JsonPropertyName("JointProblems")]
         public bool JointProblems { get; set; }
+
+        [JsonPropertyName("ShortBreath")]
         public bool ShortBreath { get; set; }
+
+        [JsonPropertyName("HealthNone")]
         public bool HealthNone { get; set; }
 
-        [Required]
-        public string ActivityLevel { get; set; } = ""; // e.g., "Sedentary", "Active"
+        [JsonPropertyName("FitnessLifestyle")] // Match sa Kotlin
+        public string ActivityLevel { get; set; } = "";
 
-        [Required]
-        public string FitnessLevel { get; set; } = ""; // e.g., "Beginner"
+        [JsonPropertyName("FitnessLevel")]
+        public string FitnessLevel { get; set; } = "";
 
-        [Required]
-        [MinLength(1, ErrorMessage = "Please select at least one environment.")]
+        [JsonPropertyName("Environment")]
         public List<string> Environment { get; set; } = new();
 
-        [Required]
-        [MinLength(1, ErrorMessage = "Please select at least one fitness goal.")]
+        [JsonPropertyName("FitnessGoals")] // Match sa Kotlin
         public List<string> FitnessGoals { get; set; } = new();
 
-        [Required]
-        public string BodyGoal { get; set; } = ""; // e.g., "lose_weight", "build_muscle"
+        [JsonPropertyName("BodyGoal")]
+        public string BodyGoal { get; set; } = "";
 
-        [Required]
+        [JsonPropertyName("DietType")]
         public string DietType { get; set; } = "";
 
-        // Para sa gym program selection
-        public List<string> SelectedPrograms { get; set; } = new();
+        [JsonPropertyName("SelectedPrograms")]
+        public List<DetailedProgramDto> SelectedPrograms { get; set; } = new();
+
+        [JsonPropertyName("IsRehab")]
+        public bool IsRehab { get; set; }
+    }
+
+    // Gawa ka rin ng maliit na class na 'to sa parehong file para sa programs
+    public class DetailedProgramDto
+    {
+        [JsonPropertyName("RawName")] // Match sa RawName sa Kotlin
+        public string Name { get; set; } = "";
+
+        [JsonPropertyName("Category")]
+        public string Category { get; set; } = "";
+
+        [JsonPropertyName("Level")]
+        public string Level { get; set; } = "";
+
+        [JsonPropertyName("Environment")]
+        public string Environment { get; set; } = "";
     }
 }
