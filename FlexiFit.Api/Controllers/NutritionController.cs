@@ -21,154 +21,206 @@ namespace FlexiFit.Api.Controllers
             var userId = GetUserId();
             if (userId == null) return Unauthorized();
 
-            var today = DateTime.UtcNow.Date;
-            var todayDateTime = DateTime.UtcNow;
-            var todayDateOnly = DateOnly.FromDateTime(todayDateTime); // Ito ang gagamitin natin
+            var baseUrl = $"{Request.Scheme}://{Request.Host}";
+            var todayDateOnly = DateOnly.FromDateTime(DateTime.UtcNow);
 
-            // 1. Hanapin ang active day sa calendar ni user
+            // 1. 🔥 THE FIX: Join sa Cycle at i-check ang status sa Calendar table
+            // Base sa screenshot mo, ang 'status' ay nasa ntr_meal_plan_calendar
             var calendarDay = await _db.NtrMealPlanCalendars
-            .Include(c => c.Cycle)
-            .FirstOrDefaultAsync(c =>
-            c.Cycle.UserId == userId &&
-            c.Status == "ACTIVE" &&
-            c.PlanDate == todayDateOnly); // Palitan ang 'today' ng 'todayDateOnly'
+                .Include(c => c.Cycle)
+                .FirstOrDefaultAsync(c =>
+                    c.Cycle.UserId == userId &&
+                    c.PlanDate == todayDateOnly &&
+                    c.Status == "PENDING"); // 💡 O gamitin ang 'ACTIVE' kung binabago mo ito
 
-            if (calendarDay == null) return NotFound("No active meal plan found.");
+            if (calendarDay == null) return NotFound(new { message = "No active meal plan found for today." });
 
-            // 2. Kunin ang user targets (Math from Profile)
+            // 2. Kunin ang latest user targets
             var target = await _db.NtrUserCycleTargets
                 .Where(t => t.UserId == userId)
-                .OrderByDescending(t => t.CreatedAt) // Pinakabagong record sa taas
-                .FirstOrDefaultAsync(); // Kunin ang pinaka-una (yung latest)
+                .OrderByDescending(t => t.CreatedAt)
+                .FirstOrDefaultAsync();
 
-            // 3. ENGINE: Kunin ang Calories Burned mula sa Activity Summary
+            // 3. Engine: Calories Burned
             var burnedCalories = await _db.ActActivitySummaries
-                .Where(a => a.UserId == userId && a.LogDate == todayDateOnly) // Gamitin ang todayDateOnly
+                .Where(a => a.UserId == userId && a.LogDate == todayDateOnly)
                 .SumAsync(a => (double?)a.CaloriesBurned) ?? 0;
 
-            // 4. Kunin ang lahat ng pagkain para sa TemplateDayId
-            // --- ITO YUNG NAWAWALA NA VARIABLE ---
-            var mealGroupsRaw = await (from tdm in _db.NtrTemplateDayMeals
-                                       where tdm.TemplateDayId == calendarDay.TemplateId
-                                       select new
-                                       {
-                                           tdm.TemplateMealId,
-                                           tdm.MealType,
-                                           Foods = (from tmi in _db.NtrTemplateMealItems
-                                                    join food in _db.NtrFoodItems on tmi.FoodId equals food.FoodId
-                                                    where tmi.TemplateMealId == tdm.TemplateMealId
-                                                    select new
-                                                    {
-                                                        food.FoodId,
-                                                        food.FoodName,
-                                                        food.Description,
-                                                        food.ImgFilename,
-                                                        food.DietaryType, // Siguraduhin na DietaryType na ito
-                                                        food.ServingUnit,
-                                                        tmi.DefaultQty,
-                                                        food.Calories,
-                                                        food.ProteinG,
-                                                        food.CarbsG,
-                                                        food.FatsG
-                                                    }).ToList()
-                                       }).ToListAsync();
-
-            var mealGroups = mealGroupsRaw.Select(group => new MealGroupDto
-            {
-                TemplateMealId = group.TemplateMealId,
-                MealType = group.MealType,
-                FoodItems = group.Foods.Select(f => new FoodItemDto
+            // 4. 🔥 REVISED QUERY: Fetch Meals and Top 2 Food Items
+            var mealGroupsRaw = await _db.NtrTemplateDayMeals
+                .Where(tdm => tdm.TemplateDayId == calendarDay.TemplateId)
+                .Select(tdm => new
                 {
-                    FoodId = f.FoodId,
-                    Name = f.FoodName,
-                    Description = f.Description ?? "",
-                    Unit = f.ServingUnit,
-                    Qty = (double)f.DefaultQty,
-                    Calories = (double)f.Calories,
-                    Protein = (double)f.ProteinG,
-                    Carbs = (double)f.CarbsG,
-                    Fats = (double)f.FatsG,
+                    tdm.TemplateMealId,
+                    tdm.MealType,
+                    // 💡 Siguraduhin na Top 2 lang per meal type para sa Dashboard
+                    Foods = _db.NtrTemplateMealItems
+                        .Where(tmi => tmi.TemplateMealId == tdm.TemplateMealId)
+                        .Join(_db.NtrFoodItems,
+                              tmi => tmi.FoodId,
+                              food => food.FoodId,
+                              (tmi, food) => new { tmi, food })
+                        .OrderBy(x => x.food.FoodName) // Consistent ordering
+                        .Take(2) // 👈 ANTI-BAHA: Top 2 items lang
+                        .Select(x => new
+                        {
+                            x.food.FoodId,
+                            x.food.FoodName,
+                            x.food.Description,
+                            x.food.ImgFilename,
+                            x.food.DietaryType,
+                            x.food.ServingUnit,
+                            x.tmi.DefaultQty,
+                            x.food.Calories,
+                            x.food.ProteinG,
+                            x.food.CarbsG,
+                            x.food.FatsG
+                        }).ToList()
+                }).ToListAsync();
 
-                    // BINAGO: DietaryType na ang gagamitin natin
-                    DietaryType = f.DietaryType ?? "balanced",
-
-                    // BINAGO: f.DietaryType na rin ang ipapasa natin sa helper function
-                    ImageUrl = BuildFoodImageUrl(f.DietaryType ?? "balanced", group.MealType, f.ImgFilename)
-                }).ToList()
-            }).ToList();
-
-            // 5. I-sync ang Status (PENDING/DONE/SKIPPED)
+            // 5. Fetch Logs for Status
             var todayLogs = await _db.NtrDailyMealLogs
-                .Include(l => l.DailyLog) // Isama ang parent table
-                .Where(l => l.DailyLog.UserId == userId && l.DailyLog.PlanDate == todayDateOnly) // Use todayDateOnly!
+                .Include(l => l.DailyLog)
+                .Where(l => l.DailyLog.UserId == userId && l.DailyLog.PlanDate == todayDateOnly)
                 .ToListAsync();
 
-            foreach (var group in mealGroups)
-            {
-                var log = todayLogs.FirstOrDefault(l => l.MealType == group.MealType);
-                group.Status = (log?.DailyLog?.GoalMet == true) ? "DONE" : "PENDING";
-            }
+            // 6. Mapping to DTO (Safe for Android)
+            var mealGroups = mealGroupsRaw
+                .OrderBy(g => g.MealType == "B" ? 1 : g.MealType == "L" ? 2 : g.MealType == "S" ? 3 : 4)
+                .Select(group => new MealGroupDto
+                {
+                    TemplateMealId = group.TemplateMealId,
+                    MealType = group.MealType, // I-retain ang "B", "L", etc. para sa logic ng Android
+                    Status = todayLogs.Any(l => l.MealType == group.MealType) ? "DONE" : "PENDING",
+                    FoodItems = group.Foods.Select(f => new FoodItemDto
+                    {
+                        FoodId = f.FoodId,
+                        Name = f.FoodName,
+                        Description = f.Description ?? "",
+                        Unit = f.ServingUnit,
+                        Qty = (double)f.DefaultQty,
+                        Calories = (double)f.Calories,
+                        Protein = (double)f.ProteinG,
+                        Carbs = (double)f.CarbsG,
+                        Fats = (double)f.FatsG,
+                        DietaryType = f.DietaryType ?? "balanced",
+                        // 💡 Gamit ang baseUrl para sa full path
+                        ImageUrl = BuildFoodImageUrl(baseUrl, f.DietaryType ?? "balanced", group.MealType, f.ImgFilename)
+                    }).ToList()
+                }).ToList();
 
-            // 6. Water intake
+            // 7. Water intake
             var waterTotal = await _db.NtrWaterLogs
                 .Where(w => w.UserId == userId && w.LogDate == todayDateOnly)
                 .SumAsync(w => (int?)w.WaterMl) ?? 0;
 
-            // 7. MATH ENGINE: Compute final stats
-            double targetCal = (double)(target?.DailyTargetNetCalories ?? 0);
-            double consumedCal = todayLogs.Where(l => l.DailyLog.GoalMet == true).Sum(l => (double)l.Calories);
+            // 8. Calculations
+            double targetCal = (double)(target?.DailyTargetNetCalories ?? 2000);
+            double consumedCal = todayLogs.Sum(l => (double)l.Calories);
 
-            // Formula: Net = Consumed - Burned
-            double netCalories = consumedCal - burnedCalories;
-
-            var response = new NutritionScreenDto
+            return Ok(new NutritionScreenDto
             {
-                // Targets
                 TargetCalories = targetCal,
-                TargetProtein = (double)(target?.ProteinTargetG ?? 0),
-                TargetCarbs = (double)(target?.CarbsTargetG ?? 0),
-                TargetFats = (double)(target?.FatsTargetG ?? 0),
-
-                // Consumed
                 ConsumedCalories = consumedCal,
-                ConsumedProtein = todayLogs.Where(l => l.DailyLog.GoalMet == true).Sum(l => (double)l.ProteinG),
-                ConsumedCarbs = todayLogs.Where(l => l.DailyLog.GoalMet == true).Sum(l => (double)l.CarbsG),
-                ConsumedFats = todayLogs.Where(l => l.DailyLog.GoalMet == true).Sum(l => (double)l.FatsG),
-
-                // Engine Results
                 BurnedCalories = burnedCalories,
-                NetCalories = netCalories,
-                RemainingCalories = targetCal - netCalories,
+                RemainingCalories = Math.Max(0, targetCal - (consumedCal - burnedCalories)),
 
-                // Others
+                // Macro Totals (Huwag kalimutan i-map ito, babe!)
+                TargetProtein = (double)(target?.ProteinTargetG ?? 150),
+                ConsumedProtein = todayLogs.Sum(l => (double)l.ProteinG),
+                TargetCarbs = (double)(target?.CarbsTargetG ?? 200),
+                ConsumedCarbs = todayLogs.Sum(l => (double)l.CarbsG),
+                TargetFats = (double)(target?.FatsTargetG ?? 60),
+                ConsumedFats = todayLogs.Sum(l => (double)l.FatsG),
+
                 WaterConsumedMl = waterTotal,
-                WaterTargetMl = 2500, // Pwedeng gawing dynamic ito soon
+                WaterTargetMl = 2500,
                 Meals = mealGroups
-            };
-
-            return Ok(response);
+            });
         }
 
-        // --- DINAGDAG: New Helper Function ---
-        // Ito ang logic na nag-ma-map ng Database values papunta sa physical wwwroot folders mo.
-        private string BuildFoodImageUrl(string category, string mealType, string fileName)
+        // 💡 Helper revised with BaseURL
+        private string BuildFoodImageUrl(string baseUrl, string category, string mealType, string fileName)
         {
-            if (string.IsNullOrEmpty(fileName)) return "images/foods/default.png";
+            if (string.IsNullOrEmpty(fileName)) return $"{baseUrl}/images/foods/default.png";
 
-            // Ginagawang lowercase at pinapalitan ang space ng underscore (e.g. "High Protein" -> "high_protein")
             string catFolder = category.ToLower().Trim().Replace(" ", "_");
-
-            // Dino-double check kung "B", "L", "S", "D" lang ang galing DB, i-map sa full folder names
             string typeFolder = mealType.ToUpper() switch
             {
                 "B" => "breakfast",
                 "L" => "lunch",
                 "S" => "snacks",
                 "D" => "dinner",
-                _ => mealType.ToLower().Trim() // Kung "breakfast" na ang nakalagay sa DB, ok na 'to
+                _ => "general"
             };
 
-            return $"images/foods/{catFolder}/{typeFolder}/{fileName}";
+            return $"{baseUrl}/images/foods/{catFolder}/{typeFolder}/{fileName}";
+        }
+
+
+        [HttpPost("log-full-day")]
+        public async Task<IActionResult> LogFullDay([FromBody] LogFullDayRequest req)
+        {
+            var userId = GetUserId();
+            if (userId == null) return Unauthorized();
+
+            var todayDateOnly = DateOnly.FromDateTime(DateTime.UtcNow);
+
+            // 1. Siguraduhin na may Daily Log record na para sa araw na ito
+            var dailyLog = await _db.NtrDailyLogs
+                .FirstOrDefaultAsync(l => l.UserId == userId && l.PlanDate == todayDateOnly);
+
+            if (dailyLog == null)
+            {
+                dailyLog = new NtrDailyLog
+                {
+                    UserId = userId.Value,
+                    PlanDate = todayDateOnly,
+                    CycleId = req.CycleId
+                };
+                _db.NtrDailyLogs.Add(dailyLog);
+                await _db.SaveChangesAsync();
+            }
+
+            // 2. Loop sa bawat meal na pinasa (B, L, S, D)
+            foreach (var m in req.Meals)
+            {
+                var mealLog = await _db.NtrDailyMealLogs
+                    .FirstOrDefaultAsync(ml => ml.DailyLogId == dailyLog.DailyLogId && ml.MealType == m.MealType);
+
+                if (mealLog == null)
+                {
+                    _db.NtrDailyMealLogs.Add(new NtrDailyMealLog
+                    {
+                        DailyLogId = dailyLog.DailyLogId,
+                        MealType = m.MealType,
+                        Calories = (int)m.TotalCalories,
+                        ProteinG = (decimal)m.TotalProtein,
+                        CarbsG = (decimal)m.TotalCarbs,
+                        FatsG = (decimal)m.TotalFats
+                    });
+                }
+                else
+                {
+                    mealLog.Calories = (int)m.TotalCalories;
+                    mealLog.ProteinG = (decimal)m.TotalProtein;
+                    mealLog.CarbsG = (decimal)m.TotalCarbs;
+                    mealLog.FatsG = (decimal)m.TotalFats;
+                }
+            }
+
+            // 3. 🔥 DITO NA PAPASOK ANG PAG-UPDATE NG CALENDAR STATUS
+            var calendarRecord = await _db.NtrMealPlanCalendars
+                .FirstOrDefaultAsync(c => c.CycleId == req.CycleId && c.PlanDate == todayDateOnly);
+
+            if (calendarRecord != null)
+            {
+                calendarRecord.Status = "DONE"; // <--- Mula PENDING, magiging COMPLETED na!
+                calendarRecord.UpdatedAt = DateTime.UtcNow;
+            }
+
+            await _db.SaveChangesAsync();
+            return Ok(new { message = "All meals logged and Calendar updated to COMPLETED!" });
         }
 
         private int? GetUserId()
@@ -177,4 +229,5 @@ namespace FlexiFit.Api.Controllers
             return int.TryParse(id, out var userId) ? userId : null;
         }
     }
+
 }

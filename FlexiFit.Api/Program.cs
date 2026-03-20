@@ -7,11 +7,19 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Controllers
-builder.Services.AddControllers();
+// --- FIXED PART ---
+builder.Services.AddControllers() // Tinanggal natin yung semicolon dito
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+    });
+// --- END OF FIXED PART ---
+
 
 // Swagger
 builder.Services.AddEndpointsApiExplorer();
