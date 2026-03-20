@@ -7,6 +7,8 @@
         public string DayType { get; set; } = "";
         public string Message { get; set; } = "";
 
+        public string Status { get; set; }
+
         // --- IREREVISE: Dagdag para sa Android Sync ---
         public int TotalDuration { get; set; }      // Mag-mamap sa totalDuration
         public int TotalCalories { get; set; }      // Mag-mamap sa estimatedCalories
