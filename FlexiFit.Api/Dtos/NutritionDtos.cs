@@ -1,15 +1,16 @@
-﻿    namespace FlexiFit.Api.Dtos;
-
+﻿namespace FlexiFit.Api.Dtos
+{
+    // 1. Main response para sa api/nutrition/today
     public class NutritionScreenDto
     {
-        // Progress Stats (Engine-Computed)
+        // Progress Stats
         public double TargetCalories { get; set; }
         public double ConsumedCalories { get; set; }
-        public double BurnedCalories { get; set; }   // BAGONG DAGDAG: Mula sa Activity Engine
-        public double NetCalories { get; set; }      // BAGONG DAGDAG: Consumed - Burned
-        public double RemainingCalories { get; set; } // BAGONG DAGDAG: Target - Net
+        public double BurnedCalories { get; set; }
+        public double NetCalories { get; set; }
+        public double RemainingCalories { get; set; }
 
-        // Macro Totals (Para sa mga progress bars sa Nutrition Root)
+        // Macro Totals
         public double TargetProtein { get; set; }
         public double ConsumedProtein { get; set; }
         public double TargetCarbs { get; set; }
@@ -23,13 +24,16 @@
 
         // Today's Meals
         public List<MealGroupDto> Meals { get; set; } = new();
+
+        // ✅ ADD THIS - For session tracking
+        public int DailyLogId { get; set; }
     }
 
     public class MealGroupDto
     {
-        public int TemplateMealId { get; set; } // Reference for logging (from ntr_template_day_meals)
+        public int TemplateMealId { get; set; }
         public string MealType { get; set; } = ""; // B, L, S, D
-        public string Status { get; set; } = "PENDING"; // PENDING, DONE, SKIPPED
+        public string Status { get; set; } = "PENDING";
         public List<FoodItemDto> FoodItems { get; set; } = new();
     }
 
@@ -37,46 +41,84 @@
     {
         public int FoodId { get; set; }
         public string Name { get; set; } = "";
-        public string Description { get; set; } = ""; // Mula sa description column mo
-        public string ImageUrl { get; set; } = "";    // Mula sa img_filename
-
-        public string DietaryType { get; set; } = ""; // Mula sa DietCategory, ginawa nating DietaryType
-
-        // Quantity Info
+        public string Description { get; set; } = "";
+        public string ImageUrl { get; set; } = "";
+        public string DietaryType { get; set; } = "";
         public double Qty { get; set; }
-        public string Unit { get; set; } = "";        // e.g., "Bowl", "Cup", "Piece"
-
-        // Macros per Item (Para kapag clinick ni user, makikita yung details)
+        public string Unit { get; set; } = "";
         public double Calories { get; set; }
         public double Protein { get; set; }
         public double Carbs { get; set; }
         public double Fats { get; set; }
     }
 
+    // 2. Request DTO para sa pag-complete ng nutrition day
+    public class LogFullDayRequest
+    {
+        public int CycleId { get; set; }
+        public List<LogMealEntry> Meals { get; set; } = new();
+    }
 
-public class LogMeal // <--- Dapat ganito ang pangalan dito
-{
-    public int CycleId { get; set; }
-    public string MealType { get; set; } = "B";
-    public double TotalCalories { get; set; }
-    public double TotalProtein { get; set; }
-    public double TotalCarbs { get; set; }
-    public double TotalFats { get; set; }
-}
+    public class LogMealEntry
+    {
+        public string MealType { get; set; } = "B";
+        public double TotalCalories { get; set; }
+        public double TotalProtein { get; set; }
+        public double TotalCarbs { get; set; }
+        public double TotalFats { get; set; }
+    }
 
-// 2. 🔥 ANG SOLUSYON SA "SABAY-SABAY": Bulk Log Request
-public class LogFullDayRequest
-{
-    public int CycleId { get; set; }
-    // Listahan ito para isang request lang, kasama na B, L, S, D!
-    public List<LogMealEntry> Meals { get; set; } = new();
-}
+    // 3. Response DTO para sa completion
+    public class NutritionCompleteResultDto
+    {
+        public string Message { get; set; } = "";
+        public int CurrentDay { get; set; }
+        public bool IsCompleted { get; set; }
+    }
 
-public class LogMealEntry
-{
-    public string MealType { get; set; } = "B"; // B, L, S, D
-    public double TotalCalories { get; set; }
-    public double TotalProtein { get; set; }
-    public double TotalCarbs { get; set; }
-    public double TotalFats { get; set; }
+    // 4. DTO para sa history detail
+    public class NutritionHistoryDetailDto
+    {
+        public int Day { get; set; }
+        public int Week { get; set; }
+        public NutritionScreenDto Nutrition { get; set; } = new();
+    }
+
+    // Add to NutritionDtos.cs
+
+    // Water tracking DTOs
+    public class AddWaterRequest
+    {
+        public int AmountMl { get; set; }
+    }
+
+    public class WaterResponse
+    {
+        public int WaterMl { get; set; }
+    }
+
+    // Food details DTOs
+    public class FoodDetailsResponse
+    {
+        public int FoodId { get; set; }
+        public string FoodName { get; set; } = "";
+        public string? Description { get; set; }
+        public double Calories { get; set; }
+        public double ProteinG { get; set; }
+        public double CarbsG { get; set; }
+        public double FatsG { get; set; }
+        public string ServingUnit { get; set; } = "";
+        public string? ImgFilename { get; set; }
+    }
+
+    // Meal item update DTOs
+    public class UpdateMealItemRequest
+    {
+        public decimal NewQty { get; set; }
+    }
+
+    public class SwapFoodRequest
+    {
+        public int NewFoodId { get; set; }
+    }
 }
