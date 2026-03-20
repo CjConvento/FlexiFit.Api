@@ -59,6 +59,8 @@ public partial class FlexiFitDbContext : DbContext
 
     public virtual DbSet<UsrUserProfileVersion> UsrUserProfileVersions { get; set; }
 
+    // DITO MO ILAGAY, BABE:
+    public virtual DbSet<UsrUserOnboardingDetail> UsrUserOnboardingDetails { get; set; }
     public virtual DbSet<UsrUserProgramAchievement> UsrUserProgramAchievements { get; set; }
 
     public virtual DbSet<UsrUserProgramInstance> UsrUserProgramInstances { get; set; }
@@ -810,6 +812,19 @@ public partial class FlexiFitDbContext : DbContext
                 .HasForeignKey<UsrUserNotificationSetting>(d => d.UserId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_user_notification_settings_user");
+        });
+
+        modelBuilder.Entity<UsrUserOnboardingDetail>(entity =>
+        {
+            // Sinisigurado natin na itong table na ito ay naka-link sa UsrUsers table
+            entity.HasOne<UsrUser>()
+                  .WithMany()
+                  .HasForeignKey(d => d.UserId)
+                  .OnDelete(DeleteBehavior.Cascade); // Pag nabura si user, bura rin itong detail niya
+
+            // Kung gusto mong i-set yung default value ng CreatedAt sa SQL side
+            entity.Property(e => e.CreatedAt)
+                  .HasDefaultValueSql("GETDATE()");
         });
 
         modelBuilder.Entity<UsrUserProfile>(entity =>
