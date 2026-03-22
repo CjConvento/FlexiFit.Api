@@ -4,12 +4,7 @@
     {
         public string Name { get; set; }
         public string Username { get; set; }
-<<<<<<< HEAD
         public string AvatarUrl { get; set; }
-=======
-
-        public string AvatarUrl { get; set; } // <--- DAGDAG MO ITO
->>>>>>> a8456a38043692fdfc40a22fb1f9845660c78f0f
 
         public int Age { get; set; }
         public string Gender { get; set; }

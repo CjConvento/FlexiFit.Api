@@ -81,6 +81,8 @@ public partial class FlexiFitDbContext : DbContext
 
     public virtual DbSet<WrkWorkout> WrkWorkouts { get; set; }
 
+    public DbSet<WktWorkoutCalendar> WktWorkoutCalendars { get; set; }
+
     public virtual DbSet<WrkWorkoutLoadStep> WrkWorkoutLoadSteps { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
@@ -151,7 +153,7 @@ public partial class FlexiFitDbContext : DbContext
             entity.Property(e => e.WaterMl).HasColumnName("water_ml");
             entity.Property(e => e.WeekNo).HasColumnName("week_no");
 
-            entity.HasOne(d => d.Instance).WithMany(p => p.DailyProgressLogs)
+            entity.HasOne(d => d.ProgramInstance).WithMany(p => p.DailyProgressLogs)
                 .HasForeignKey(d => d.InstanceId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_daily_progress_log_instance");
@@ -1200,6 +1202,12 @@ public partial class FlexiFitDbContext : DbContext
             entity.Property(e => e.WorkoutOrder)
                 .HasDefaultValue(1)
                 .HasColumnName("workout_order");
+
+            // Add the week_no mapping
+            entity.Property(e => e.WeekNo)
+                .HasColumnName("week_no")
+                .HasDefaultValue(1);
+
 
             entity.HasOne(d => d.Program).WithMany(p => p.WrkProgramTemplateDaytypeWorkouts)
                 .HasForeignKey(d => d.ProgramId)

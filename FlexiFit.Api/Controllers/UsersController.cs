@@ -32,7 +32,7 @@ namespace FlexiFit.Api.Controllers
                     var sql = @"INSERT INTO dbo.Usr_Users 
                                 (firebase_uid, email, name, username, is_verified, role, status, auth_provider, created_at, updated_at) 
                                 VALUES 
-                                (@firebase_uid, @email, @name, @username, 1, @role, 'active', @auth_provider, GETDATE(), GETDATE())";
+                                (@firebase_uid, @email, @name, @username, 1, @role, 'ACTIVE', @auth_provider, GETDATE(), GETDATE())";
 
                     await connection.ExecuteAsync(sql, dto);
                     _logger.LogInformation("Successfully inserted user: {Email}", dto.email);
@@ -75,6 +75,82 @@ namespace FlexiFit.Api.Controllers
             }
         }
 
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetUserById(int id)
+        {
+            try
+            {
+                using (var connection = new SqlConnection(_connectionString))
+                {
+                    var sql = @"SELECT user_id, firebase_uid, name, username, email, 
+                               role, status, is_verified, auth_provider, 
+                               created_at, updated_at 
+                        FROM dbo.Usr_Users 
+                        WHERE user_id = @id";
+                    var user = await connection.QueryFirstOrDefaultAsync(sql, new { id });
+                    if (user == null)
+                        return NotFound(new { message = "User not found." });
+
+                    return Ok(user);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error fetching user {Id}: {Message}", id, ex.Message);
+                return StatusCode(500, "Error fetching user.");
+            }
+        }
+
+        [HttpPut("{id}")]
+        public async Task<IActionResult> UpdateUser(int id, [FromBody] UserUpdateRequest request)
+        {
+            if (request == null)
+                return BadRequest("User data is required.");
+
+            if (id != request.user_id)
+                return BadRequest("User ID mismatch.");
+
+            try
+            {
+                using (var connection = new SqlConnection(_connectionString))
+                {
+                    // Check if user exists
+                    var exists = await connection.ExecuteScalarAsync<bool>(
+                        "SELECT COUNT(1) FROM dbo.Usr_Users WHERE user_id = @id", new { id });
+                    if (!exists)
+                        return NotFound(new { message = "User not found." });
+
+                    var sql = @"UPDATE dbo.Usr_Users 
+                        SET name = @name,
+                            username = @username,
+                            email = @email,
+                            role = @role,
+                            updated_at = GETDATE()
+                        WHERE user_id = @user_id";
+
+                    int rows = await connection.ExecuteAsync(sql, request);
+                    if (rows > 0)
+                    {
+                        _logger.LogInformation("User {Id} updated successfully.", id);
+                        return Ok(new { success = true, message = "User updated successfully." });
+                    }
+
+                    return BadRequest("Update failed.");
+                }
+            }
+            catch (SqlException ex)
+            {
+                _logger.LogError("SQL Error updating user {Id}: {Message}", id, ex.Message);
+                if (ex.Number == 2627 || ex.Number == 2601)
+                    return Conflict("Duplicate Entry: Email or Username already exists.");
+                return StatusCode(500, "Database error.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Error updating user {Id}: {Message}", id, ex.Message);
+                return StatusCode(500, "Internal server error.");
+            }
+        }
 
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteUser(int id)
@@ -125,6 +201,15 @@ namespace FlexiFit.Api.Controllers
                 _logger.LogError("Critical API Error during delete: {Message}", ex.Message);
                 return StatusCode(500, $"Internal server error: {ex.Message}");
             }
+        }
+
+        public class UserUpdateRequest
+        {
+            public int user_id { get; set; }
+            public string? name { get; set; }
+            public string username { get; set; } = string.Empty;
+            public string email { get; set; } = string.Empty;
+            public string role { get; set; } = string.Empty;
         }
     }
 }
