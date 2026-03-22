@@ -9,6 +9,9 @@ public partial class WrkProgramTemplateDaytypeWorkout
 
     public int ProgramId { get; set; }
 
+    // Add the week number property
+    public int WeekNo { get; set; } = 1; // default to 1 as per database DEFAULT ((1))
+
     public string DayType { get; set; } = null!;
 
     public int WorkoutId { get; set; }

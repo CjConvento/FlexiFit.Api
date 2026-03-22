@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using FlexiFit.Api.Dtos;
 using System.Linq;
 using System.Threading.Tasks;
-using FlexiFit.Api.Entities; // Ito ang namespace ng DbContext mo
+using FlexiFit.Api.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
@@ -13,115 +13,141 @@ namespace FlexiFit.Api.Controllers
 {
     [Authorize]
     [ApiController]
-    [Route("api/workout")]
+    [Route("api/progress")]
     public class ProgressController : ControllerBase
     {
         private readonly FlexiFitDbContext _context;
-        private readonly IConfiguration _configuration;
+        private readonly ILogger<ProgressController> _logger;
 
-        public ProgressController(FlexiFitDbContext context, IConfiguration configuration)
+        public ProgressController(FlexiFitDbContext context, ILogger<ProgressController> logger)
         {
             _context = context;
-            _configuration = configuration;
+            _logger = logger;
         }
 
         [HttpGet("stats")]
         public async Task<IActionResult> GetProgressStats([FromQuery] string range = "weekly")
         {
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (string.IsNullOrEmpty(userIdClaim)) return Unauthorized();
-            int userId = int.Parse(userIdClaim);
+            var userId = GetUserId();
+            if (userId == null) return Unauthorized();
 
             var now = DateTime.UtcNow;
-            var startDate = range == "weekly" ? now.AddDays(-7) : now.AddDays(-30);
+            var startDate = range.ToLower() == "weekly" ? now.AddDays(-7) : now.AddDays(-30);
+            int targetDays = range.ToLower() == "weekly" ? 7 : 28;
 
             try
             {
-                // 1. WEIGHT DATA (UsrUserMetric.cs - RecordedAt & CurrentWeightKg)
+                // ========== USE DAILY_PROGRESS_LOGS AS PRIMARY SOURCE ==========
+                var progressLogs = await _context.DailyProgressLogs
+                    .Where(l => l.UserId == userId && l.CreatedAt >= startDate)
+                    .OrderBy(l => l.CreatedAt)
+                    .ToListAsync();
+
+                // 1. WEIGHT DATA (still from UsrUserMetrics)
                 var weightLogs = await _context.UsrUserMetrics
                     .Where(w => w.UserId == userId && w.RecordedAt >= startDate)
                     .OrderBy(w => w.RecordedAt)
                     .Select(w => new ChartEntryDto
                     {
-                        Label = w.RecordedAt.ToString("ddd"),
+                        Label = w.RecordedAt.ToString("MM/dd"),
                         Value = (float)(w.CurrentWeightKg ?? 0)
                     }).ToListAsync();
 
-                // 2. CALORIE DATA (Mula sa DailyProgressLog.cs - CreatedAt & CaloriesBurned)
-                var dailyLogs = await _context.DailyProgressLogs
-                    .Where(w => w.UserId == userId && w.CreatedAt >= startDate)
-                    .ToListAsync();
+                // 2. WORKOUT COMPLETION (from progress logs)
+                int completedWorkouts = progressLogs.Count(l => l.CaloriesBurned > 0);
+                double compliance = targetDays > 0 ? (double)completedWorkouts / targetDays * 100 : 0;
 
-                var calorieChartData = dailyLogs
-                    .GroupBy(w => range == "weekly" ? w.CreatedAt.DayOfWeek.ToString() : "W" + ((w.CreatedAt.Day - 1) / 7 + 1))
+                // 3. AVERAGE CALORIES (from progress logs)
+                int avgCalories = progressLogs.Any()
+                    ? (int)progressLogs.Average(l => l.CaloriesBurned ?? 0)
+                    : 0;
+
+                // 4. AVERAGE WATER INTAKE (from progress logs)
+                double avgWater = progressLogs.Any()
+                    ? progressLogs.Average(l => (l.WaterMl ?? 0) / 1000.0)
+                    : 0;
+
+                // 5. MEALS COMPLETED (from progress logs)
+                int mealsCompleted = progressLogs.Count(l => l.MealPlanCompleted);
+                int totalMeals = targetDays; // 1 meal plan per day (contains multiple meals)
+
+                // 6. CALORIE HISTORY (for charts)
+                var calorieChartData = progressLogs
+                    .GroupBy(l => l.CreatedAt.Date)
                     .Select(g => new ChartEntryDto
                     {
-                        Label = g.Key.Length > 3 ? g.Key.Substring(0, 3) : g.Key,
-                        Value = (float)g.Sum(w => w.CaloriesBurned ?? 0)
-                    }).ToList();
+                        Label = g.Key.ToString(range.ToLower() == "weekly" ? "ddd" : "MM/dd"),
+                        Value = (float)(g.Sum(l => l.CaloriesBurned ?? 0))
+                    })
+                    .OrderBy(c => c.Label)
+                    .ToList();
 
-                // 3. WATER INTAKE (NtrWaterLog.cs - WaterMl & LogDate)
-                // Note: Ang LogDate ay DateOnly, kaya convert natin sa DateTime para sa comparison
-                var avgWater = await _context.NtrWaterLogs
-                    .Where(w => w.UserId == userId)
-                    .ToListAsync(); // Load for processing due to DateOnly limitations in some EF versions
-
-                var filteredWater = avgWater
-                    .Where(w => w.LogDate.ToDateTime(TimeOnly.MinValue) >= startDate)
-                    .Select(w => (double)w.WaterMl / 1000.0) // Convert ML to Liters
-                    .DefaultIfEmpty(0.0)
-                    .Average();
-
-                // 4. WORKOUT SESSIONS (UsrUserWorkoutSession.cs - UserId & Status)
-                var completedSessions = await _context.UsrUserWorkoutSessions
-                    .Where(w => w.UserId == userId && w.Status == "COMPLETED" && w.CreatedAt >= startDate)
-                    .CountAsync();
-
-                int targetWorkouts = range == "weekly" ? 7 : 30;
-                double compliance = (double)completedSessions / targetWorkouts * 100;
-
-                // 5. STREAK LOGIC
-                var streakDates = dailyLogs
-                    .OrderByDescending(w => w.CreatedAt)
-                    .Select(w => w.CreatedAt.Date)
+                // 7. STREAK CALCULATION (from progress logs)
+                var completedDates = progressLogs
+                    .Where(l => l.CaloriesBurned > 0)
+                    .Select(l => l.CreatedAt.Date)
                     .Distinct()
+                    .OrderByDescending(d => d)
                     .ToList();
 
                 int streak = 0;
-                var currentDay = DateTime.UtcNow.Date;
-                foreach (var date in streakDates)
+                var expectedDate = DateTime.UtcNow.Date;
+                foreach (var date in completedDates)
                 {
-                    if (date == currentDay.AddDays(-streak)) streak++;
-                    else break;
+                    if (date == expectedDate)
+                    {
+                        streak++;
+                        expectedDate = expectedDate.AddDays(-1);
+                    }
+                    else
+                    {
+                        break;
+                    }
                 }
 
+                // 8. LATEST WEIGHT & WEIGHT CHANGE
                 var latestWeight = await _context.UsrUserMetrics
                     .Where(w => w.UserId == userId)
                     .OrderByDescending(w => w.RecordedAt)
                     .Select(w => w.CurrentWeightKg)
                     .FirstOrDefaultAsync();
 
+                double weightChange = 0;
+                if (weightLogs.Count >= 2)
+                {
+                    weightChange = (double)(weightLogs.Last().Value - weightLogs.First().Value);
+                }
+
                 var stats = new ProgressTrackerDto
                 {
                     CompliancePercentage = Math.Round(compliance, 1),
-                    ComplianceSessions = $"{completedSessions} / {targetWorkouts} Sessions",
-                    AvgCalories = calorieChartData.Any() ? (int)calorieChartData.Average(c => c.Value) : 0,
-                    AvgWaterIntake = Math.Round(filteredWater, 1),
+                    ComplianceSessions = $"{completedWorkouts} / {targetDays} Sessions",
+                    AvgCalories = avgCalories,
+                    AvgWaterIntake = Math.Round(avgWater, 1),
                     CurrentStreak = streak,
                     CurrentWeight = (double)(latestWeight ?? 0),
                     WeightHistory = weightLogs,
                     CalorieHistory = calorieChartData,
-                    WeightChange = weightLogs.Count >= 2 ? (double)(weightLogs.Last().Value - weightLogs.First().Value) : 0.0,
-                    MealsCompleted = dailyLogs.Count(l => l.MealPlanCompleted),
-                    TotalMeals = targetWorkouts * 3 // Assumption: 3 meals a day
+                    WeightChange = weightChange,
+                    MealsCompleted = mealsCompleted,
+                    TotalMeals = totalMeals
                 };
 
+                _logger.LogInformation($"Progress stats generated for user {userId}, range: {range}");
                 return Ok(stats);
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"Internal server error: {ex.Message}");
+                _logger.LogError(ex, $"Error getting progress stats for user {userId}");
+                return StatusCode(500, new { message = "Error fetching progress data", error = ex.Message });
             }
+        }
+
+        private int? GetUserId()
+        {   
+            var id = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ??
+                    User.FindFirst("user_id")?.Value;
+            return int.TryParse(id, out var userId) ? userId : null;
         }
     }
 }
