@@ -69,7 +69,7 @@ namespace FlexiFit.Api.Controllers
                 _context.UsrUserNotificationSettings.Add(settings);
             }
 
-            // Map DTO to Entity
+                        // ✅ FIXED: Convert int? to int with null coalescing
             settings.WorkoutReminderEnabled = dto.WorkoutReminderEnabled;
             settings.WorkoutReminderTime = ParseTime(dto.WorkoutReminderTime);
             settings.MealReminderEnabled = dto.MealReminderEnabled;
@@ -77,9 +77,11 @@ namespace FlexiFit.Api.Controllers
             settings.WaterReminderEnabled = dto.WaterReminderEnabled;
             settings.WaterStartTime = ParseTime(dto.WaterStartTime);
             settings.WaterEndTime = ParseTime(dto.WaterEndTime);
-            settings.WaterIntervalMinutes = dto.WaterIntervalMinutes;
-            settings.DailyWaterGoal = dto.DailyWaterGoal;
-            settings.GlassSizeMl = dto.GlassSizeMl;
+            
+            // ✅ FIXED: Use null coalescing to provide default values
+            settings.WaterIntervalMinutes = dto.WaterIntervalMinutes ?? 60;
+            settings.DailyWaterGoal = dto.DailyWaterGoal ?? 8;
+            settings.GlassSizeMl = dto.GlassSizeMl ?? 250;
             settings.CalorieDisplayMode = dto.CalorieDisplayMode ?? "remaining";
             settings.UpdatedAt = DateTime.Now;
 
@@ -92,7 +94,7 @@ namespace FlexiFit.Api.Controllers
         // ==========================================
 
         [HttpGet("history")]
-        public async Task<ActionResult<IEnumerable<NotificationItem>>> GetNotificationHistory()
+        public async Task<ActionResult<IEnumerable<NotificationHistoryDto>>> GetNotificationHistory()
         {
             var userId = await GetCurrentUserIdAsync();
             if (userId == null) return Unauthorized();
@@ -100,7 +102,7 @@ namespace FlexiFit.Api.Controllers
             var history = await _context.UsrNotificationHistories
                 .Where(x => x.UserId == userId.Value)
                 .OrderByDescending(x => x.CreatedAt)
-                .Select(x => new NotificationItem
+                .Select(x => new NotificationHistoryDto
                 {
                     Id = x.Id,
                     Title = x.Title,
@@ -165,4 +167,4 @@ namespace FlexiFit.Api.Controllers
             CalorieDisplayMode = s.CalorieDisplayMode
         };
     }
-}
+}   

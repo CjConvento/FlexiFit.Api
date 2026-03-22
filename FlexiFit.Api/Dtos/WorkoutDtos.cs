@@ -8,7 +8,6 @@
         public string Message { get; set; } = "";
         public string Status { get; set; } = "";
 
-<<<<<<< HEAD
         // Dagdag para sa Android Sync
         public int TotalDuration { get; set; }
         public int TotalCalories { get; set; }
@@ -21,16 +20,6 @@
 
         // ✅ DAGDAG: Para ma-track ang session ID
         public int SessionId { get; set; }
-=======
-        public string Status { get; set; }
-
-        // --- IREREVISE: Dagdag para sa Android Sync ---
-        public int TotalDuration { get; set; }      // Mag-mamap sa totalDuration
-        public int TotalCalories { get; set; }      // Mag-mamap sa estimatedCalories
-        public string? FocusArea { get; set; }      // Mag-mamap sa focusArea
-        public string? Level { get; set; }          // Mag-mamap sa level
-                                                    // ----------------------------------------------
->>>>>>> a8456a38043692fdfc40a22fb1f9845660c78f0f
 
         public int TotalExercises => Warmups.Count + Workouts.Count;
         public WorkoutProgramDto Program { get; set; } = new();
@@ -42,6 +31,7 @@
     public class WorkoutProgramDto
     {
         public int ProgramId { get; set; }
+        public int ProgramNumber { get; set; }
         public string ProgramName { get; set; } = "";
         public string Environment { get; set; } = "";
         public string Level { get; set; } = "";
@@ -90,6 +80,7 @@
     // 5. ✅ BAGONG DTO: Response after completing/skipping
     public class WorkoutSessionResultDto
     {
+        public int TotalCalories { get; set; }   // <-- add this
         public string Message { get; set; } = "";
         public int CurrentDay { get; set; }
         public int NextDay { get; set; }
