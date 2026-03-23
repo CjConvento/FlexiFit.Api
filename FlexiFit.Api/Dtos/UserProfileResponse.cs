@@ -40,9 +40,17 @@
         public double CarbsG { get; set; }
         public double FatsG { get; set; }
 
-        // Achievements
-        public int AchievementCount { get; set; }
-        public List<string> UnlockedBadges { get; set; } = new();
-        public List<string> UnlockedBadgeKeys { get; set; } = new();
+
+        // New fields for Android hydration
+        public string FitnessLifestyle { get; set; }
+        public string FitnessLevel { get; set; }
+        public List<string> Environment { get; set; } = new();
+        public string BodyCompGoal { get; set; }
+        public string DietaryType { get; set; }
+        public bool UpperBodyInjury { get; set; }
+        public bool LowerBodyInjury { get; set; }
+        public bool JointProblems { get; set; }
+        public bool ShortBreath { get; set; }
+        public bool IsRehabUser { get; set; }
     }
 }
