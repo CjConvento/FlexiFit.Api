@@ -58,6 +58,10 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 // DbContext
+builder.Services.AddDbContextFactory<FlexiFitDbContext>(options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("FlexifitDb")));
+
+// 👇 Add this line
 builder.Services.AddDbContext<FlexiFitDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("FlexifitDb")));
 
@@ -120,6 +124,7 @@ if (FirebaseApp.DefaultInstance == null)
 builder.Services.AddScoped<JwtService>();
 builder.Services.AddScoped<FirebaseTokenVerifier>();
 builder.Services.AddScoped<DeviceTokenService>();
+builder.Services.AddScoped<IUserService, UserService>(); // <-- idagdag ito
 
 builder.Services.AddCors(options =>
 {
@@ -128,7 +133,7 @@ builder.Services.AddCors(options =>
                         .AllowAnyMethod()
                         .AllowAnyHeader());
 });
-
+builder.Services.AddMemoryCache();
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
