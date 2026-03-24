@@ -40,148 +40,48 @@ namespace FlexiFit.Api.Controllers
 
             try
             {
-                // 1. Update or Create User Profile (Name, Username, Gender)
+                // 1. Update Basic Profile (Gender, Goal, etc.)
                 var profile = await _db.UsrUserProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
-                if (profile == null)
+                if (profile != null)
                 {
-                    profile = new UsrUserProfile
-                    {
-                        UserId = userId,
-                        CreatedAt = DateTime.UtcNow
-                    };
-                    _db.UsrUserProfiles.Add(profile);
-                }
-                profile.Name = request.Name;
-                profile.Username = request.Username;
-                profile.Gender = request.Gender;
-                profile.UpdatedAt = DateTime.UtcNow;
-
-                // 👇 INSERT THE USER UPDATE CODE RIGHT HERE
-                var user = await _db.UsrUsers.FirstOrDefaultAsync(u => u.UserId == userId);
-                if (user != null)
-                {
-                    if (!string.IsNullOrWhiteSpace(request.Name))
-                        user.Name = request.Name;
-                    if (!string.IsNullOrWhiteSpace(request.Username))
-                        user.Username = request.Username;
-                    user.UpdatedAt = DateTime.UtcNow;
+                    profile.Gender = request.Gender;
+                    // Kung may column ka for lifestyle o level, i-map mo rin dito
+                    profile.UpdatedAt = DateTime.UtcNow;
                 }
 
-                // 2. Update or Create Nutrition Profile (Age, Height, Weight, Target Weight, Dietary Type, Goal)
+                // 2. Update Nutrition Profile (Age, Height, Weight)
                 var nutProfile = await _db.NtrUserNutritionProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
-                if (nutProfile == null)
+                if (nutProfile != null)
                 {
-                    nutProfile = new NtrUserNutritionProfile
-                    {
-                        UserId = userId,
-                        UpdatedAt = DateTime.UtcNow
-                    };
-                    _db.NtrUserNutritionProfiles.Add(nutProfile);
+                    nutProfile.Age = (short)request.Age;
+                    nutProfile.HeightCm = (decimal)request.HeightCm;
+                    nutProfile.WeightKg = (decimal)request.WeightKg;
                 }
-                nutProfile.Age = (short)request.Age;
-                nutProfile.HeightCm = (decimal)request.HeightCm;
-                nutProfile.WeightKg = (decimal)request.WeightKg;
-                nutProfile.TargetWeightKg = (decimal)request.TargetWeightKg;
-                nutProfile.DietaryType = request.DietaryType;
-                nutProfile.NutritionGoal = request.BodyCompGoal;
-                nutProfile.UpdatedAt = DateTime.UtcNow;
 
-                // 3. Update or Create User Metrics (for weight history)
-                var metrics = await _db.UsrUserMetrics
-                    .Where(m => m.UserId == userId)
-                    .OrderByDescending(m => m.RecordedAt)
-                    .FirstOrDefaultAsync();
-                if (metrics == null)
-                {
-                    metrics = new UsrUserMetric { UserId = userId };
-                    _db.UsrUserMetrics.Add(metrics);
-                }
-                metrics.CurrentWeightKg = (decimal)request.WeightKg;
-                metrics.CurrentHeightCm = (decimal)request.HeightCm;
-                metrics.RecordedAt = DateTime.UtcNow;
-                metrics.FitnessGoal = request.BodyCompGoal ?? "MAINTAIN";
+                // 3. Re-calculate Macros & Update Cycle Target
+                // Gamitin natin yung math logic mo sa 'Complete' endpoint
+                double bmr = (request.Gender?.ToUpper() == "MALE")
+                    ? (10 * request.WeightKg) + (6.25 * request.HeightCm) - (5 * request.Age) + 5
+                    : (10 * request.WeightKg) + (6.25 * request.HeightCm) - (5 * request.Age) - 161;
 
-                // 4. Update or Create Onboarding Details (health flags, fitness level, environment, etc.)
-                var onboarding = await _db.UsrUserOnboardingDetails.FirstOrDefaultAsync(o => o.UserId == userId);
-                if (onboarding == null)
-                {
-                    onboarding = new UsrUserOnboardingDetail { UserId = userId };
-                    _db.UsrUserOnboardingDetails.Add(onboarding);
-                }
-                onboarding.UpperBodyInjury = request.UpperBodyInjury;
-                onboarding.LowerBodyInjury = request.LowerBodyInjury;
-                onboarding.JointProblems = request.JointProblems;
-                onboarding.ShortBreath = request.ShortBreath;
-                onboarding.HealthNone = !(request.UpperBodyInjury || request.LowerBodyInjury || request.JointProblems || request.ShortBreath);
-                onboarding.ActivityLevel = request.FitnessLifestyle;
-                onboarding.FitnessLevel = request.FitnessLevel;
-                onboarding.Environment = request.Environment;
-                onboarding.BodyGoal = request.BodyCompGoal;
-                onboarding.DietType = request.DietaryType;
-                onboarding.FitnessGoals = request.FitnessGoals != null ? string.Join(",", request.FitnessGoals) : "";
-                onboarding.SelectedPrograms = request.SelectedPrograms != null ? string.Join(",", request.SelectedPrograms) : "";
-                onboarding.UpdatedAt = DateTime.UtcNow;
+                double calorieTarget = bmr * 1.2;
 
-                // 5. Update or Create Cycle Target (Nutrition Targets)
                 var cycle = await _db.NtrUserCycleTargets
                     .OrderByDescending(c => c.CreatedAt)
                     .FirstOrDefaultAsync(c => c.UserId == userId);
-                if (cycle == null)
+
+                if (cycle != null)
                 {
-                    cycle = new NtrUserCycleTarget
-                    {
-                        UserId = userId,
-                        StartDate = DateOnly.FromDateTime(DateTime.UtcNow),
-                        WeeksInCycle = 4,
-                        GoalType = request.BodyCompGoal
-                    };
-                    _db.NtrUserCycleTargets.Add(cycle);
+                    cycle.DailyTargetNetCalories = (int)calorieTarget;
+                    cycle.ProteinTargetG = (decimal)(request.WeightKg * 2.0);
+                    cycle.GoalType = request.BodyCompGoal;
+                    cycle.CreatedAt = DateTime.UtcNow;
                 }
 
-                // Calculate BMR based on new weight, height, age, gender
-                double weightKg = request.WeightKg;
-                double heightCm = request.HeightCm;
-                int age = request.Age;
-                double bmr = (request.Gender?.ToUpper() == "MALE")
-                    ? (10 * weightKg) + (6.25 * heightCm) - (5 * age) + 5
-                    : (10 * weightKg) + (6.25 * heightCm) - (5 * age) - 161;
-
-                // Get activity level from nutrition profile (or use default)
-                double activityMultiplier = 1.2; // sedentary
-                if (!string.IsNullOrEmpty(request.FitnessLifestyle))
-                {
-                    activityMultiplier = request.FitnessLifestyle.ToUpper() switch
-                    {
-                        "SEDENTARY" => 1.2,
-                        "LIGHTLY ACTIVE" => 1.375,
-                        "ACTIVE" => 1.55,
-                        "VERY ACTIVE" => 1.725,
-                        _ => 1.2
-                    };
-                }
-
-                double tdee = bmr * activityMultiplier;
-                double targetCalories = tdee;
-
-                // Adjust based on body composition goal
-                if (request.BodyCompGoal == "LOSE")
-                    targetCalories -= 500;
-                else if (request.BodyCompGoal == "GAIN")
-                    targetCalories += 500;
-
-                if (targetCalories < 1200) targetCalories = 1200;
-
-                cycle.DailyTargetNetCalories = (int)Math.Round(targetCalories);
-                cycle.ProteinTargetG = (decimal)Math.Round(weightKg * 1.6); // 1.6g per kg
-                cycle.CarbsTargetG = (decimal)Math.Round((targetCalories * 0.5) / 4); // 50% of calories
-                cycle.FatsTargetG = (decimal)Math.Round((targetCalories * 0.3) / 9); // 30% of calories
-                cycle.GoalType = request.BodyCompGoal;
-                cycle.CreatedAt = DateTime.UtcNow; // update timestamp
-
-                // 6. Save all changes
+                // 4. Save everything
                 await _db.SaveChangesAsync();
 
-                return Ok(new { message = "Profile updated successfully!", newCalories = Math.Round(targetCalories, 0) });
+                return Ok(new { message = "Profile updated successfully!", newCalories = Math.Round(calorieTarget, 0) });
             }
             catch (Exception ex)
             {
@@ -267,15 +167,14 @@ namespace FlexiFit.Api.Controllers
             var profile = await _db.UsrUserProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
             var nutProfile = await _db.NtrUserNutritionProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
             var cycle = await _db.NtrUserCycleTargets.OrderByDescending(c => c.CreatedAt).FirstOrDefaultAsync(c => c.UserId == userId);
-            var onboarding = await _db.UsrUserOnboardingDetails.FirstOrDefaultAsync(o => o.UserId == userId);
 
             if (profile == null) return NotFound("Profile not found");
 
-            // 1. Image URL Handling
+            // 1. Image URL Handling (Para sa Glide/Coil sa Android)
             var baseUrl = $"{Request.Scheme}://{Request.Host}";
             var finalAvatarUrl = !string.IsNullOrEmpty(profile.AvatarUrl)
                 ? $"{baseUrl}/{profile.AvatarUrl}"
-                : null;
+                : null; // Fallback sa Android (default icon)
 
             string userGoal = cycle?.GoalType?.Replace("_", " ").ToUpper() ?? "MAINTAIN WEIGHT";
 
@@ -291,36 +190,13 @@ namespace FlexiFit.Api.Controllers
                     .CountAsync(td => td.ProgramId == activeProgram.ProgramId);
             }
 
-            // 3. Total Workouts across all user programs
-            var userProgramIds = await _db.UsrUserProgramInstances
-                .Where(up => up.UserId == userId)
-                .Select(up => up.ProgramId)
-                .Distinct()
-                .ToListAsync();
-
-            int totalWorkouts = 0;
-            if (userProgramIds.Any())
-            {
-                totalWorkouts = await _db.WrkProgramTemplateDaytypeWorkouts
-                    .CountAsync(w2 => userProgramIds.Contains(w2.ProgramId));
-            }
-
-            // 4. Total Program Sessions
-            int totalProgramSessions = 28; // default
-            if (userProgramIds.Any())
-            {
-                var dayCount = await _db.WrkProgramTemplateDays
-                    .CountAsync(d => userProgramIds.Contains(d.ProgramId));
-                if (dayCount > 0) totalProgramSessions = dayCount;
-            }
-
-            // 5. Achievement Sync
+            // 3. Achievement Sync
             var unlockedBadgeKeys = await _db.UsrUserGeneralAchievements
                 .Where(a => a.UserId == userId)
                 .Select(a => a.BadgeKey)
                 .ToListAsync();
 
-            // 6. BMI Computation
+            // 4. BMI Computation
             double bmi = 0;
             double h = (double)(nutProfile?.HeightCm ?? 0);
             double w = (double)(nutProfile?.WeightKg ?? 0);
@@ -330,39 +206,22 @@ namespace FlexiFit.Api.Controllers
                 bmi = w / (heightM * heightM);
             }
 
-            // 7. Parse selected programs and fitness goals from onboarding
-            var selectedPrograms = onboarding?.SelectedPrograms?
-                .Split(',', StringSplitOptions.RemoveEmptyEntries)
-                .Select(s => s.Trim())
-                .Where(s => !string.IsNullOrEmpty(s))
-                .ToList() ?? new List<string>();
-
-            var fitnessGoals = onboarding?.FitnessGoals?
-                .Split(',', StringSplitOptions.RemoveEmptyEntries)
-                .Select(s => s.Trim())
-                .Where(s => !string.IsNullOrEmpty(s))
-                .ToList() ?? new List<string>();
-
             var response = new UserProfileResponse
             {
                 Name = profile.Name ?? "User",
                 Username = profile.Username ?? "Username",
-                AvatarUrl = finalAvatarUrl,
+                AvatarUrl = finalAvatarUrl, // DINAGDAG: Importante ito!
                 GoalSubtitle = userGoal,
                 Gender = profile.Gender ?? "-",
                 Age = nutProfile?.Age ?? 0,
                 HeightCm = h,
                 WeightKg = w,
-                TargetWeightKg = (double)(nutProfile?.TargetWeightKg ?? 0),
                 BMI = Math.Round(bmi, 1),
                 BmiCategory = CalculateBmiCategory(bmi),
-                NutritionGoal = nutProfile?.NutritionGoal ?? "",
                 CompletedSessions = completedCount,
-                TotalSessions = completedCount, // for backward compatibility
-                TotalWorkouts = totalWorkouts,
-                TotalProgramSessions = totalProgramSessions,
-                SelectedPrograms = selectedPrograms,
-                FitnessGoals = fitnessGoals,
+                TotalProgramSessions = targetQuota,
+                AchievementCount = unlockedBadgeKeys.Count,
+                UnlockedBadgeKeys = unlockedBadgeKeys,
                 DailyCalorieTarget = cycle?.DailyTargetNetCalories ?? 0,
                 ProteinG = (double)(cycle?.ProteinTargetG ?? 0),
                 CarbsG = (double)(cycle?.CarbsTargetG ?? 0),
@@ -414,9 +273,6 @@ namespace FlexiFit.Api.Controllers
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (!int.TryParse(userIdClaim, out var userId)) return Unauthorized();
 
-            var user = await _db.UsrUsers.FirstOrDefaultAsync(u => u.UserId == userId);
-            if (user == null) return NotFound("User not found.");
-
             var profile = await _db.UsrUserProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
             var nutProfile = await _db.NtrUserNutritionProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
             var cycle = await _db.NtrUserCycleTargets
@@ -425,25 +281,24 @@ namespace FlexiFit.Api.Controllers
             var onboarding = await _db.UsrUserOnboardingDetails
                                 .FirstOrDefaultAsync(o => o.UserId == userId);
 
+            if (profile == null) return NotFound("Profile not found.");
+
+            // 1. Avatar URL
             var baseUrl = $"{Request.Scheme}://{Request.Host}";
-            var finalAvatarUrl = !string.IsNullOrEmpty(profile?.AvatarUrl)
+            var finalAvatarUrl = !string.IsNullOrEmpty(profile.AvatarUrl)
                 ? $"{baseUrl}/{profile.AvatarUrl}"
                 : null;
 
-            // Age – try from profile birth date first, else from nutProfile
+            // 2. Age mula sa BirthDate
             int age = 0;
-            if (profile?.BirthDate.HasValue == true)
+            if (profile.BirthDate.HasValue)
             {
                 var today = DateTime.Today;
                 age = today.Year - profile.BirthDate.Value.Year;
-                if (new DateTime(profile.BirthDate.Value.Year, profile.BirthDate.Value.Month, profile.BirthDate.Value.Day) > today.AddYears(-age)) age--;
-            }
-            else if (nutProfile?.Age > 0)
-            {
-                age = nutProfile.Age.Value;
+                    if (new DateTime(profile.BirthDate.Value.Year, profile.BirthDate.Value.Month, profile.BirthDate.Value.Day) > today.AddYears(-age)) age--;
             }
 
-            // BMI
+            // 3. BMI computation
             double h = (double)(nutProfile?.HeightCm ?? 0);
             double w = (double)(nutProfile?.WeightKg ?? 0);
             double bmi = 0;
@@ -453,7 +308,7 @@ namespace FlexiFit.Api.Controllers
                 bmi = w / (hm * hm);
             }
 
-            // Parse selected programs and fitness goals
+            // 4. Selected Programs at Fitness Goals mula sa onboarding
             var selectedPrograms = onboarding?.SelectedPrograms?
                 .Split(',', StringSplitOptions.RemoveEmptyEntries)
                 .Select(s => s.Trim())
@@ -466,21 +321,7 @@ namespace FlexiFit.Api.Controllers
                 .Where(s => !string.IsNullOrEmpty(s))
                 .ToList() ?? new List<string>();
 
-            // Environment
-            var environment = onboarding?.Environment?
-                .Split(',', StringSplitOptions.RemoveEmptyEntries)
-                .Select(s => s.Trim())
-                .Where(s => !string.IsNullOrEmpty(s))
-                .ToList() ?? new List<string>();
-
-            // Health flags
-            bool upperBodyInjury = onboarding?.UpperBodyInjury ?? false;
-            bool lowerBodyInjury = onboarding?.LowerBodyInjury ?? false;
-            bool jointProblems = onboarding?.JointProblems ?? false;
-            bool shortBreath = onboarding?.ShortBreath ?? false;
-            bool isRehabUser = upperBodyInjury || lowerBodyInjury || jointProblems;
-
-            // Total workouts across all user programs
+            // 5. Total Workouts — count ng workouts sa lahat ng programs ng user
             var userProgramIds = await _db.UsrUserProgramInstances
                 .Where(up => up.UserId == userId)
                 .Select(up => up.ProgramId)
@@ -494,8 +335,8 @@ namespace FlexiFit.Api.Controllers
                     .CountAsync(w2 => userProgramIds.Contains(w2.ProgramId));
             }
 
-            // Total program sessions
-            int totalProgramSessions = 28;
+            // 6. Total Program Sessions
+            int totalProgramSessions = 28; // default
             if (userProgramIds.Any())
             {
                 var dayCount = await _db.WrkProgramTemplateDays
@@ -503,29 +344,26 @@ namespace FlexiFit.Api.Controllers
                 if (dayCount > 0) totalProgramSessions = dayCount;
             }
 
-            // Completed sessions
+            // 7. Completed Sessions
             var completedCount = await _db.UsrUserWorkoutSessions
                 .CountAsync(s => s.UserId == userId);
 
-            // Achievements
+            // 8. Achievements
             var unlockedBadgeKeys = await _db.UsrUserGeneralAchievements
                 .Where(a => a.UserId == userId)
                 .Select(a => a.BadgeKey)
                 .ToListAsync();
 
+            // 9. Nutrition Goal at Target Weight
             string nutritionGoal = onboarding?.BodyGoal ?? cycle?.GoalType ?? "MAINTAIN_WEIGHT";
             double targetWeightKg = (double)(nutProfile?.TargetWeightKg ?? 0);
-            string dietaryType = nutProfile?.DietaryType ?? "BALANCED";
-            string fitnessLifestyle = onboarding?.ActivityLevel ?? "ACTIVE";
-            string fitnessLevel = onboarding?.FitnessLevel ?? "INTERMEDIATE";
 
             var response = new UserProfileResponse
             {
-                // Read name and username from usr_users
-                Name = user.Name ?? profile?.Name ?? "User",
-                Username = user.Username ?? profile?.Username ?? "user",
+                Name = profile.Name ?? "User",
+                Username = profile.Username ?? "user",
                 AvatarUrl = finalAvatarUrl,
-                Gender = profile?.Gender ?? "-",
+                Gender = profile.Gender ?? "-",
                 Age = age,
                 HeightCm = h,
                 WeightKg = w,
@@ -534,8 +372,8 @@ namespace FlexiFit.Api.Controllers
                 BmiCategory = CalculateBmiCategory(bmi),
                 NutritionGoal = nutritionGoal,
                 GoalSubtitle = cycle?.GoalType?.Replace("_", " ").ToUpper() ?? "MAINTAIN WEIGHT",
-                TotalSessions = completedCount,
                 TotalWorkouts = totalWorkouts,
+                TotalSessions = completedCount,
                 CompletedSessions = completedCount,
                 TotalProgramSessions = totalProgramSessions,
                 SelectedPrograms = selectedPrograms,
@@ -544,18 +382,9 @@ namespace FlexiFit.Api.Controllers
                 ProteinG = (double)(cycle?.ProteinTargetG ?? 0),
                 CarbsG = (double)(cycle?.CarbsTargetG ?? 0),
                 FatsG = (double)(cycle?.FatsTargetG ?? 0),
-
-                // New fields for hydration
-                FitnessLifestyle = fitnessLifestyle,
-                FitnessLevel = fitnessLevel,
-                Environment = environment,
-                BodyCompGoal = nutritionGoal,
-                DietaryType = dietaryType,
-                UpperBodyInjury = upperBodyInjury,
-                LowerBodyInjury = lowerBodyInjury,
-                JointProblems = jointProblems,
-                ShortBreath = shortBreath,
-                IsRehabUser = isRehabUser
+                AchievementCount = unlockedBadgeKeys.Count,
+                UnlockedBadgeKeys = unlockedBadgeKeys,
+                UnlockedBadges = unlockedBadgeKeys
             };
 
             return Ok(response);
