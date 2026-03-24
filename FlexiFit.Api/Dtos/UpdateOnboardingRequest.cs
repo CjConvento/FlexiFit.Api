@@ -3,7 +3,6 @@
     public class UpdateOnboardingRequest
     {
         // PG1 & 1.5
-
         public int Age { get; set; }
         public string Gender { get; set; }
         public double HeightCm { get; set; }
@@ -29,9 +28,5 @@
 
         // Rehab Flag
         public bool IsRehabUser { get; set; }
-
-        // NEW FIELDS
-        public string Name { get; set; } = "";
-        public string Username { get; set; } = "";
     }
 }
