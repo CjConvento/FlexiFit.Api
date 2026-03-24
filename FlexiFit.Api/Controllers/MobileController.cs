@@ -3,6 +3,8 @@ using FlexiFit.Api.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Internal;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Identity.Client;
 using System.Security.Claims;
 
@@ -12,13 +14,21 @@ namespace FlexiFit.Api.Controllers
     [Route("api/mobile")]
     public class MobileController : ControllerBase
     {
+        private readonly IDbContextFactory<FlexiFitDbContext> _contextFactory;
         private readonly FlexiFitDbContext _context;
         private readonly ILogger<MobileController> _logger;  // ✅ ADD THIS
+        private readonly IMemoryCache _cache;   // <-- add this field
 
-        public MobileController(FlexiFitDbContext context, ILogger<MobileController> logger)  // ✅ ADD 
+        public MobileController(
+            FlexiFitDbContext context,
+            IDbContextFactory<FlexiFitDbContext> contextFactory,
+            ILogger<MobileController> logger,
+            IMemoryCache memoryCache)
         {
             _context = context;
-            _logger = logger;  // ✅ ADD THIS
+            _contextFactory = contextFactory; 
+            _logger = logger;
+            _cache = memoryCache;
         }
 
         [Authorize]
@@ -80,173 +90,237 @@ namespace FlexiFit.Api.Controllers
             var todayDateOnly = DateOnly.FromDateTime(DateTime.UtcNow);
             var baseUrl = $"{Request.Scheme}://{Request.Host}";
 
-            // --- 1. DATA PRE-FETCH ---
-            var user = await _context.UsrUsers.FindAsync(userId);
-            var profile = await _context.UsrUserProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
-            var metrics = await _context.UsrUserMetrics.Where(m => m.UserId == userId).OrderByDescending(m => m.RecordedAt).FirstOrDefaultAsync();
-            var target = await _context.NtrUserCycleTargets.Where(t => t.UserId == userId).OrderByDescending(t => t.CreatedAt).FirstOrDefaultAsync();
-
-            var latestVersion = await _context.UsrUserProfileVersions
-                .Where(v => v.UserId == userId && v.IsCurrent == true)
-                .OrderByDescending(v => v.CreatedAt)
-                .FirstOrDefaultAsync();
-
-            var activeProgram = await _context.UsrUserProgramInstances
-                .FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
-
-            // --- 2. DASHBOARD BASE MAPPING ---
-            var dashboardData = new DashboardResponseDto
+            try
             {
-                Name = !string.IsNullOrWhiteSpace(profile?.Name) ? profile.Name : (user?.Name ?? "Champion"),
-                UserName = !string.IsNullOrWhiteSpace(profile?.Username) ? profile.Username : (user?.Username ?? "user"),
-                UserAvatar = (profile != null && !string.IsNullOrWhiteSpace(profile.AvatarUrl))
-                    ? (profile.AvatarUrl.StartsWith("http") ? profile.AvatarUrl : $"{baseUrl}/{profile.AvatarUrl.TrimStart('/')}")
-                    : $"{baseUrl}/uploads/avatars/default.jpg",
-                FitnessLevel = activeProgram?.FitnessLevelAtStart ?? (latestVersion?.FitnessLevelSelected ?? "Beginner"),
-                Goal = latestVersion?.GoalSelected ?? "LOSE"
-            };
+                // 1. FETCH USER DATA (sequential)
+                var user = await _context.UsrUsers.FirstOrDefaultAsync(u => u.UserId == userId);
+                var profile = await _context.UsrUserProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
+                var metrics = await _context.UsrUserMetrics
+                    .Where(m => m.UserId == userId)
+                    .OrderByDescending(m => m.RecordedAt)
+                    .FirstOrDefaultAsync();
+                var target = await _context.NtrUserCycleTargets
+                    .Where(t => t.UserId == userId)
+                    .OrderByDescending(t => t.CreatedAt)
+                    .FirstOrDefaultAsync();
+                var latestVersion = await _context.UsrUserProfileVersions
+                    .Where(v => v.UserId == userId && v.IsCurrent == true)
+                    .OrderByDescending(v => v.CreatedAt)
+                    .FirstOrDefaultAsync();
+                var activeProgram = await _context.UsrUserProgramInstances
+                    .FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
 
-            // --- 3. BMI & WATER ---
-            double bmiValue = CalculateBMI(metrics?.CurrentWeightKg, metrics?.CurrentHeightCm);
-            dashboardData.BmiData = new BmiDataDto { Value = Math.Round(bmiValue, 1), Status = GetBmiStatus(bmiValue) };
-
-            var waterMl = await _context.NtrWaterLogs
-                .Where(w => w.UserId == userId && w.LogDate == todayDateOnly)
-                .SumAsync(w => (int?)w.WaterMl) ?? 0;
-
-            // --- 4. NUTRITION ENGINE (Flexible & Clean Version) ---
-            // 4.1 Intake (Food Calories)
-            var intakeToday = await (from dl in _context.NtrDailyLogs
-                                     join dml in _context.NtrDailyMealLogs on dl.DailyLogId equals dml.DailyLogId
-                                     where dl.UserId == userId && dl.PlanDate == todayDateOnly
-                                     select (double?)dml.Calories).SumAsync() ?? 0;
-
-            // 4.2 Burned (from Activity Summary – already includes workouts)
-            var burnedToday = await _context.ActActivitySummaries
-                .Where(a => a.UserId == userId && a.LogDate == todayDateOnly)
-                .Select(a => (double?)a.CaloriesBurned)
-                .SumAsync() ?? 0;
-
-            double targetValue = target?.DailyTargetNetCalories ?? 2000;
-
-            dashboardData.Nutrition = new NutritionDataDto
-            {
-                TargetCalories = (int)targetValue,
-                Intake = (int)intakeToday,
-                Burned = (int)burnedToday,
-                NetCalories = (int)(intakeToday - burnedToday),
-                Remaining = (int)(targetValue - (intakeToday - burnedToday)),
-                WaterGlasses = waterMl / 250,
-                WaterTarget = 8
-            };
-
-            // --- 5. WORKOUT SEEDING (Show current day exercises) ---
-            if (activeProgram != null)
-            {
-                int currentDay = activeProgram.CurrentDayNo;                 // 1‑28
-                int currentWeek = ((currentDay - 1) / 7) + 1;               // 1‑4
-                int templateDayNo = ((currentDay - 1) % 7) + 1;             // 1‑7
-
-                // Get the day type for the current day (use week 1 pattern)
-                var dayDef = await _context.WrkProgramTemplateDays
-                    .FirstOrDefaultAsync(d => d.ProgramId == activeProgram.ProgramId
-                                           && d.DayNo == templateDayNo
-                                           && d.WeekNo == 1);               // pattern repeats, so week 1 is the master
-
-                if (dayDef != null)
+                // 2. BUILD BASE DASHBOARD
+                var dashboardData = new DashboardResponseDto
                 {
-                    // Check if today's workout is already completed
-                    bool isCompletedToday = await _context.UsrUserWorkoutSessions
-                        .AnyAsync(s => s.UserId == userId
-                                    && s.ProgramInstanceId == activeProgram.InstanceId
-                                    && s.WorkoutDay == currentDay
-                                    && s.Status == "Completed");
+                    Name = !string.IsNullOrWhiteSpace(profile?.Name) ? profile.Name : (user?.Name ?? "Champion"),
+                    UserName = !string.IsNullOrWhiteSpace(profile?.Username) ? profile.Username : (user?.Username ?? "user"),
+                    UserAvatar = (profile != null && !string.IsNullOrWhiteSpace(profile.AvatarUrl))
+                        ? (profile.AvatarUrl.StartsWith("http") ? profile.AvatarUrl : $"{baseUrl}/{profile.AvatarUrl.TrimStart('/')}")
+                        : $"{baseUrl}/uploads/avatars/default.jpg",
+                    FitnessLevel = activeProgram?.FitnessLevelAtStart ?? (latestVersion?.FitnessLevelSelected ?? "Beginner"),
+                    Goal = latestVersion?.GoalSelected ?? "LOSE"
+                };
 
-                    // Fetch the template exercises for the current week and day type
-                    dashboardData.UpcomingWorkouts = await (from tw in _context.WrkProgramTemplateDaytypeWorkouts
-                                                            join w in _context.WrkWorkouts on tw.WorkoutId equals w.WorkoutId
-                                                            where tw.ProgramId == activeProgram.ProgramId
-                                                               && tw.WeekNo == currentWeek
-                                                               && tw.DayType == dayDef.DayType
-                                                            orderby tw.WorkoutOrder
-                                                            select new WorkoutExerciseDto
-                                                            {
-                                                                Id = w.WorkoutId,
-                                                                Name = w.WorkoutName,
-                                                                ImageFileName = !string.IsNullOrEmpty(w.ImgFilename)
-                                                                    ? BuildWorkoutImageUrl(baseUrl, w.Category, w.ImgFilename)
-                                                                    : "",
-                                                                MuscleGroup = w.MuscleGroup ?? "Full Body",
-                                                                Sets = tw.SetsDefault,               // use template sets
-                                                                Reps = tw.RepsDefault,               // use template reps
-                                                                DurationMinutes = w.Duration ?? 10,
-                                                                Calories = (int)(w.CaloriesBurned ?? 50),
-                                                                IsCompleted = isCompletedToday
-                                                            }).Take(2).ToListAsync();
-                }
-            }
+                // 3. BMI
+                double bmiValue = CalculateBMI(metrics?.CurrentWeightKg, metrics?.CurrentHeightCm);
+                dashboardData.BmiData = new BmiDataDto { Value = Math.Round(bmiValue, 1), Status = GetBmiStatus(bmiValue) };
 
-            // --- 6. MEAL PREVIEW (from template, not logs) ---
-            List<MealGroupDto> todayMeals = new List<MealGroupDto>();
+                // 4. WATER / INTAKE / BURNED (sequential)
+                var waterMl = await _context.NtrWaterLogs
+                    .Where(w => w.UserId == userId && w.LogDate == todayDateOnly)
+                    .SumAsync(w => (int?)w.WaterMl) ?? 0;
+                var intakeToday = await (from dl in _context.NtrDailyLogs
+                                         join dml in _context.NtrDailyMealLogs on dl.DailyLogId equals dml.DailyLogId
+                                         where dl.UserId == userId && dl.PlanDate == todayDateOnly
+                                         select (double?)dml.Calories).SumAsync() ?? 0;
+                var burnedToday = await _context.ActActivitySummaries
+                    .Where(a => a.UserId == userId && a.LogDate == todayDateOnly)
+                    .Select(a => (double?)a.CaloriesBurned)
+                    .SumAsync() ?? 0;
 
-            // Get user's dietary preference
-            var nutritionProfile = await _context.NtrUserNutritionProfiles
-                .FirstOrDefaultAsync(p => p.UserId == userId);
-            string dietaryType = nutritionProfile?.DietaryType ?? "BALANCED";
+                double targetValue = target?.DailyTargetNetCalories ?? 2000;
 
-            // Find meal template for this dietary type
-            var mealTemplate = await _context.NtrMealTemplates
-                .FirstOrDefaultAsync(t => t.DietaryType == dietaryType)
-                ?? await _context.NtrMealTemplates.FirstOrDefaultAsync();
-
-            if (mealTemplate != null && activeProgram != null)
-            {
-                int currentDay = activeProgram.CurrentDayNo;
-                int templateDayNo = ((currentDay - 1) % 7) + 1; // pattern repeats every 7 days
-
-                var templateDay = await _context.NtrTemplateDays
-                    .Include(td => td.NtrTemplateDayMeals)
-                        .ThenInclude(tdm => tdm.NtrTemplateMealItems)
-                            .ThenInclude(tmi => tmi.Food)
-                    .FirstOrDefaultAsync(td => td.TemplateId == mealTemplate.TemplateId && td.DayNo == templateDayNo);
-
-                if (templateDay != null)
+                dashboardData.Nutrition = new NutritionDataDto
                 {
-                    foreach (var tdm in templateDay.NtrTemplateDayMeals.OrderBy(m => GetMealOrder(m.MealType)))
+                    TargetCalories = (int)targetValue,
+                    Intake = (int)intakeToday,
+                    Burned = (int)burnedToday,
+                    NetCalories = (int)(intakeToday - burnedToday),
+                    Remaining = (int)(targetValue - (intakeToday - burnedToday)),
+                    WaterGlasses = waterMl / 250,
+                    WaterTarget = 8
+                };
+
+                // 5. WORKOUT DATA
+                if (activeProgram != null)
+                {
+                    int currentDay = activeProgram.CurrentDayNo;
+                    int currentWeek = ((currentDay - 1) / 7) + 1;
+                    int templateDayNo = ((currentDay - 1) % 7) + 1;
+
+                    var dayDef = await _context.WrkProgramTemplateDays
+                        .Where(d => d.ProgramId == activeProgram.ProgramId
+                                 && d.DayNo == templateDayNo
+                                 && d.WeekNo == 1)
+                        .Select(d => d.DayType)
+                        .FirstOrDefaultAsync();
+
+                    if (dayDef != null)
                     {
-                        var foodItems = tdm.NtrTemplateMealItems
-                        .OrderBy(i => i.SortOrder)
-                        .Take(2)
-                        .Select(i => new FoodItemDto
-                        {
-                            FoodId = i.FoodId,
-                            Name = i.Food.FoodName,
-                            Description = i.Food.Description ?? "",
-                            ImageUrl = BuildFoodImageUrl(baseUrl, i.Food.DietaryType ?? "balanced", tdm.MealType, i.Food.ImgFilename),
-                            DietaryType = i.Food.DietaryType ?? "balanced",
-                            Qty = (double)i.DefaultQty,
-                            Unit = i.Food.ServingUnit,
-                            Calories = (double)i.Food.Calories,
-                            Protein = (double)i.Food.ProteinG,
-                            Carbs = (double)i.Food.CarbsG,
-                            Fats = (double)i.Food.FatsG
-                        })
-                        .ToList();
+                        bool isCompletedToday = await _context.UsrUserWorkoutSessions
+                            .AnyAsync(s => s.UserId == userId
+                                        && s.ProgramInstanceId == activeProgram.InstanceId
+                                        && s.WorkoutDay == currentDay
+                                        && s.Status == "Completed");
 
-                        todayMeals.Add(new MealGroupDto
+                        // Fetch raw workout data
+                        var rawWorkouts = await (from tw in _context.WrkProgramTemplateDaytypeWorkouts
+                                                 join w in _context.WrkWorkouts on tw.WorkoutId equals w.WorkoutId
+                                                 where tw.ProgramId == activeProgram.ProgramId
+                                                    && tw.WeekNo == currentWeek
+                                                    && tw.DayType == dayDef
+                                                 orderby tw.WorkoutOrder
+                                                 select new
+                                                 {
+                                                     w.WorkoutId,
+                                                     w.WorkoutName,
+                                                     w.ImgFilename,
+                                                     w.Category,
+                                                     w.MuscleGroup,
+                                                     w.Duration,
+                                                     w.CaloriesBurned,
+                                                     tw.SetsDefault,
+                                                     tw.RepsDefault
+                                                 })
+                                                 .Take(2)
+                                                 .ToListAsync();
+
+                        // Build DTOs in memory
+                        var workouts = rawWorkouts.Select(w => new WorkoutExerciseDto
                         {
-                            TemplateMealId = tdm.TemplateMealId,
-                            MealType = tdm.MealType,
-                            Status = "PENDING",        // no logs yet
-                            FoodItems = foodItems
-                        });
+                            Id = w.WorkoutId,
+                            Name = w.WorkoutName,
+                            ImageFileName = !string.IsNullOrEmpty(w.ImgFilename)
+                                ? BuildWorkoutImageUrl(baseUrl, w.Category, w.ImgFilename)
+                                : "",
+                            MuscleGroup = w.MuscleGroup ?? "Full Body",
+                            Sets = w.SetsDefault,
+                            Reps = w.RepsDefault,
+                            DurationMinutes = w.Duration ?? 10,
+                            Calories = (int)(w.CaloriesBurned ?? 50),
+                            IsCompleted = isCompletedToday
+                        }).ToList();
+
+                        dashboardData.UpcomingWorkouts = workouts;
                     }
                 }
+
+                // 6. MEAL PREVIEW
+                List<MealGroupDto> todayMeals = new List<MealGroupDto>();
+
+                var nutritionProfile = await _context.NtrUserNutritionProfiles
+                    .Where(p => p.UserId == userId)
+                    .Select(p => p.DietaryType)
+                    .FirstOrDefaultAsync();
+                string dietaryType = nutritionProfile ?? "BALANCED";
+
+                var mealTemplate = await GetOrCacheMealTemplate(dietaryType);
+                if (mealTemplate != null && activeProgram != null)
+                {
+                    int currentDay = activeProgram.CurrentDayNo;
+                    int templateDayNo = ((currentDay - 1) % 7) + 1;
+
+                    // Fetch raw data
+                    var rawData = await _context.NtrTemplateDays
+                        .Where(td => td.TemplateId == mealTemplate.TemplateId && td.DayNo == templateDayNo)
+                        .Select(td => new
+                        {
+                            td.TemplateDayId,
+                            Meals = td.NtrTemplateDayMeals
+                                .Select(m => new
+                                {
+                                    m.TemplateMealId,
+                                    m.MealType,
+                                    FoodItems = m.NtrTemplateMealItems
+                                        .OrderBy(i => i.SortOrder)
+                                        .Take(2)
+                                        .Select(i => new
+                                        {
+                                            i.FoodId,
+                                            i.Food.FoodName,
+                                            i.Food.Description,
+                                            i.Food.DietaryType,
+                                            i.DefaultQty,
+                                            i.Food.ServingUnit,
+                                            i.Food.Calories,
+                                            i.Food.ProteinG,
+                                            i.Food.CarbsG,
+                                            i.Food.FatsG,
+                                            i.Food.ImgFilename
+                                        }).ToList()
+                                }).ToList()
+                        })
+                        .FirstOrDefaultAsync();
+
+                    if (rawData != null)
+                    {
+                        // Build DTOs in memory
+                        todayMeals = rawData.Meals
+                            .OrderBy(m => GetMealOrder(m.MealType))
+                            .Select(m => new MealGroupDto
+                            {
+                                TemplateMealId = m.TemplateMealId,
+                                MealType = m.MealType,
+                                Status = "PENDING",
+                                FoodItems = m.FoodItems.Select(fi => new FoodItemDto
+                                {
+                                    FoodId = fi.FoodId,
+                                    Name = fi.FoodName,
+                                    Description = fi.Description ?? "",
+                                    ImageUrl = BuildFoodImageUrl(baseUrl, fi.DietaryType ?? "balanced", m.MealType, fi.ImgFilename),
+                                    DietaryType = fi.DietaryType ?? "balanced",
+                                    Qty = (double)fi.DefaultQty,
+                                    Unit = fi.ServingUnit,
+                                    Calories = (double)fi.Calories,
+                                    Protein = (double)fi.ProteinG,
+                                    Carbs = (double)fi.CarbsG,
+                                    Fats = (double)fi.FatsG
+                                }).ToList()
+                            }).ToList();
+                    }
+                }
+
+                dashboardData.TodayMeals = todayMeals;
+                _logger.LogInformation("Dashboard data built successfully, returning response.");
+                var json = System.Text.Json.JsonSerializer.Serialize(dashboardData);
+                _logger.LogInformation($"Dashboard response size: {json.Length} characters");   
+                return Ok(dashboardData);
             }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in GetDashboard for user {UserId}", userId);
+                return StatusCode(500, "An error occurred while fetching dashboard data.");
+            }
+        }
 
-            dashboardData.TodayMeals = todayMeals;
+        // Helper for caching (inject IMemoryCache)
+        private async Task<NtrMealTemplate> GetOrCacheMealTemplate(string dietaryType)
+        {
+            var cacheKey = $"MealTemplate_{dietaryType}";
+            if (!_cache.TryGetValue(cacheKey, out NtrMealTemplate template))
+            {
+                template = await _context.NtrMealTemplates
+                    .Where(t => t.DietaryType == dietaryType)
+                    .FirstOrDefaultAsync();
 
-            return Ok(dashboardData);
+                if (template == null)
+                    template = await _context.NtrMealTemplates.FirstOrDefaultAsync();
+
+                // Cache for 10 minutes (adjust as needed)
+                _cache.Set(cacheKey, template, TimeSpan.FromMinutes(10));
+            }
+            return template;
         }
 
         private static string BuildWorkoutImageUrl(string baseUrl, string category, string fileName)
@@ -298,9 +372,10 @@ namespace FlexiFit.Api.Controllers
             {
 
                 // --- 1. BASE PROFILE & USER SYNC (SMART FALLBACK) ---
-                var user = await _context.UsrUsers.FindAsync(userId.Value);
+                var userTask = _context.UsrUsers.FirstOrDefaultAsync(u => u.UserId == userId); 
                 var profile = await _context.UsrUserProfiles.FirstOrDefaultAsync(p => p.UserId == userId.Value)
                               ?? new UsrUserProfile { UserId = userId.Value, CreatedAt = DateTime.UtcNow };
+                var user = await userTask;   // <-- this is missing
 
                 if (user != null)
                 {

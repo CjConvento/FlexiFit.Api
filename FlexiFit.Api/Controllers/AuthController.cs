@@ -1,7 +1,10 @@
 ﻿using Dapper;
+using FirebaseAdmin.Auth;
 using FlexiFit.Api.Dtos;
+using FlexiFit.Api.Services;
 using FlexiFit.Api.Entities;
 using FlexiFit.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -20,19 +23,25 @@ public class AuthController : ControllerBase
     private readonly FlexiFitDbContext _db;
     private readonly FirebaseTokenVerifier _firebase;
     private readonly JwtService _jwt;
-    private readonly IConfiguration _config; // Idagdag ito
-    private readonly string _connectionString; // Idagdag ito
+    private readonly IUserService _userService;
+    private readonly IConfiguration _config;
+    private readonly string _connectionString;
 
-    public AuthController(FlexiFitDbContext db, JwtService jwt, FirebaseTokenVerifier firebase, DeviceTokenService deviceTokenService, IConfiguration config)
+    public AuthController(
+        FlexiFitDbContext db,
+        JwtService jwt,
+        FirebaseTokenVerifier firebase,
+        DeviceTokenService deviceTokenService,
+        IUserService userService,
+        IConfiguration config)
     {
         _db = db;
         _jwt = jwt;
         _firebase = firebase;
         _deviceTokenService = deviceTokenService;
-        // Dito i-assign ang config at connection string
+        _userService = userService;
         _config = config;
         _connectionString = _config.GetConnectionString("FlexifitDb");
-
     }
 
     // POST: /api/auth/register
@@ -156,6 +165,57 @@ public class AuthController : ControllerBase
         }
     }
 
+    // POST: /api/auth/refresh
+    [HttpPost("refresh")]
+    [AllowAnonymous] // Hindi kailangan ng JWT kasi expired na
+    public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequest request)
+    {
+        if (string.IsNullOrEmpty(request.FirebaseIdToken))
+            return BadRequest("Firebase token is required.");
+
+        // 1. Verify Firebase ID token
+        FirebaseToken decodedToken;
+        try
+        {
+            decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(request.FirebaseIdToken);
+        }
+        catch (FirebaseAuthException ex)
+        {
+            return Unauthorized(new { message = "Invalid Firebase token.", error = ex.Message });
+        }
+
+        string firebaseUid = decodedToken.Uid;
+
+        // 2. Fetch user from database using IUserService
+        var user = await _userService.GetByFirebaseUidAsync(firebaseUid);
+        if (user == null)
+        {
+            return NotFound(new { message = "User not found. Please register first." });
+        }
+
+        // 3. Generate new JWT token using JwtService (same as in MapToAuthResponse)
+        var token = _jwt.CreateToken(
+            user.UserId,
+            user.FirebaseUid,
+            user.Role,
+            user.Email
+        );
+
+        // 4. Build response
+        var photo = user.UsrUserProfile?.AvatarUrl;
+        var response = new AuthResponse(
+            token,
+            user.UserId,
+            user.Role ?? "USER",
+            user.Status ?? "PENDING_ONBOARDING",
+            user.IsVerified,
+            user.Name,
+            photo
+        );
+
+        return Ok(response);
+    }
+
     private string GenerateJwtToken(string email, string userId, string firebaseUid)
     {
         var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]));
@@ -163,12 +223,12 @@ public class AuthController : ControllerBase
 
         var claims = new[]
         {
-        new Claim(ClaimTypes.Email, email), // Email claim
-        new Claim(ClaimTypes.NameIdentifier, userId), // Dito kumukuha ang 'userId'
-        new Claim("FirebaseUid", firebaseUid),        // Custom claim para sa Firebase ID
-        new Claim(ClaimTypes.Role, "Admin"),
-        new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
-    };
+            new Claim(ClaimTypes.Email, email),
+            new Claim(ClaimTypes.NameIdentifier, userId),
+            new Claim("FirebaseUid", firebaseUid),
+            new Claim(ClaimTypes.Role, "Admin"),
+            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+        };
 
         var token = new JwtSecurityToken(
             issuer: _config["Jwt:Issuer"],
@@ -187,20 +247,18 @@ public class AuthController : ControllerBase
             user.FirebaseUid,
             user.Role,
             user.Email
-    );
+        );
 
-        // Dahil WithOne ang relationship sa fluent API mo, 
-        // diretso na tayo sa .AvatarUrl, walang FirstOrDefault()
         var photo = user.UsrUserProfile?.AvatarUrl;
 
         return new AuthResponse(
-            token,                          // 1
-            user.UserId,                    // 2
-            user.Role ?? "USER",            // 3
-            user.Status ?? "PENDING_ONBOARDING", // 4
-            user.IsVerified,                // 5
-            user.Name,                      // 6
-            photo                       // 7
+            token,
+            user.UserId,
+            user.Role ?? "USER",
+            user.Status ?? "PENDING_ONBOARDING",
+            user.IsVerified,
+            user.Name,
+            photo
         );
     }
 

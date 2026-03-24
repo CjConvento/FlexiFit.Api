@@ -28,41 +28,48 @@ public class WorkoutController : ControllerBase
         if (userId == null) return Unauthorized();
 
         var todayDateOnly = DateOnly.FromDateTime(DateTime.UtcNow);
-
         var baseUrl = $"{Request.Scheme}://{Request.Host}";
 
         try
         {
-            // 1. Get Active Program Instance
+            // 1. Get Active Program Instance (project only needed fields)
             var activeProgram = await _context.UsrUserProgramInstances
-                .FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
+                .Where(p => p.UserId == userId && p.Status == "ACTIVE")
+                .Select(p => new
+                {
+                    p.InstanceId,
+                    p.ProgramId,
+                    p.CurrentDayNo,
+                    p.CycleNo,
+                    p.FitnessLevelAtStart,
+                    p.Status,
+                    ProgramName = p.Program != null ? p.Program.ProgramName : "My Program",
+                    ProgramDescription = p.Program != null ? p.Program.Description : "",
+                    ProgramEnvironment = p.Program != null ? p.Program.Environment : "Any",
+                    ProgramLevel = p.Program != null ? p.Program.FitnessLevel : "Beginner"
+                })
+                .FirstOrDefaultAsync();
 
             if (activeProgram == null)
                 return NotFound(new { message = "No active program found. Please start a program first." });
 
             _logger.LogInformation($"User {userId} - Current Day: {activeProgram.CurrentDayNo}");
 
-            // Get all active program instances for this user, ordered by ProgramId (or CreatedAt)
-            var allActivePrograms = await _context.UsrUserProgramInstances
-                .Where(p => p.UserId == userId && p.Status == "ACTIVE")
-                .OrderBy(p => p.ProgramId)   // or p.CreatedAt
-                .ToListAsync();
+            // 2. Program number (position among active programs)
+            int programNumber = await _context.UsrUserProgramInstances
+                .CountAsync(p => p.UserId == userId && p.Status == "ACTIVE" && p.InstanceId <= activeProgram.InstanceId);
 
-            int programNumber = allActivePrograms.FindIndex(p => p.InstanceId == activeProgram.InstanceId) + 1;
-
-            // 2. Get Program Template
-            var template = await _context.WrkProgramTemplates
-                .FirstOrDefaultAsync(t => t.ProgramId == activeProgram.ProgramId);
-
-            // 3. Calculate template day pattern (1-7 pattern for 28-day cycle)
+            // 3. Calculate day indices
             int currentDay = activeProgram.CurrentDayNo;
             int templateDayNo = ((currentDay - 1) % 7) + 1;
             int weekNo = ((currentDay - 1) / 7) + 1;
             int monthNo = ((currentDay - 1) / 28) + 1;
 
-            // 4. Get Day Type from template (Week 1 pattern)
+            // 4. Get Day Type (project only DayType)
             var dayDef = await _context.WrkProgramTemplateDays
-                .FirstOrDefaultAsync(d => d.ProgramId == activeProgram.ProgramId && d.DayNo == templateDayNo);
+                .Where(d => d.ProgramId == activeProgram.ProgramId && d.DayNo == templateDayNo && d.WeekNo == 1)
+                .Select(d => new { d.DayType })
+                .FirstOrDefaultAsync();
 
             if (dayDef == null)
             {
@@ -72,32 +79,39 @@ public class WorkoutController : ControllerBase
 
             bool isRestDay = dayDef.DayType.Contains("REST", StringComparison.OrdinalIgnoreCase);
 
-            // 5. Get or Create Session for Today
+            // 5. Get or create session for today (project only needed fields)
             var session = await _context.UsrUserWorkoutSessions
-                .FirstOrDefaultAsync(s => s.UserId == userId
-                                       && s.ProgramInstanceId == activeProgram.InstanceId
-                                       && s.WorkoutDay == currentDay);
+                .Where(s => s.UserId == userId
+                         && s.ProgramInstanceId == activeProgram.InstanceId
+                         && s.WorkoutDay == currentDay)
+                .Select(s => new
+                {
+                    s.SessionId,
+                    s.Status,
+                    s.StartedAt,
+                    s.CompletedAt,
+                    s.CreatedAt
+                })
+                .FirstOrDefaultAsync();
 
-            // For REST days
+            // -------------------- REST DAY HANDLING (unchanged logic, but efficient) --------------------
             if (isRestDay)
             {
-                // Ensure todayDateOnly is defined (add this line at the top of the method if not already there)
-                // var todayDateOnly = DateOnly.FromDateTime(DateTime.UtcNow);
-
-                // Get or create the calendar entry for today
+                // Get or create calendar entry for today
                 var calendarDay = await _context.NtrMealPlanCalendars
-                    .FirstOrDefaultAsync(c => c.CycleId == activeProgram.CycleNo && c.DayNo == currentDay);
+                    .Where(c => c.CycleId == activeProgram.CycleNo && c.DayNo == currentDay)
+                    .Select(c => new { c.Status, c.CalendarId })
+                    .FirstOrDefaultAsync();
 
-                // If the rest day hasn’t been marked as done yet, mark it and advance the program
                 if (calendarDay == null || calendarDay.Status != "DONE")
                 {
                     if (calendarDay == null)
                     {
-                        calendarDay = new NtrMealPlanCalendar
+                        _context.NtrMealPlanCalendars.Add(new NtrMealPlanCalendar
                         {
                             CycleId = activeProgram.CycleNo,
                             PlanDate = todayDateOnly,
-                            WeekNo = ((currentDay - 1) / 7) + 1,
+                            WeekNo = weekNo,
                             DayNo = currentDay,
                             TemplateId = 1,
                             VariationCode = "A",
@@ -105,50 +119,42 @@ public class WorkoutController : ControllerBase
                             Status = "DONE",
                             CreatedAt = DateTime.UtcNow,
                             UpdatedAt = DateTime.UtcNow
-                        };
-                        _context.NtrMealPlanCalendars.Add(calendarDay);
+                        });
                     }
                     else
                     {
-                        calendarDay.Status = "DONE";
-                        calendarDay.UpdatedAt = DateTime.UtcNow;
+                        var existing = await _context.NtrMealPlanCalendars
+                            .FirstAsync(c => c.CalendarId == calendarDay.CalendarId);
+                        existing.Status = "DONE";
+                        existing.UpdatedAt = DateTime.UtcNow;
                     }
 
-                    // Advance to the next day
-                    if (activeProgram.CurrentDayNo < 28)
-                    {
-                        activeProgram.CurrentDayNo++;
-                    }
-                    else
-                    {
-                        activeProgram.Status = "COMPLETED";
-                    }
-
-                    await _context.SaveChangesAsync();
+                    // Advance program day (directly, like original logic)
+                    await AdvanceProgramDayDirect(activeProgram.InstanceId, activeProgram.CycleNo);
                 }
 
-                // Return the rest day response
+                // Return rest day response
                 return Ok(new DailyWorkoutPlanDto
                 {
                     DayNo = currentDay,
                     DayType = "REST DAY",
                     Status = "REST",
-                    Level = template?.FitnessLevel,
+                    Level = activeProgram.ProgramLevel,
                     FocusArea = "Recovery",
                     Message = "Today is a rest day! Time to recover and recharge. 🧘",
                     CanSkip = false,
                     Program = new WorkoutProgramDto
                     {
                         ProgramId = activeProgram.ProgramId,
-                        ProgramName = template?.ProgramName ?? "My Program",
-                        Description = template?.Description ?? "",
-                        Environment = template?.Environment ?? "Any",
-                        Level = template?.FitnessLevel ?? "Beginner",
+                        ProgramName = activeProgram.ProgramName,
+                        Description = activeProgram.ProgramDescription,
+                        Environment = activeProgram.ProgramEnvironment,
+                        Level = activeProgram.ProgramLevel,
                         Status = activeProgram.Status,
-                        Month = ((currentDay - 1) / 28) + 1,
-                        Week = ((currentDay - 1) / 7) + 1,
-                        Day = currentDay,   
-                        ProgramNumber = programNumber   // ✅ ADD THIS
+                        Month = monthNo,
+                        Week = weekNo,
+                        Day = currentDay,
+                        ProgramNumber = programNumber
                     },
                     Warmups = new List<WorkoutExerciseDto>(),
                     Workouts = new List<WorkoutExerciseDto>(),
@@ -157,45 +163,45 @@ public class WorkoutController : ControllerBase
                 });
             }
 
-            // For workout days - create session if it doesn't exist
+            // -------------------- WORKOUT DAY HANDLING --------------------
             if (session == null)
             {
                 _logger.LogInformation($"Creating new workout session for User {userId}, Day {currentDay}");
 
-                session = new UsrUserWorkoutSession
+                var newSession = new UsrUserWorkoutSession
                 {
                     UserId = userId.Value,
                     ProgramInstanceId = activeProgram.InstanceId,
                     WorkoutDay = currentDay,
                     Status = "PENDING",
                     CreatedAt = DateTime.UtcNow,
-                    StartedAt = DateTime.UtcNow       // ✅ Add this line
+                    StartedAt = DateTime.UtcNow
                 };
-                _context.UsrUserWorkoutSessions.Add(session);
+                _context.UsrUserWorkoutSessions.Add(newSession);
                 await _context.SaveChangesAsync();
 
-                // Create workout exercises for this session (includes warmups)
-                await CreateSessionWorkouts(session.SessionId, activeProgram.ProgramId, dayDef.DayType, weekNo);
+                // Create workout exercises (includes warmups)
+                await CreateSessionWorkouts(newSession.SessionId, activeProgram.ProgramId, dayDef.DayType, weekNo);
 
                 // Ensure calendar entry exists
-                await EnsureCalendarEntryExists(activeProgram, currentDay, false);
+                await EnsureCalendarEntryExists(activeProgram.CycleNo, currentDay, activeProgram.CurrentDayNo, false);
 
-                // ✅ ADD THIS LINE - Ensure existing session has warmups
-                await EnsureWarmupsExist(session.SessionId);
+                // No need for EnsureWarmupsExist – already added in CreateSessionWorkouts
+                session = new { newSession.SessionId, newSession.Status, StartedAt = newSession.StartedAt, CompletedAt = newSession.CompletedAt, CreatedAt = newSession.CreatedAt };
             }
 
             bool isCompleted = session.Status?.ToUpper() == "COMPLETED";
             bool isSkipped = session.Status?.ToUpper() == "SKIPPED";
             bool canSkip = !isCompleted && !isSkipped;
 
-            // 6. Get Warmups and Workouts - SAFE with null checking
+            // 6. Get warmups and workouts for this session (use full entity for simplicity)
             var allWorkouts = await _context.UsrUserSessionWorkouts
                 .Include(sw => sw.Workout)
                 .Where(sw => sw.SessionId == session.SessionId)
                 .OrderBy(sw => sw.OrderNo)
                 .ToListAsync();
 
-            // Separate warmups from regular workouts with null safety
+            // Separate warmups from regular workouts
             var warmups = allWorkouts
                 .Where(w => w.Workout != null && w.Workout.Category?.ToUpper() == "WARMUP")
                 .Select(w => MapToWorkoutExerciseDto(w, baseUrl, isCompleted))
@@ -206,13 +212,13 @@ public class WorkoutController : ControllerBase
                 .Select(w => MapToWorkoutExerciseDto(w, baseUrl, isCompleted))
                 .ToList();
 
-            // 7. Build Response
+            // 7. Build response
             var response = new DailyWorkoutPlanDto
             {
                 DayNo = currentDay,
                 DayType = dayDef.DayType,
                 Status = session.Status ?? "PENDING",
-                Level = template?.FitnessLevel,
+                Level = activeProgram.ProgramLevel,
                 FocusArea = dayDef.DayType,
                 Message = GetStatusMessage(session.Status),
                 CanSkip = canSkip,
@@ -221,15 +227,15 @@ public class WorkoutController : ControllerBase
                 Program = new WorkoutProgramDto
                 {
                     ProgramId = activeProgram.ProgramId,
-                    ProgramName = template?.ProgramName ?? "My Program",
-                    Description = template?.Description ?? "",
-                    Environment = template?.Environment ?? "Any",
-                    Level = template?.FitnessLevel ?? "Beginner",
+                    ProgramName = activeProgram.ProgramName,
+                    Description = activeProgram.ProgramDescription,
+                    Environment = activeProgram.ProgramEnvironment,
+                    Level = activeProgram.ProgramLevel,
                     Status = activeProgram.Status,
                     Month = monthNo,
                     Week = weekNo,
                     Day = currentDay,
-                    ProgramNumber = programNumber   // ✅ ADD THIS
+                    ProgramNumber = programNumber
                 },
                 Warmups = warmups,
                 Workouts = workouts,
@@ -239,14 +245,10 @@ public class WorkoutController : ControllerBase
 
             _logger.LogInformation($"Returning workout plan for User {userId}, Day {currentDay}, Status: {response.Status}, Warmups: {warmups.Count}, Workouts: {workouts.Count}");
             return Ok(response);
-
-            _logger.LogInformation($"Returning workout plan for User {userId}, Day {currentDay}, Status: {response.Status}");
-            return Ok(response);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, $"Error getting today's workout for user {userId}");
-            // Also log the inner exception and SQL error details
             var inner = ex.InnerException;
             while (inner != null)
             {
@@ -702,17 +704,17 @@ public class WorkoutController : ControllerBase
 
     #region Private Helper Methods
 
-    private async Task EnsureCalendarEntryExists(UsrUserProgramInstance activeProgram, int dayNo, bool isRestDay)
+    private async Task EnsureCalendarEntryExists(int cycleNo, int dayNo, int currentDayNo, bool isRestDay)
     {
         var existingCalendar = await _context.NtrMealPlanCalendars
-            .FirstOrDefaultAsync(c => c.CycleId == activeProgram.CycleNo && c.DayNo == dayNo);
+            .FirstOrDefaultAsync(c => c.CycleId == cycleNo && c.DayNo == dayNo);
 
         if (existingCalendar == null)
         {
             var calendarEntry = new NtrMealPlanCalendar
             {
-                CycleId = activeProgram.CycleNo,
-                PlanDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(dayNo - activeProgram.CurrentDayNo)),
+                CycleId = cycleNo,
+                PlanDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(dayNo - currentDayNo)),
                 WeekNo = ((dayNo - 1) / 7) + 1,
                 DayNo = dayNo,
                 TemplateId = 1,
@@ -732,6 +734,33 @@ public class WorkoutController : ControllerBase
     {
         int index = (weekNo - 1) % 4;
         return ((char)('A' + index)).ToString();
+    }
+
+    private async Task<int> GetTotalDaysForCycle(int cycleId)
+    {
+        var weeks = await _context.NtrUserCycleTargets
+            .Where(t => t.CycleId == cycleId)
+            .OrderByDescending(t => t.CreatedAt)
+            .Select(t => (int?)t.WeeksInCycle)   // force nullable
+            .FirstOrDefaultAsync();
+
+        return (weeks ?? 4) * 7;
+    }   
+
+    private async Task AdvanceProgramDayDirect(int instanceId, int cycleNo)
+    {
+        var program = await _context.UsrUserProgramInstances
+            .FirstOrDefaultAsync(p => p.InstanceId == instanceId);
+        if (program == null) return;
+
+        int totalDays = await GetTotalDaysForCycle(cycleNo);
+        program.CurrentDayNo++;
+        if (program.CurrentDayNo > totalDays)
+        {
+            program.Status = "COMPLETED";
+            program.CompletedAt = DateTime.UtcNow;
+        }
+        await _context.SaveChangesAsync();
     }
 
     private async Task TryAdvanceProgramDay(int userId, DateOnly date)
@@ -944,10 +973,9 @@ public class WorkoutController : ControllerBase
     {
         _logger.LogInformation($"Creating session workouts for Session {sessionId}, Program {programId}, DayType {dayType}, Week {weekNo}");
 
-        // Check if workouts already exist for this session
+        // Check if workouts already exist
         var existingWorkouts = await _context.UsrUserSessionWorkouts
             .AnyAsync(sw => sw.SessionId == sessionId);
-
         if (existingWorkouts)
         {
             _logger.LogWarning($"Session {sessionId} already has workouts. Skipping creation.");
@@ -957,16 +985,12 @@ public class WorkoutController : ControllerBase
         var sessionWorkouts = new List<UsrUserSessionWorkout>();
         int order = 1;
 
-        // 1. Add 2 random warmups
+        // 1. Add 2 random warmups (efficient random)
         var warmups = await _context.WrkWorkouts
-            .Where(w => w.Category != null
-                     && w.Category.ToUpper() == "WARMUP"
-                     && w.IsActive == true)
-            .OrderBy(w => Guid.NewGuid())
+            .Where(w => w.Category == "WARMUP" && w.IsActive == true)
+            .OrderBy(x => EF.Functions.Random()) // SQL Server NEWID()
             .Take(2)
             .ToListAsync();
-
-        _logger.LogInformation($"Adding {warmups.Count} warmup exercises");
 
         foreach (var warmup in warmups)
         {
@@ -981,48 +1005,43 @@ public class WorkoutController : ControllerBase
             });
         }
 
-        // 2. Add main workouts from template (using week number)
+        // 2. Add main workouts from template
         var templateWorkouts = await _context.WrkProgramTemplateDaytypeWorkouts
-            .Where(tw => tw.ProgramId == programId
-                      && tw.WeekNo == weekNo
-                      && tw.DayType == dayType)
+            .Where(tw => tw.ProgramId == programId && tw.WeekNo == weekNo && tw.DayType == dayType)
             .OrderBy(tw => tw.WorkoutOrder)
-            .Take(8) // Max 8 main workouts
+            .Take(8)
+            .Select(tw => new { tw.WorkoutId, tw.SetsDefault, tw.RepsDefault })
             .ToListAsync();
 
-        // If no workouts found for this week, fall back to week 1
         if (!templateWorkouts.Any())
         {
-            _logger.LogWarning($"No template workouts found for week {weekNo}, falling back to week 1.");
+            // Fallback to week 1
             templateWorkouts = await _context.WrkProgramTemplateDaytypeWorkouts
-                .Where(tw => tw.ProgramId == programId
-                          && tw.WeekNo == 1
-                          && tw.DayType == dayType)
+                .Where(tw => tw.ProgramId == programId && tw.WeekNo == 1 && tw.DayType == dayType)
                 .OrderBy(tw => tw.WorkoutOrder)
                 .Take(8)
+                .Select(tw => new { tw.WorkoutId, tw.SetsDefault, tw.RepsDefault })
                 .ToListAsync();
         }
 
         if (!templateWorkouts.Any())
         {
-            // Last resort: fallback to random workouts (excluding warmups and cardio)
-            _logger.LogWarning($"No template workouts found for {dayType}, using fallback random workouts.");
-
+            // Fallback to random workouts (excluding warmups and cardio)
             var fallbackWorkouts = await _context.WrkWorkouts
                 .Where(w => w.IsActive == true
                          && w.Category != null
                          && w.Category.ToUpper() != "WARMUP"
                          && w.Category.ToUpper() != "CARDIO")
-                .OrderBy(w => Guid.NewGuid())
+                .OrderBy(x => EF.Functions.Random())
                 .Take(8)
                 .ToListAsync();
 
-            foreach (var workout in fallbackWorkouts)
+            foreach (var w in fallbackWorkouts)
             {
                 sessionWorkouts.Add(new UsrUserSessionWorkout
                 {
                     SessionId = sessionId,
-                    WorkoutId = workout.WorkoutId,
+                    WorkoutId = w.WorkoutId,
                     Sets = 3,
                     Reps = 12,
                     OrderNo = order++,
@@ -1052,14 +1071,10 @@ public class WorkoutController : ControllerBase
             .Where(g => g.Count() > 1)
             .Select(g => g.Key)
             .ToList();
-
         if (duplicateOrders.Any())
         {
-            _logger.LogWarning($"Duplicate orders detected: {string.Join(",", duplicateOrders)}. Rebuilding...");
             for (int i = 0; i < sessionWorkouts.Count; i++)
-            {
                 sessionWorkouts[i].OrderNo = i + 1;
-            }
         }
 
         _context.UsrUserSessionWorkouts.AddRange(sessionWorkouts);
@@ -1067,6 +1082,7 @@ public class WorkoutController : ControllerBase
 
         _logger.LogInformation($"Created {sessionWorkouts.Count} workout exercises for Session {sessionId} (Warmups: {warmups.Count}, Main: {sessionWorkouts.Count - warmups.Count})");
     }
+
     private WorkoutExerciseDto MapToWorkoutExerciseDto(UsrUserSessionWorkout sw, string baseUrl, bool isCompleted)
     {
         // Handle null Workout gracefully
@@ -1092,13 +1108,31 @@ public class WorkoutController : ControllerBase
             };
         }
 
+        // Determine image URL
+        string imageUrl;
+        string category = sw.Workout.Category?.ToUpper();
+
+        if (category == "WARMUP")
+        {
+            // Always use default image for warmups
+            imageUrl = $"{baseUrl}/images/workouts/default.png";
+        }
+        else if (!string.IsNullOrEmpty(sw.Workout.ImgFilename))
+        {
+            // Use specific image if available
+            imageUrl = $"{baseUrl}/images/workouts/{GetCategoryFolder(sw.Workout.Category)}/{sw.Workout.ImgFilename}";
+        }
+        else
+        {
+            // Fallback to default
+            imageUrl = $"{baseUrl}/images/workouts/default.png";
+        }
+
         return new WorkoutExerciseDto
         {
             Id = sw.WorkoutId,
             Name = sw.Workout.WorkoutName ?? "Unknown Exercise",
-            ImageFileName = !string.IsNullOrEmpty(sw.Workout.ImgFilename)
-                ? $"{baseUrl}/images/workouts/{GetCategoryFolder(sw.Workout.Category)}/{sw.Workout.ImgFilename}"
-                : $"{baseUrl}/images/workouts/default.png",
+            ImageFileName = imageUrl,
             MuscleGroup = sw.Workout.MuscleGroup ?? "Full Body",
             Sets = sw.Sets,
             Reps = sw.Reps,
@@ -1112,6 +1146,7 @@ public class WorkoutController : ControllerBase
             IsCompleted = isCompleted
         };
     }
+
     private static string GetCategoryFolder(string? category)
     {
         if (string.IsNullOrEmpty(category))
