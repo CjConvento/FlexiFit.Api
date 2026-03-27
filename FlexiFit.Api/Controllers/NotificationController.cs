@@ -33,14 +33,14 @@ namespace FlexiFit.Api.Controllers
             var settings = await _context.UsrUserNotificationSettings
                 .FirstOrDefaultAsync(x => x.UserId == userId.Value);
 
-            // Kung wala pang settings, return default values gaya ng dati
+            // Kung wala pang settings, return default values
             if (settings == null)
             {
                 return Ok(new NotificationSettingsDto
                 {
                     WorkoutReminderEnabled = false,
                     WaterIntervalMinutes = 60,
-                    DailyWaterGoal = 8,
+                    DailyWaterGoal = 2000,      // 8 glasses of 250ml → 2000ml
                     GlassSizeMl = 250,
                     CalorieDisplayMode = "remaining"
                 });

@@ -26,12 +26,12 @@
 
     public class NutritionDataDto
     {
-        public int TargetCalories { get; set; }
-        public int Intake { get; set; }
-        public double Burned { get; set; }
-        public int NetCalories { get; set; } 
-        public int Remaining { get; set; }
-        public int WaterGlasses { get; set; }
-        public int WaterTarget { get; set; } = 8;
+        public int? TargetCalories { get; set; }
+        public int? Intake { get; set; }           // may be null if no daily log
+        public double Burned { get; set; }         // always 0 until logs exist
+        public int? NetCalories { get; set; }      // may be null if no daily log
+        public int? Remaining { get; set; }        // may be null if no daily log
+        public int WaterGlasses { get; set; }      // 0 initially
+        public int? WaterTarget { get; set; }      // can be set later
     }
 }
