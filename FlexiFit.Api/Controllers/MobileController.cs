@@ -38,38 +38,39 @@ namespace FlexiFit.Api.Controllers
             var userId = GetUserId();
             if (userId == null) return Unauthorized();
 
-            // 1. FETCH THE USER OBJECT (Ito ang nawawala kaya ka may CS0103 error)
             var user = await _context.UsrUsers.FindAsync(userId);
-
-            // 2. Fetch other details
             var onboardingDetail = await _context.UsrUserOnboardingDetails
                 .FirstOrDefaultAsync(x => x.UserId == userId);
 
-            // MAG-PRINT TAYO SA CONSOLE NG VISUAL STUDIO:
+            // Debug output
             System.Diagnostics.Debug.WriteLine($"USER ID: {userId}");
             System.Diagnostics.Debug.WriteLine($"ONBOARDING FOUND: {onboardingDetail != null}");
 
-            // 3. LOGIC PARA MAWALA ANG ONBOARDING:
-            // Kung ang status sa DB ay "ACTIVE", profileComplete is true na agad.
-            bool isProfileComplete = (user?.Status == "ACTIVE") || (onboardingDetail != null);
+            // Determine if onboarding is complete:
+            // The user is considered fully onboarded only when their status is "ACTIVE".
+            bool isProfileComplete = user?.Status == "ACTIVE";
+
+            // Optional: If you want to ensure all required fields are filled even when status is not ACTIVE,
+            // you could check that the onboarding detail record is fully populated.
+            // For now, we rely solely on the user's status.
 
             var activeSession = await _context.UsrUserWorkoutSessions
-            .Where(s => s.UserId == userId && s.Status == "PENDING")
-            .OrderByDescending(s => s.CreatedAt) // Use CreatedAt or StartedAt
-            .Select(s => new {
-                s.SessionId,
-                s.WorkoutDay, // Para alam ng App kung Day 1 or Day 2
-                s.Status,
-            exerciseCount = _context.UsrUserSessionWorkouts.Count(sw => sw.SessionId == s.SessionId)
-            })
-            .FirstOrDefaultAsync();
+                .Where(s => s.UserId == userId && s.Status == "PENDING")
+                .OrderByDescending(s => s.CreatedAt)
+                .Select(s => new {
+                    s.SessionId,
+                    s.WorkoutDay,
+                    s.Status,
+                    exerciseCount = _context.UsrUserSessionWorkouts.Count(sw => sw.SessionId == s.SessionId)
+                })
+                .FirstOrDefaultAsync();
 
             var hasProgram = await _context.UsrUserProgramInstances
                 .AnyAsync(p => p.UserId == userId && p.Status == "ACTIVE");
 
             return Ok(new
             {
-                profileComplete = isProfileComplete, // Ito ang nagko-control sa screen
+                profileComplete = isProfileComplete,
                 userId = userId,
                 status = new
                 {
@@ -80,7 +81,7 @@ namespace FlexiFit.Api.Controllers
             });
         }
 
-        [Authorize]
+        [Authorize] 
         [HttpGet("dashboard")]
         public async Task<IActionResult> GetDashboard()
         {
@@ -126,30 +127,24 @@ namespace FlexiFit.Api.Controllers
                 double bmiValue = CalculateBMI(metrics?.CurrentWeightKg, metrics?.CurrentHeightCm);
                 dashboardData.BmiData = new BmiDataDto { Value = Math.Round(bmiValue, 1), Status = GetBmiStatus(bmiValue) };
 
-                // 4. WATER / INTAKE / BURNED (sequential)
+                // 4. Get today's daily log (created during onboarding)
+                var todayLog = await _context.NtrDailyLogs
+                    .FirstOrDefaultAsync(l => l.UserId == userId && l.PlanDate == todayDateOnly);
+
+                // Determine water consumption (still from water logs)
                 var waterMl = await _context.NtrWaterLogs
                     .Where(w => w.UserId == userId && w.LogDate == todayDateOnly)
                     .SumAsync(w => (int?)w.WaterMl) ?? 0;
-                var intakeToday = await (from dl in _context.NtrDailyLogs
-                                         join dml in _context.NtrDailyMealLogs on dl.DailyLogId equals dml.DailyLogId
-                                         where dl.UserId == userId && dl.PlanDate == todayDateOnly
-                                         select (double?)dml.Calories).SumAsync() ?? 0;
-                var burnedToday = await _context.ActActivitySummaries
-                    .Where(a => a.UserId == userId && a.LogDate == todayDateOnly)
-                    .Select(a => (double?)a.CaloriesBurned)
-                    .SumAsync() ?? 0;
-
-                double targetValue = target?.DailyTargetNetCalories ?? 2000;
 
                 dashboardData.Nutrition = new NutritionDataDto
                 {
-                    TargetCalories = (int)targetValue,
-                    Intake = (int)intakeToday,
-                    Burned = (int)burnedToday,
-                    NetCalories = (int)(intakeToday - burnedToday),
-                    Remaining = (int)(targetValue - (intakeToday - burnedToday)),
+                    TargetCalories = todayLog?.TargetNetCalories,                    // int?
+                    Intake = todayLog?.CaloriesConsumed,                             // int?
+                    Burned = (double)(todayLog?.CaloriesBurned ?? 0),                // double, default 0
+                    NetCalories = todayLog?.NetCalories,                             // int?
+                    Remaining = todayLog != null ? todayLog.TargetNetCalories - todayLog.NetCalories : (int?)null,
                     WaterGlasses = waterMl / 250,
-                    WaterTarget = 8
+                    WaterTarget = 8                                                  // optional, can be null if not set
                 };
 
                 // 5. WORKOUT DATA
@@ -359,7 +354,7 @@ namespace FlexiFit.Api.Controllers
                 _ => "general"
             };
         }
-
+        
         [Authorize]
         [HttpPost("onboarding/profile")]
         public async Task<IActionResult> SubmitOnboardingProfile([FromBody] OnboardingProfileRequest request)
@@ -372,10 +367,9 @@ namespace FlexiFit.Api.Controllers
             {
 
                 // --- 1. BASE PROFILE & USER SYNC (SMART FALLBACK) ---
-                var userTask = _context.UsrUsers.FirstOrDefaultAsync(u => u.UserId == userId); 
+                var user = await _context.UsrUsers.FindAsync(userId.Value);
                 var profile = await _context.UsrUserProfiles.FirstOrDefaultAsync(p => p.UserId == userId.Value)
                               ?? new UsrUserProfile { UserId = userId.Value, CreatedAt = DateTime.UtcNow };
-                var user = await userTask;   // <-- this is missing
 
                 if (user != null)
                 {
@@ -396,9 +390,8 @@ namespace FlexiFit.Api.Controllers
 
                     // B. UPDATE PROFILE TABLE (PARA SA DASHBOARD DISPLAY)
                     // DITO ANG MAGIC: Kung walang input sa onboarding, hiramin si "cj" at "cy" sa User table.
-                    // PALITAN ITO — Hiramin LAGI sa usr_users table, hindi sa request
-                    profile.Name = user.Name;      // ← Galing sa usr_users, hindi sa request
-                    profile.Username = user.Username;  // ← Galing sa usr_users, hindi sa request
+                    profile.Name = !string.IsNullOrWhiteSpace(request.Name) ? request.Name : user.Name;
+                    profile.Username = !string.IsNullOrWhiteSpace(request.Username) ? request.Username : user.Username;
                 }
 
                 // C. GENDER & AVATAR
@@ -443,30 +436,30 @@ namespace FlexiFit.Api.Controllers
                 await _context.SaveChangesAsync();
 
 
-                    // nagana na ng maayos
-                    // 3. ONBOARDING DETAILS
-                    var details = await _context.UsrUserOnboardingDetails.FirstOrDefaultAsync(d => d.UserId == userId.Value)
-                                 ?? new UsrUserOnboardingDetail { UserId = userId.Value, CreatedAt = DateTime.UtcNow };
+                // nagana na ng maayos
+                // 3. ONBOARDING DETAILS
+                var details = await _context.UsrUserOnboardingDetails.FirstOrDefaultAsync(d => d.UserId == userId.Value)
+                             ?? new UsrUserOnboardingDetail { UserId = userId.Value, CreatedAt = DateTime.UtcNow };
 
-                    details.ActivityLevel = request.ActivityLevel;
-                    details.FitnessLevel = request.FitnessLevel;
-                    details.BodyGoal = request.BodyGoal;
-                    details.DietType = request.DietType;
-                    details.UpperBodyInjury = request.UpperBodyInjury;
-                    details.LowerBodyInjury = request.LowerBodyInjury;
-                    details.JointProblems = request.JointProblems;
-                    details.ShortBreath = request.ShortBreath;
-                    details.HealthNone = request.HealthNone;
-                    details.Environment = request.Environment != null ? string.Join(", ", request.Environment) : "GYM";
-                    details.FitnessGoals = request.FitnessGoals != null ? string.Join(", ", request.FitnessGoals) : "";
-                    details.UpdatedAt = DateTime.UtcNow;
+                details.ActivityLevel = request.ActivityLevel;
+                details.FitnessLevel = request.FitnessLevel;
+                details.BodyGoal = request.BodyGoal;
+                details.DietType = request.DietType;
+                details.UpperBodyInjury = request.UpperBodyInjury;
+                details.LowerBodyInjury = request.LowerBodyInjury;
+                details.JointProblems = request.JointProblems;
+                details.ShortBreath = request.ShortBreath;
+                details.HealthNone = request.HealthNone;
+                details.Environment = request.Environment != null ? string.Join(", ", request.Environment) : "GYM";
+                details.FitnessGoals = request.FitnessGoals != null ? string.Join(", ", request.FitnessGoals) : "";
+                details.UpdatedAt = DateTime.UtcNow;
 
-                    if (request.SelectedPrograms != null)
-                    {
-                        details.SelectedPrograms = string.Join(", ", request.SelectedPrograms.Select(p => p.Name));
-                    }
+                if (request.SelectedPrograms != null)
+                {
+                    details.SelectedPrograms = string.Join(", ", request.SelectedPrograms.Select(p => p.Name));
+                }
 
-                    if (_context.Entry(details).State == EntityState.Detached) _context.UsrUserOnboardingDetails.Add(details);
+                if (_context.Entry(details).State == EntityState.Detached) _context.UsrUserOnboardingDetails.Add(details);
 
 
                 // --- 4. NUTRITION ENGINE (SEEDING INITIAL MEALS) ---
@@ -480,7 +473,6 @@ namespace FlexiFit.Api.Controllers
                     : (10 * w) + (6.25 * h) - (5 * age) - 161;
 
                 // 1. DYNAMIC MULTIPLIER (All Caps para consistent)
-                string dbActivityLevel = (request.ActivityLevel ?? "SEDENTARY");
                 string nutactLevel = (request.ActivityLevel ?? "SEDENTARY").ToUpper().Replace(" ", "").Replace("_", "");
                 double multiplier = nutactLevel switch
                 {
@@ -521,44 +513,6 @@ namespace FlexiFit.Api.Controllers
                 };
                 _context.UsrUserMetrics.Add(metrics);
 
-
-                // ✅ DITO ILAGAY — BAGO ANG "B. Add Cycle Target"
-                // C. Save/Update Nutrition Profile
-                string dbNutritionGoal = (request.BodyGoal ?? "MAINTAIN");
-                var existingNutProfile = await _context.NtrUserNutritionProfiles
-                    .FirstOrDefaultAsync(p => p.UserId == userId.Value);
-
-
-                if (existingNutProfile == null)
-                {
-                    _context.NtrUserNutritionProfiles.Add(new NtrUserNutritionProfile
-                    {
-                        UserId = userId.Value,
-                        Age = (short)request.Age,
-                        HeightCm = request.HeightCm,
-                        WeightKg = request.WeightKg,
-                        TargetWeightKg = request.TargetWeightKg > 0
-                                            ? request.TargetWeightKg
-                                            : request.WeightKg,
-                        NutritionGoal = dbNutritionGoal,   // NOT NULL sa DB
-                        ActivityLevel = dbActivityLevel,    // NOT NULL sa DB
-                        DietaryType = request.DietType ?? "BALANCED",
-                        UpdatedAt = DateTime.UtcNow
-                    });
-                }
-                else
-                {
-                    existingNutProfile.Age = (short)request.Age;
-                    existingNutProfile.HeightCm = request.HeightCm;
-                    existingNutProfile.WeightKg = request.WeightKg;
-                    if (request.TargetWeightKg > 0)
-                        existingNutProfile.TargetWeightKg = request.TargetWeightKg;
-                    existingNutProfile.UpdatedAt = DateTime.UtcNow;
-                }
-
-                await _context.SaveChangesAsync();
-
-
                 // B. Add Cycle Target
                 var cycleTarget = new NtrUserCycleTarget
                 {
@@ -574,6 +528,42 @@ namespace FlexiFit.Api.Controllers
                 };
                 _context.NtrUserCycleTargets.Add(cycleTarget);
                 await _context.SaveChangesAsync();
+
+                // --- ADD/UPDATE NUTRITION PROFILE ---
+                var nutProfile = await _context.NtrUserNutritionProfiles
+                    .FirstOrDefaultAsync(p => p.UserId == userId.Value);
+                if (nutProfile == null)
+                {
+                    nutProfile = new NtrUserNutritionProfile
+                    {
+                        UserId = userId.Value,
+                        UpdatedAt = DateTime.UtcNow
+                    };
+                    _context.NtrUserNutritionProfiles.Add(nutProfile);
+                }
+
+                nutProfile.Age = request.Age;
+                nutProfile.HeightCm = (decimal)request.HeightCm;
+                nutProfile.WeightKg = (decimal)request.WeightKg;
+                nutProfile.TargetWeightKg = (decimal)request.TargetWeightKg;
+
+                // 🔁 Map activity level to allowed database values
+                string rawActivity = request.ActivityLevel?.ToUpper() ?? "SEDENTARY";
+                string mappedActivity = rawActivity switch
+                {
+                    "SEDENTARY" => "SEDENTARY",
+                    "LIGHTLY ACTIVE" => "LIGHTLY_ACTIVE",
+                    "MODERATELY ACTIVE" => "ACTIVE",
+                    "ACTIVE" => "ACTIVE",
+                    "VERY ACTIVE" => "VERY_ACTIVE",
+                    _ => "SEDENTARY"
+                };
+                nutProfile.ActivityLevel = mappedActivity;
+
+                nutProfile.DietaryType = request.DietType?.ToUpper() ?? "BALANCED";
+                nutProfile.NutritionGoal = request.BodyGoal?.ToUpper() ?? "MAINTAIN";
+                nutProfile.IsProfileComplete = true;
+                nutProfile.UpdatedAt = DateTime.UtcNow;
 
                 // --- 5. CREATE DAILY LOG (Para sa Dashboard Today) ---
                 var dailyLog = new NtrDailyLog
@@ -635,7 +625,63 @@ namespace FlexiFit.Api.Controllers
                 await _context.SaveChangesAsync();
 
                 // --- 7. NESTED SEEDING: FOOD ITEMS (Para may pagkain agad Dashboard) ---
-                // REMOVED – meal logs are now created only when the user completes the nutrition day.
+                var templateDay = await _context.NtrTemplateDays
+                    .Include(td => td.NtrTemplateDayMeals)
+                        .ThenInclude(tdm => tdm.NtrTemplateMealItems)
+                            .ThenInclude(tmi => tmi.Food)
+                    .FirstOrDefaultAsync(td => td.TemplateId == safeTemplateId && td.DayNo == 1);
+
+                if (templateDay != null)
+                {
+                    foreach (var tdm in templateDay.NtrTemplateDayMeals)
+                    {
+                        decimal totalCal = 0, totalProt = 0, totalCarbs = 0, totalFats = 0;
+                        var itemsToLog = new List<NtrDailyMealItemLog>();
+
+                        foreach (var item in tdm.NtrTemplateMealItems)
+                        {
+                            if (item.Food == null) continue;
+
+                            var qty = (decimal)item.DefaultQty;
+                            var cal = item.Food.Calories * qty;
+                            var prot = item.Food.ProteinG * qty;
+                            var carb = item.Food.CarbsG * qty;
+                            var fat = item.Food.FatsG * qty;
+
+                            itemsToLog.Add(new NtrDailyMealItemLog
+                            {
+                                DailyLogId = dailyLog.DailyLogId, // ✅ Correctly scoped
+                                MealType = tdm.MealType,
+                                FoodId = item.FoodId,
+                                Qty = item.DefaultQty,
+                                IsAddon = item.IsOptionalAddon,
+                                Calories = cal,
+                                ProteinG = prot,
+                                CarbsG = carb,
+                                FatsG = fat,
+                                SortOrder = item.SortOrder
+                            });
+
+                            totalCal += cal;
+                            totalProt += prot;
+                            totalCarbs += carb;
+                            totalFats += fat;
+                        }
+
+                        var mealLog = new NtrDailyMealLog
+                        {
+                            DailyLogId = dailyLog.DailyLogId,
+                            MealType = tdm.MealType,
+                            Calories = (int)totalCal,
+                            ProteinG = totalProt,
+                            CarbsG = totalCarbs,
+                            FatsG = totalFats
+                        };
+                        _context.NtrDailyMealLogs.Add(mealLog);
+                        _context.NtrDailyMealItemLogs.AddRange(itemsToLog);
+                    }
+                    await _context.SaveChangesAsync();
+                }
 
 
 
@@ -646,7 +692,7 @@ namespace FlexiFit.Api.Controllers
                     var onboarding = await _context.UsrUserOnboardingDetails
                         .FirstOrDefaultAsync(o => o.UserId == userId.Value);
 
-                    // 2. Kunin ang Calorie Target mula sa Metrics
+                    // 2. Kunin ang Calorie Target mula sa Metrics (na-save na natin kanina sa Nutrition side)
                     var userMetrics = await _context.UsrUserMetrics
                         .OrderByDescending(m => m.RecordedAt)
                         .FirstOrDefaultAsync(m => m.UserId == userId.Value);
@@ -656,7 +702,7 @@ namespace FlexiFit.Api.Controllers
                     // Gamitin ang Activity Level galing sa Onboarding table
                     string actLevel = (onboarding?.ActivityLevel ?? "Sedentary").ToLower().Replace(" ", "").Replace("_", "");
 
-                    // 3. DYNAMIC MULTIPLIER
+                    // 3. DYNAMIC MULTIPLIER (4 Levels Only)
                     double burnMultiplier = actLevel switch
                     {
                         "sedentary" => 0.12,
@@ -671,10 +717,11 @@ namespace FlexiFit.Api.Controllers
                     foreach (var progDto in request.SelectedPrograms)
                     {
                         var inputName = (progDto.Name ?? "").Trim();
+                        // 🔥 ETO ANG FIX: Dapat match ang Pangalan AT ang Fitness Level
                         var template = await _context.WrkProgramTemplates
                             .FirstOrDefaultAsync(t =>
                                 t.ProgramName.Replace(" ", "").ToLower() == inputName.Replace(" ", "").ToLower() &&
-                                t.FitnessLevel.ToLower() == request.FitnessLevel.ToLower()
+                                t.FitnessLevel.ToLower() == request.FitnessLevel.ToLower() // Isama natin si Level!
                             );
 
                         if (template != null)
@@ -692,24 +739,36 @@ namespace FlexiFit.Api.Controllers
                                 CreatedAt = DateTime.UtcNow
                             };
                             _context.UsrUserProgramInstances.Add(instance);
-                            await _context.SaveChangesAsync();
-                            _logger.LogInformation($"Created cycle target with ID: {cycleTarget.CycleId}"); // ✅ ADD THIS
+                            await _context.SaveChangesAsync(); // Save to get instance ID
 
-                            // 5b. Get Day Structure
+                            // 5b. Get Day Structure (Para malaman kung Workout o Rest ang Day 1)
                             var dayStructure = await _context.WrkProgramTemplateDays
                                 .FirstOrDefaultAsync(d => d.ProgramId == template.ProgramId && d.DayNo == 1);
 
-                            if (dayStructure != null && !dayStructure.DayType.Contains("REST"))
+                            if (dayStructure != null)
                             {
-                                // 5d. INITIALIZE WORKOUT SESSION
+                                // --- 5c. SEED WORKOUT CALENDAR (Para sa Unified Calendar UI mo) ---
+                                // Binago natin ang pangalan mula 'calendarEntry' -> 'workoutCalendarEntry'
+                                var workoutCalendarEntry = new NtrMealPlanCalendar
+                                {
+                                    CycleId = cycleTarget.CycleId,
+                                    PlanDate = DateOnly.FromDateTime(DateTime.UtcNow),
+                                    WeekNo = 1,
+                                    DayNo = 1,
+                                    TemplateId = matchedTemplate?.TemplateId ?? 1,
+                                    // IsWorkoutDay = dayStructure.DayType == "WORKOUT", 
+                                    Status = "PENDING"
+                                };
+
+                                // 5d. INITIALIZE WORKOUT SESSION (Base sa UsrUserWorkoutSession modelBuilder mo)
                                 var session = new UsrUserWorkoutSession
                                 {
                                     UserId = userId.Value,
-                                    ProgramInstanceId = instance.InstanceId,
+                                    ProgramInstanceId = instance.InstanceId, // Eto yung "tali" sa instance
                                     WorkoutDay = 1,
                                     Status = "PENDING",
-                                    StartedAt = DateTime.UtcNow,
                                     CreatedAt = DateTime.UtcNow
+                                    // TANGGALIN ANG CALORIESBURNED DITO KASI WALA SA TABLE MO!
                                 };
                                 _context.UsrUserWorkoutSessions.Add(session);
                                 await _context.SaveChangesAsync();
@@ -717,7 +776,7 @@ namespace FlexiFit.Api.Controllers
                                 var sessionInstanceLink = new UsrUserSessionInstance
                                 {
                                     InstanceId = instance.InstanceId,
-                                    MonthNo = 1,
+                                    MonthNo = 1, // Default values para lumusot
                                     WeekNo = 1,
                                     DayNo = 1,
                                     DayType = dayStructure.DayType ?? "WORKOUT",
@@ -727,46 +786,25 @@ namespace FlexiFit.Api.Controllers
                                 _context.UsrUserSessionInstances.Add(sessionInstanceLink);
                                 await _context.SaveChangesAsync();
 
-                                // ✅ GET WARMUPS (2 random)
-                                var warmups = await _context.WrkWorkouts
-                                    .Where(w => w.Category != null && w.Category.ToUpper() == "WARMUP" && w.IsActive == true)
-                                    .OrderBy(w => Guid.NewGuid())
-                                    .Take(2)
-                                    .ToListAsync();
-
-                                _logger.LogInformation($"Adding {warmups.Count} warmups to session {session.SessionId}");
-
-                                // ✅ GET MAIN WORKOUTS
+                                // 5e. SMART SEEDING
+                                // 5e. SMART SEEDING (With Strict Level Filter)
                                 var dayWorkoutsPool = await _context.WrkProgramTemplateDaytypeWorkouts
                                     .Include(dw => dw.Workout)
                                     .Where(dw => dw.ProgramId == template.ProgramId
                                               && dw.DayType == dayStructure.DayType
+                                              // 🔥 DAGDAG NATIN 'TO: Siguraduhin na ang workout difficulty ay match sa request!
                                               && dw.Workout.DifficultyLevel == request.FitnessLevel)
                                     .ToListAsync();
 
                                 var shuffledPool = dayWorkoutsPool.OrderBy(x => Guid.NewGuid()).ToList();
 
                                 double currentTotalBurn = 0;
-                                int workoutOrder = 1;  // ✅ FIXED: Changed from 'order' to 'workoutOrder'
+                                int workoutCount = 0;
 
-                                // ✅ ADD WARMUPS FIRST
-                                foreach (var warmup in warmups)
-                                {
-                                    _context.UsrUserSessionWorkouts.Add(new UsrUserSessionWorkout
-                                    {
-                                        SessionId = session.SessionId,
-                                        WorkoutId = warmup.WorkoutId,
-                                        Sets = 2,
-                                        Reps = 12,
-                                        OrderNo = workoutOrder++,  // ✅ FIXED: using workoutOrder
-                                        LoadKg = 0
-                                    });
-                                }
-
-                                // ✅ ADD MAIN WORKOUTS
                                 foreach (var dw in shuffledPool)
                                 {
-                                    if (workoutOrder > 10 && currentTotalBurn >= targetBurnForSession) // Max 10 total
+                                    // DAPAT GANITO, BABE:
+                                    if (workoutCount >= 8 && currentTotalBurn >= targetBurnForSession)
                                         break;
 
                                     _context.UsrUserSessionWorkouts.Add(new UsrUserSessionWorkout
@@ -775,15 +813,14 @@ namespace FlexiFit.Api.Controllers
                                         WorkoutId = dw.WorkoutId,
                                         Sets = dw.SetsDefault,
                                         Reps = dw.RepsDefault,
-                                        OrderNo = workoutOrder++,  // ✅ FIXED: using workoutOrder
+                                        OrderNo = workoutCount + 1,
                                         LoadKg = 0
                                     });
 
                                     currentTotalBurn += dw.Workout?.CaloriesBurned ?? 0;
+                                    workoutCount++;
                                 }
-
                                 await _context.SaveChangesAsync();
-                                _logger.LogInformation($"Created session {session.SessionId} with {workoutOrder - 1} exercises (Warmups: {warmups.Count})");
                             }
                         }
                     }
