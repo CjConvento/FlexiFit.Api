@@ -181,6 +181,8 @@ public class NutritionController : ControllerBase
             double targetCal = (double)targetNetCal;
             double consumedCal = dailyLog?.CaloriesConsumed ?? 0;
 
+            string templateName = GetTemplateNameFromDietaryType(userProfile?.DietaryType);
+
             return Ok(new NutritionScreenDto
             {
                 TargetCalories = targetCal,
@@ -199,7 +201,8 @@ public class NutritionController : ControllerBase
                 WaterConsumedMl = waterTotal,
                 WaterTargetMl = 2500,
                 Meals = mealGroups,
-                DailyLogId = dailyLog.DailyLogId
+                DailyLogId = dailyLog.DailyLogId,
+                TemplateName = templateName   // <-- ADD THIS
             });
         }
         catch (Exception ex)
@@ -265,6 +268,11 @@ public class NutritionController : ControllerBase
 
             double consumedCal = dailyLog?.CaloriesConsumed ?? 0;
 
+            // ✅ Fetch user profile to get dietary type
+            var userProfile = await _db.NtrUserNutritionProfiles
+                .FirstOrDefaultAsync(p => p.UserId == userId);
+            string templateName = GetTemplateNameFromDietaryType(userProfile?.DietaryType);
+
             return Ok(new NutritionScreenDto
             {
                 TargetCalories = (double)(target?.DailyTargetNetCalories ?? 2000),
@@ -283,7 +291,8 @@ public class NutritionController : ControllerBase
                 WaterConsumedMl = 0,
                 WaterTargetMl = 2500,
                 Meals = mealGroups,
-                DailyLogId = dailyLog.DailyLogId
+                DailyLogId = dailyLog.DailyLogId,
+                TemplateName = templateName   // <-- ADD THIS
             });
         }
         catch (Exception ex)
@@ -991,6 +1000,20 @@ public class NutritionController : ControllerBase
             "HIGH_PROTEIN" => 5,
             "LACTOSE_FREE" => 6,
             _ => 1   // default to BALANCED
+        };
+    }
+
+    private string GetTemplateNameFromDietaryType(string? dietaryType)
+    {
+        return dietaryType?.ToUpper() switch
+        {
+            "BALANCED" => "Balanced",
+            "KETO" => "Keto",
+            "VEGAN" => "Vegan",
+            "VEGETARIAN" => "Vegetarian",
+            "HIGH_PROTEIN" => "High Protein",
+            "LACTOSE_FREE" => "Lactose Free",
+            _ => "Balanced"
         };
     }
 
