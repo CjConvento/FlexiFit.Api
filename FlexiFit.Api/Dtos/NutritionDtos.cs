@@ -22,6 +22,8 @@ namespace FlexiFit.Api.Dtos
         public int WaterConsumedMl { get; set; }
         public int WaterTargetMl { get; set; }
 
+        public string TemplateName { get; set; } = "Balanced"; // default fallback
+
         // Today's Meals
         public List<MealGroupDto> Meals { get; set; } = new();
 
