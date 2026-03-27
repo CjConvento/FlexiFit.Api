@@ -8,8 +8,56 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Data.SqlClient;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ========== ADD THESE TWO LINES ==========
+Console.WriteLine($"Environment: {builder.Environment.EnvironmentName}");
+var conn = builder.Configuration.GetConnectionString("FlexifitDb");
+Console.WriteLine($"Connection string used: {conn}");
+// =========================================
+
+using (var testConnection = new SqlConnection(conn))
+{
+    try
+    {
+        testConnection.Open();
+        Console.WriteLine("Database connection successful!");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Direct connection failed: {ex.Message}");
+        if (ex.InnerException != null)
+        {
+            Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
+        }
+    }
+}
+
+using (var testConnection = new SqlConnection(conn))
+{
+    try
+    {
+        testConnection.Open();
+        Console.WriteLine("Database connection successful!");
+
+        // Query the usr_users table
+        using (var command = new SqlCommand("SELECT COUNT(*) FROM usr_users", testConnection))
+        {
+            var count = command.ExecuteScalar();
+            Console.WriteLine($"Number of users in usr_users: {count}");
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Query failed: {ex.Message}");
+        if (ex.InnerException != null)
+        {
+            Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
+        }
+    }
+}
 
 // Controllers
 // --- FIXED PART ---
@@ -140,6 +188,7 @@ if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+    app.UseDeveloperExceptionPage(); // 👈 dito ilagay
 }
 
 app.UseStaticFiles();

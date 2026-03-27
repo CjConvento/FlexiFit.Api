@@ -20,12 +20,13 @@ namespace FlexiFit.Api.Controllers
         }
 
         [HttpPost("reset-progress")]
+        [Authorize]
         public async Task<IActionResult> ResetProgress()
         {
             var userId = await GetCurrentUserIdAsync();
             if (userId == null) return Unauthorized();
 
-            using var tx = await _context.Database.BeginTransactionAsync(); // Added Transaction para safe!
+            using var tx = await _context.Database.BeginTransactionAsync();
             try
             {
                 // 1. Reset Metrics (Weight History)
@@ -40,21 +41,21 @@ namespace FlexiFit.Api.Controllers
                 var waterLogs = await _context.NtrWaterLogs.Where(x => x.UserId == userId).ToListAsync();
                 _context.NtrWaterLogs.RemoveRange(waterLogs);
 
-                // --- 4. RESET WORKOUT SESSIONS (THE SAFE WAY) ---
+                // --- 4. RESET WORKOUT SESSIONS ---
                 var workoutSessions = await _context.UsrUserWorkoutSessions.Where(x => x.UserId == userId).ToListAsync();
                 var sessionIds = workoutSessions.Select(s => s.SessionId).ToList();
 
-                // 4a. BURAHIN MUNA ANG MGA EXERCISES (Child) bago ang Session (Parent)
+                // 4a. Delete exercises (child) before sessions
                 var sessionWorkouts = await _context.UsrUserSessionWorkouts
                     .Where(x => sessionIds.Contains(x.SessionId)).ToListAsync();
                 _context.UsrUserSessionWorkouts.RemoveRange(sessionWorkouts);
 
-                // 4b. Burahin ang Session-to-Instance links kung meron
+                // 4b. Delete session-instance links if any
                 var sessionInstances = await _context.UsrUserSessionInstances
                     .Where(x => sessionIds.Contains(x.SessionId)).ToListAsync();
                 _context.UsrUserSessionInstances.RemoveRange(sessionInstances);
 
-                // 4c. Ngayon, safe na burahin ang mismong Sessions
+                // 4c. Now delete the sessions themselves
                 _context.UsrUserWorkoutSessions.RemoveRange(workoutSessions);
 
                 // 5. Reset Achievements
@@ -62,13 +63,13 @@ namespace FlexiFit.Api.Controllers
                 _context.UsrUserGeneralAchievements.RemoveRange(achievements);
 
                 await _context.SaveChangesAsync();
-                await tx.CommitAsync(); // Commit pag successful lahat
+                await tx.CommitAsync();
 
                 return Ok(new { message = "Gudis na babe! Your workouts, achievements, and logs have been cleared." });
             }
             catch (Exception ex)
             {
-                await tx.RollbackAsync(); // Rollback pag may sumabog
+                await tx.RollbackAsync();
                 var errorDetail = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
                 return StatusCode(500, $"Error resetting progress: {errorDetail}");
             }

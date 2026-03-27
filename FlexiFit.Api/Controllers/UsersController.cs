@@ -2,22 +2,39 @@
 using Microsoft.Data.SqlClient;
 using Dapper;
 using FlexiFit.Api.DTOs;
+using Microsoft.Extensions.Hosting;  // for IHostEnvironment
 
 namespace FlexiFit.Api.Controllers
 {
-    // Ginawa nating lowercase ang route ("users" imbes na "[controller]")
     [Route("api/users")]
     [ApiController]
     public class UsersController : ControllerBase
     {
         private readonly string _connectionString;
-        private readonly ILogger<UsersController> _logger; // Dagdag para sa logs sa API side
+        private readonly ILogger<UsersController> _logger;
+        private readonly IHostEnvironment _env; // to check environment
 
-        public UsersController(IConfiguration configuration, ILogger<UsersController> logger)
+        public UsersController(IConfiguration configuration, ILogger<UsersController> logger, IHostEnvironment env)
         {
-            // Siguraduhing "FlexifitDb" ang nasa appsettings.json mo
-            _connectionString = "Server=192.168.1.246,1433;Database=FLEXIFIT;User Id=cy;Password=;TrustServerCertificate=True;"; 
+            _connectionString = configuration.GetConnectionString("FlexifitDb");
             _logger = logger;
+            _env = env;
+
+            // Print to console for sure
+            Console.WriteLine($"UsersController: connection string = {_connectionString}");
+
+            // Optional: test the connection immediately
+            try
+            {
+                using var testConnection = new SqlConnection(_connectionString);
+                testConnection.Open();
+                Console.WriteLine("UsersController: database connection successful!");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"UsersController: connection test failed: {ex.Message}");
+                _logger.LogError(ex, "Connection test failed in constructor");
+            }
         }
 
         [HttpPost("admin-create")]
@@ -62,7 +79,6 @@ namespace FlexiFit.Api.Controllers
             {
                 using (var connection = new SqlConnection(_connectionString))
                 {
-                    // Mahalaga: Siguraduhing ang columns dito ay tugma sa Admin Panel User Model
                     var sql = "SELECT * FROM dbo.Usr_Users ORDER BY created_at DESC";
                     var users = await connection.QueryAsync(sql);
                     return Ok(users);
@@ -70,7 +86,13 @@ namespace FlexiFit.Api.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError("Error fetching users: {Message}", ex.Message);
+                _logger.LogError(ex, "Error fetching users");
+
+                // Return detailed error in development
+                if (_env.IsDevelopment())
+                {
+                    return StatusCode(500, $"Error: {ex.Message}\nInner: {ex.InnerException?.Message}");
+                }
                 return StatusCode(500, "Could not fetch users from database.");
             }
         }

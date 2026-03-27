@@ -156,8 +156,7 @@ namespace FlexiFit.Api.Controllers
             return Ok(new { url = avatarUrl });
         }
 
-        // --- 1. GET ALL PROFILE DETAILS (Para sa lahat ng Dialogs) ---
-        [Authorize]
+
         [HttpGet("details")]
         public async Task<IActionResult> GetProfileDetails()
         {
@@ -165,67 +164,112 @@ namespace FlexiFit.Api.Controllers
             if (!int.TryParse(userIdClaim, out var userId)) return Unauthorized();
 
             var profile = await _db.UsrUserProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
-            var nutProfile = await _db.NtrUserNutritionProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
-            var cycle = await _db.NtrUserCycleTargets.OrderByDescending(c => c.CreatedAt).FirstOrDefaultAsync(c => c.UserId == userId);
-
             if (profile == null) return NotFound("Profile not found");
 
-            // 1. Image URL Handling (Para sa Glide/Coil sa Android)
+            // Latest metrics for current height/weight
+            var latestMetric = await _db.UsrUserMetrics
+                .OrderByDescending(m => m.RecordedAt)
+                .FirstOrDefaultAsync(m => m.UserId == userId);
+
+            // Nutrition profile for target weight (and possibly other data)
+            var nutProfile = await _db.NtrUserNutritionProfiles
+                .FirstOrDefaultAsync(p => p.UserId == userId);
+
+            var cycle = await _db.NtrUserCycleTargets
+                .OrderByDescending(c => c.CreatedAt)
+                .FirstOrDefaultAsync(c => c.UserId == userId);
+
+            var onboarding = await _db.UsrUserOnboardingDetails
+                .FirstOrDefaultAsync(o => o.UserId == userId);
+
+            // Compute age from birth date
+            int age = 0;
+            if (profile.BirthDate.HasValue)
+            {
+                var today = DateOnly.FromDateTime(DateTime.UtcNow);
+                age = today.Year - profile.BirthDate.Value.Year;
+                if (profile.BirthDate.Value > today.AddYears(-age)) age--;
+            }
+
+            // Build avatar URL
             var baseUrl = $"{Request.Scheme}://{Request.Host}";
             var finalAvatarUrl = !string.IsNullOrEmpty(profile.AvatarUrl)
                 ? $"{baseUrl}/{profile.AvatarUrl}"
-                : null; // Fallback sa Android (default icon)
+                : null;
 
             string userGoal = cycle?.GoalType?.Replace("_", " ").ToUpper() ?? "MAINTAIN WEIGHT";
 
-            // 2. Workout Progress Logic
-            var completedCount = await _db.UsrUserWorkoutSessions.CountAsync(s => s.UserId == userId);
             var activeProgram = await _db.UsrUserProgramInstances
                 .FirstOrDefaultAsync(up => up.UserId == userId && up.Status == "ACTIVE");
-
-            int targetQuota = 0;
+            int totalProgramSessions = 0;
             if (activeProgram != null)
             {
-                targetQuota = await _db.WrkProgramTemplateDays
+                totalProgramSessions = await _db.WrkProgramTemplateDays
                     .CountAsync(td => td.ProgramId == activeProgram.ProgramId);
             }
 
-            // 3. Achievement Sync
+            var completedSessions = await _db.UsrUserWorkoutSessions
+                .CountAsync(s => s.UserId == userId && s.Status == "Completed");
+
+            var totalWorkouts = await _db.UsrUserSessionWorkouts
+                .Where(sw => sw.Session.UserId == userId)
+                .CountAsync();
+
+            var selectedPrograms = onboarding?.SelectedPrograms?
+                .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(p => p.Trim())
+                .ToList() ?? new List<string>();
+
+            var fitnessGoals = onboarding?.FitnessGoals?
+                .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(g => g.Trim())
+                .ToList() ?? new List<string>();
+
+            double heightCm = (double)(latestMetric?.CurrentHeightCm ?? 0);
+            double weightKg = (double)(latestMetric?.CurrentWeightKg ?? 0);
+            double targetWeightKg = (double)(nutProfile?.TargetWeightKg ?? 0);
+
+            double bmi = 0;
+            if (heightCm > 0 && weightKg > 0)
+            {
+                double heightM = heightCm / 100.0;
+                bmi = weightKg / (heightM * heightM);
+            }
+
+            string nutritionGoal = onboarding?.BodyGoal?.Replace("_", " ").ToUpper() ?? userGoal;
+
             var unlockedBadgeKeys = await _db.UsrUserGeneralAchievements
                 .Where(a => a.UserId == userId)
                 .Select(a => a.BadgeKey)
                 .ToListAsync();
 
-            // 4. BMI Computation
-            double bmi = 0;
-            double h = (double)(nutProfile?.HeightCm ?? 0);
-            double w = (double)(nutProfile?.WeightKg ?? 0);
-            if (h > 0 && w > 0)
-            {
-                double heightM = h / 100.0;
-                bmi = w / (heightM * heightM);
-            }
-
             var response = new UserProfileResponse
             {
                 Name = profile.Name ?? "User",
                 Username = profile.Username ?? "Username",
-                AvatarUrl = finalAvatarUrl, // DINAGDAG: Importante ito!
+                AvatarUrl = finalAvatarUrl,
                 GoalSubtitle = userGoal,
                 Gender = profile.Gender ?? "-",
-                Age = nutProfile?.Age ?? 0,
-                HeightCm = h,
-                WeightKg = w,
+                Age = age,
+                HeightCm = heightCm,
+                WeightKg = weightKg,
+                TargetWeightKg = targetWeightKg,
                 BMI = Math.Round(bmi, 1),
                 BmiCategory = CalculateBmiCategory(bmi),
-                CompletedSessions = completedCount,
-                TotalProgramSessions = targetQuota,
-                AchievementCount = unlockedBadgeKeys.Count,
-                UnlockedBadgeKeys = unlockedBadgeKeys,
+                NutritionGoal = nutritionGoal,
+                TotalSessions = totalProgramSessions,
+                TotalWorkouts = totalWorkouts,
+                CompletedSessions = completedSessions,
+                TotalProgramSessions = totalProgramSessions,
+                SelectedPrograms = selectedPrograms,
+                FitnessGoals = fitnessGoals,
                 DailyCalorieTarget = cycle?.DailyTargetNetCalories ?? 0,
                 ProteinG = (double)(cycle?.ProteinTargetG ?? 0),
                 CarbsG = (double)(cycle?.CarbsTargetG ?? 0),
-                FatsG = (double)(cycle?.FatsTargetG ?? 0)
+                FatsG = (double)(cycle?.FatsTargetG ?? 0),
+                AchievementCount = unlockedBadgeKeys.Count,
+                UnlockedBadges = unlockedBadgeKeys,
+                UnlockedBadgeKeys = unlockedBadgeKeys
             };
 
             return Ok(response);
