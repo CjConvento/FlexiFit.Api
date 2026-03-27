@@ -574,18 +574,22 @@ public class NutritionController : ControllerBase
             if (dailyLog == null)
                 return NotFound(new { message = "No daily log found for today." });
 
+            // Guard: prevent completing a day that is already marked as done
+            if (dailyLog.MarkedDoneAt != null)
+            {
+                return BadRequest(new { message = "Nutrition for today has already been completed." });
+            }
+
             // Recalculate totals from meal items
             await UpdateDailyMealTotals(dailyLog.DailyLogId);
             dailyLog = await _db.NtrDailyLogs
                 .Include(d => d.NtrDailyMealLogs)
                 .FirstOrDefaultAsync(l => l.DailyLogId == dailyLog.DailyLogId);
 
-            // Get burned calories
             var burnedCalories = await _db.ActActivitySummaries
                 .Where(a => a.UserId == userId && a.LogDate == todayDateOnly)
                 .SumAsync(a => (double?)a.CaloriesBurned) ?? 0;
 
-            // Determine goal met (within 10% of target)
             double net = dailyLog.CaloriesConsumed - burnedCalories;
             double target = dailyLog.TargetNetCalories;
             bool goalMet = Math.Abs(net - target) <= target * 0.10;
@@ -593,27 +597,27 @@ public class NutritionController : ControllerBase
             dailyLog.GoalMet = goalMet;
             dailyLog.MarkedDoneAt = DateTime.UtcNow;
 
-            // Update nutrition calendar
-            var calendarDay = await _db.NtrMealPlanCalendars
+            var nutritionCalendar = await _db.NtrMealPlanCalendars
                 .FirstOrDefaultAsync(c => c.CycleId == dailyLog.CycleId && c.PlanDate == todayDateOnly);
-
-            if (calendarDay != null)
+            if (nutritionCalendar != null)
             {
-                calendarDay.Status = "DONE";
-                calendarDay.UpdatedAt = DateTime.UtcNow;
+                // Guard: prevent updating calendar if it's already DONE
+                if (nutritionCalendar.Status == "DONE")
+                    return BadRequest(new { message = "Nutrition day already marked as DONE." });
+
+                nutritionCalendar.Status = "DONE";
+                nutritionCalendar.UpdatedAt = DateTime.UtcNow;
             }
 
-            // Save nutrition completion
             await _db.SaveChangesAsync();
 
-            _logger.LogInformation("Calling TryAdvanceProgramDay from CompleteNutritionDay");
-            // Try to advance the program day if both are done
+            // Try to advance the program day (only if both nutrition and workout are done)
             await TryAdvanceProgramDay(userId.Value, todayDateOnly);
 
             return Ok(new
             {
                 message = "Nutrition day completed successfully! 🍎",
-                currentDay = calendarDay?.DayNo ?? 1,
+                currentDay = nutritionCalendar?.DayNo ?? 1,
                 isCompleted = true,
                 summary = new
                 {
@@ -627,10 +631,11 @@ public class NutritionController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error completing nutrition day");
-            return StatusCode(500, new { message = "Error completing nutrition day" });
+            _logger.LogError(ex, "Error completing nutrition day please complete workout first");
+            return StatusCode(500, new { message = "Error completing nutrition day please complete workout first" });
         }
     }
+
 
     #region Helper Methods
 
@@ -796,8 +801,15 @@ public class NutritionController : ControllerBase
         bool nutritionDone = nutritionCalendar.Status == "DONE";
         bool workoutDone = workoutCalendar?.Status == "DONE";
 
-        if (!nutritionDone || !workoutDone) return;
+        // 🔍 ADD THESE LINES
+        _logger.LogInformation($"Nutrition calendar for {date}: Status = {nutritionCalendar?.Status}");
+        _logger.LogInformation($"Workout calendar for {date}: Status = {workoutCalendar?.Status}");
 
+        if (!nutritionDone || !workoutDone)
+        {
+            _logger.LogInformation($"Both not done. Nutrition={nutritionDone}, Workout={workoutDone}");
+            return;
+        }
         // 4. Get active program instance
         var activeProgram = await _db.UsrUserProgramInstances
             .FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");

@@ -201,6 +201,19 @@ public class WorkoutController : ControllerBase
                 .OrderBy(sw => sw.OrderNo)
                 .ToListAsync();
 
+            // ✅ Repair missing warmups for pending sessions
+            if (!isCompleted && !isSkipped)
+            {
+                await EnsureWarmupsExist(session.SessionId, activeProgram.ProgramId, dayDef.DayType, weekNo);
+                // Reload to include the newly added warmups
+                allWorkouts = await _context.UsrUserSessionWorkouts
+                    .Include(sw => sw.Workout)
+                    .Where(sw => sw.SessionId == session.SessionId)
+                    .OrderBy(sw => sw.OrderNo)
+                    .ToListAsync();
+            }
+
+
             // Separate warmups from regular workouts
             var warmups = allWorkouts
                 .Where(w => w.Workout != null && w.Workout.Category?.ToUpper() == "WARMUP")
@@ -259,6 +272,7 @@ public class WorkoutController : ControllerBase
         }
     }
 
+
     [HttpPost("complete")]
     public async Task<ActionResult<WorkoutSessionResultDto>> CompleteSession([FromBody] WorkoutSessionCompleteDto req)
     {
@@ -273,28 +287,38 @@ public class WorkoutController : ControllerBase
 
         try
         {
-            // 1. Get Active Program
             var activeProgram = await _context.UsrUserProgramInstances
                 .FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
-
             if (activeProgram == null)
                 return BadRequest(new { message = "No active program found." });
 
-            _logger.LogInformation($"Active Program - Current Day: {activeProgram.CurrentDayNo}, Cycle: {activeProgram.CycleNo}");
-
-            // ✅ Store the original day before any changes
             int originalDay = activeProgram.CurrentDayNo;
 
-            // 2. Get Today's Session
+            // Guard: check if the workout calendar entry for today is already DONE
+            var existingCalendar = await _context.WktWorkoutCalendars
+                .FirstOrDefaultAsync(w => w.UserId == userId && w.PlanDate == todayDateOnly);
+            if (existingCalendar?.Status == "DONE")
+            {
+                _logger.LogWarning($"Workout for day {originalDay} is already DONE.");
+                return Ok(new WorkoutSessionResultDto
+                {
+                    Message = "Today's workout has already been completed.",
+                    CurrentDay = originalDay,
+                    NextDay = activeProgram.CurrentDayNo,
+                    IsProgramFinished = activeProgram.Status == "COMPLETED",
+                    Status = "COMPLETED",
+                    WasSkipped = false
+                });
+            }
+
+            // Guard: prevent completing a session that is already completed/skipped
             var session = await _context.UsrUserWorkoutSessions
                 .FirstOrDefaultAsync(s => s.UserId == userId
                                        && s.ProgramInstanceId == activeProgram.InstanceId
-                                       && s.WorkoutDay == originalDay); // changed
-
-            // Guard: Prevent processing if session already completed or skipped
+                                       && s.WorkoutDay == originalDay);
             if (session != null && (session.Status?.ToUpper() == "COMPLETED" || session.Status?.ToUpper() == "SKIPPED"))
             {
-                _logger.LogWarning($"Session for Day {originalDay} already has status {session.Status}. Ignoring duplicate request."); // changed
+                _logger.LogWarning($"Session for Day {originalDay} already has status {session.Status}.");
                 return Ok(new WorkoutSessionResultDto
                 {
                     Message = $"This workout has already been {session.Status.ToLower()}.",
@@ -306,17 +330,14 @@ public class WorkoutController : ControllerBase
                 });
             }
 
-            // 3. Check if today is a REST day
-            int templateDayNo = ((originalDay - 1) % 7) + 1; // changed
+            int templateDayNo = ((originalDay - 1) % 7) + 1;
             var dayDef = await _context.WrkProgramTemplateDays
                 .FirstOrDefaultAsync(d => d.ProgramId == activeProgram.ProgramId && d.DayNo == templateDayNo && d.WeekNo == 1);
-
             bool isRestDay = dayDef?.DayType?.Contains("REST", StringComparison.OrdinalIgnoreCase) ?? false;
 
-            // 4. Update or Create Workout Calendar Entry
+            // Create or update workout calendar entry
             var workoutCalendar = await _context.WktWorkoutCalendars
                 .FirstOrDefaultAsync(w => w.UserId == userId && w.PlanDate == todayDateOnly);
-
             string workoutStatus = isSkipped ? "SKIPPED" : "DONE";
 
             if (workoutCalendar == null)
@@ -326,8 +347,8 @@ public class WorkoutController : ControllerBase
                     UserId = userId.Value,
                     CycleId = activeProgram.CycleNo,
                     PlanDate = todayDateOnly,
-                    WeekNo = ((originalDay - 1) / 7) + 1, // changed
-                    DayNo = originalDay,                  // changed
+                    WeekNo = ((originalDay - 1) / 7) + 1,
+                    DayNo = originalDay,
                     TemplateId = 1,
                     VariationCode = "A",
                     IsWorkoutDay = !isRestDay,
@@ -336,106 +357,73 @@ public class WorkoutController : ControllerBase
                     UpdatedAt = DateTime.UtcNow
                 };
                 _context.WktWorkoutCalendars.Add(workoutCalendar);
-                _logger.LogInformation($"Created workout calendar entry for Day {originalDay} with Status: {workoutStatus}"); // changed
             }
             else
             {
+                if (workoutCalendar.Status == "DONE")
+                    return BadRequest(new { message = "Workout already marked as DONE." });
                 workoutCalendar.Status = workoutStatus;
                 workoutCalendar.UpdatedAt = DateTime.UtcNow;
-                _logger.LogInformation($"Updated workout calendar entry for Day {originalDay} to Status: {workoutStatus}"); // changed
             }
 
-            // 5. Handle Workout Session
+            // Handle session status
             if (!isRestDay)
             {
                 if (session == null && !isSkipped)
                 {
-                    // Create session for completion (if it doesn't exist)
                     session = new UsrUserWorkoutSession
                     {
                         UserId = userId.Value,
                         ProgramInstanceId = activeProgram.InstanceId,
-                        WorkoutDay = originalDay, // changed
+                        WorkoutDay = originalDay,
                         Status = "COMPLETED",
                         StartedAt = DateTime.UtcNow.AddMinutes(-(req.TotalMinutes > 0 ? req.TotalMinutes : 30)),
                         CompletedAt = DateTime.UtcNow,
                         CreatedAt = DateTime.UtcNow
                     };
                     _context.UsrUserWorkoutSessions.Add(session);
-                    _logger.LogInformation($"Created new workout session for Day {originalDay} with Status: COMPLETED"); // changed
                 }
                 else if (session != null)
                 {
-                    // Update existing session (guard already passed, so it's not final)
                     session.Status = isSkipped ? "SKIPPED" : "COMPLETED";
                     session.CompletedAt = DateTime.UtcNow;
-
                     if (!isSkipped && req.TotalMinutes > 0)
-                    {
                         session.StartedAt = DateTime.UtcNow.AddMinutes(-req.TotalMinutes);
-                    }
-
-                    _logger.LogInformation($"Updated workout session for Day {originalDay} to Status: {session.Status}"); // changed
                 }
             }
 
-            // 6. Save all changes before advancement
             await _context.SaveChangesAsync();
-            _logger.LogInformation($"Saved changes for Day {originalDay}"); // changed
 
-            // 7. Try to advance program day (if both nutrition and workout are done)
+            // Try to advance program day (only if both are done)
             await TryAdvanceProgramDay(userId.Value, todayDateOnly);
 
-            // 8. Reload active program to get updated day number
+            // Reload active program to get updated day number
             activeProgram = await _context.UsrUserProgramInstances
                 .FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
 
-            // ✅ Determine if the day advanced and compute next day
             bool advanced = activeProgram.CurrentDayNo > originalDay;
             int nextDay = advanced ? activeProgram.CurrentDayNo : originalDay + 1;
 
-            string message;
-            string skipMessage = null;
-
-            if (isSkipped)
-            {
-                message = $"Day {originalDay} skipped.";
-                if (advanced)
-                    message += $" Moving to Day {nextDay}. Remember to stay consistent! 💪";
-                else
-                    message += " Complete nutrition to advance.";
-                skipMessage = "Try not to skip too many days for best results.";
-            }
-            else if (isRestDay)
-            {
-                message = $"Rest day completed!";
-                if (advanced)
-                    message += $" Moving to Day {nextDay}. Enjoy your recovery! 🧘";
-                else
-                    message += " Complete nutrition to advance.";
-            }
+            string message = isSkipped ? $"Day {originalDay} skipped." :
+                             isRestDay ? "Rest day completed!" :
+                             $"🎉 Great job! Day {originalDay} completed!";
+            if (advanced)
+                message += $" Moving to Day {nextDay}!";
             else
-            {
-                message = $"🎉 Great job! Day {originalDay} completed!";
-                if (advanced)
-                    message += $" Ready for Day {nextDay}! 💪";
-                else
-                    message += " Complete nutrition to unlock the next day!";
-            }
+                message += " Complete nutrition to unlock the next day!";
 
             var result = new WorkoutSessionResultDto
             {
                 Message = message,
-                CurrentDay = originalDay,    // ✅ use originalDay
+                CurrentDay = originalDay,
                 NextDay = nextDay,
                 IsProgramFinished = activeProgram.Status == "COMPLETED",
                 Status = isSkipped ? "SKIPPED" : (isRestDay ? "REST_COMPLETED" : "COMPLETED"),
                 WasSkipped = isSkipped,
-                SkipMessage = skipMessage,
+                SkipMessage = isSkipped ? "Try not to skip too many days for best results." : null,
                 TotalCalories = req.TotalCalories
             };
 
-            _logger.LogInformation($"=== WORKOUT COMPLETE RESPONSE: {result.Message} ===");
             return Ok(result);
         }
         catch (Exception ex)
@@ -875,45 +863,38 @@ public class WorkoutController : ControllerBase
         _logger.LogInformation($"Advanced program day to {activeProgram.CurrentDayNo} for user {userId}");
     }
 
-    private async Task EnsureWarmupsExist(int sessionId)
+    private async Task EnsureWarmupsExist(int sessionId, int programId, string dayType, int weekNo)
     {
-        // Check if session already has warmups
-        var hasWarmups = await _context.UsrUserSessionWorkouts
+        // Check if session already has any warmups
+        bool hasWarmups = await _context.UsrUserSessionWorkouts
             .Include(sw => sw.Workout)
-            .AnyAsync(sw => sw.SessionId == sessionId && sw.Workout.Category != null && sw.Workout.Category.ToUpper() == "WARMUP");
+            .AnyAsync(sw => sw.SessionId == sessionId && sw.Workout != null && sw.Workout.Category == "WARMUP");
 
-        if (hasWarmups)
-        {
-            _logger.LogInformation($"Session {sessionId} already has warmups");
-            return;
-        }
+        if (hasWarmups) return;
 
-        _logger.LogInformation($"Adding warmups to existing session {sessionId}");
-
-        // Get current max order
-        var maxOrder = await _context.UsrUserSessionWorkouts
-            .Where(sw => sw.SessionId == sessionId)
-            .MaxAsync(sw => (int?)sw.OrderNo) ?? 0;
-
-        // Get 2 random warmups
+        // If not, add 2 random warmups
         var warmups = await _context.WrkWorkouts
-            .Where(w => w.Category != null && w.Category.ToUpper() == "WARMUP" && w.IsActive == true)
-            .OrderBy(w => Guid.NewGuid())
+            .Where(w => w.Category == "WARMUP" && w.IsActive == true)
+            .OrderBy(x => EF.Functions.Random())
             .Take(2)
             .ToListAsync();
 
         if (!warmups.Any())
         {
-            _logger.LogWarning("No warmups found in database!");
+            _logger.LogWarning("No active warmups found in database");
             return;
         }
 
-        var newWorkouts = new List<UsrUserSessionWorkout>();
-        int order = maxOrder + 1;
+        // Get the current max OrderNo
+        int maxOrder = await _context.UsrUserSessionWorkouts
+            .Where(sw => sw.SessionId == sessionId)
+            .MaxAsync(sw => (int?)sw.OrderNo) ?? 0;
 
+        var newWarmups = new List<UsrUserSessionWorkout>();
+        int order = maxOrder + 1;
         foreach (var warmup in warmups)
         {
-            newWorkouts.Add(new UsrUserSessionWorkout
+            newWarmups.Add(new UsrUserSessionWorkout
             {
                 SessionId = sessionId,
                 WorkoutId = warmup.WorkoutId,
@@ -924,13 +905,10 @@ public class WorkoutController : ControllerBase
             });
         }
 
-        _context.UsrUserSessionWorkouts.AddRange(newWorkouts);
+        _context.UsrUserSessionWorkouts.AddRange(newWarmups);
         await _context.SaveChangesAsync();
 
-        // Reorder all workouts to put warmups first
-        await ReorderWorkouts(sessionId);
-
-        _logger.LogInformation($"Added {newWorkouts.Count} warmups to session {sessionId}");
+        _logger.LogInformation($"Added {newWarmups.Count} warmups to session {sessionId}");
     }
 
     private async Task ReorderWorkouts(int sessionId)
