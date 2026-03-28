@@ -717,15 +717,33 @@ namespace FlexiFit.Api.Controllers
                     foreach (var progDto in request.SelectedPrograms)
                     {
                         var inputName = (progDto.Name ?? "").Trim();
-                        // 🔥 ETO ANG FIX: Dapat match ang Pangalan AT ang Fitness Level
+
+                        // Primary attempt: exact match by name and fitness level
                         var template = await _context.WrkProgramTemplates
                             .FirstOrDefaultAsync(t =>
                                 t.ProgramName.Replace(" ", "").ToLower() == inputName.Replace(" ", "").ToLower() &&
-                                t.FitnessLevel.ToLower() == request.FitnessLevel.ToLower() // Isama natin si Level!
-                            );
+                                t.FitnessLevel.ToLower() == request.FitnessLevel.ToLower());
+
+                        // FALLBACK 1: Rehab user with "REHAB LEVEL"
+                        if (template == null && request.IsRehab)
+                        {
+                            template = await _context.WrkProgramTemplates
+                                .FirstOrDefaultAsync(t =>
+                                    t.ProgramName.Replace(" ", "").ToLower() == inputName.Replace(" ", "").ToLower() &&
+                                    t.FitnessLevel.ToLower() == "rehab level");
+                        }
+
+                        // FALLBACK 2: Last resort – any rehab program
+                        if (template == null && request.IsRehab)
+                        {
+                            template = await _context.WrkProgramTemplates
+                                .FirstOrDefaultAsync(t => t.ProgramName.Contains("Rehab", StringComparison.OrdinalIgnoreCase));
+                        }
+
 
                         if (template != null)
                         {
+
                             // 5a. Create Instance
                             var instance = new UsrUserProgramInstance
                             {
