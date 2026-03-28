@@ -55,6 +55,9 @@ public class WorkoutController : ControllerBase
 
             _logger.LogInformation($"User {userId} - Current Day: {activeProgram.CurrentDayNo}");
 
+            string fitnessLevel = activeProgram.ProgramLevel;
+            bool isRehab = activeProgram.ProgramName?.Contains("Rehab", StringComparison.OrdinalIgnoreCase) == true;
+
             // 2. Program number (position among active programs)
             int programNumber = await _context.UsrUserProgramInstances
                 .CountAsync(p => p.UserId == userId && p.Status == "ACTIVE" && p.InstanceId <= activeProgram.InstanceId);
@@ -181,7 +184,7 @@ public class WorkoutController : ControllerBase
                 await _context.SaveChangesAsync();
 
                 // Create workout exercises (includes warmups)
-                await CreateSessionWorkouts(newSession.SessionId, activeProgram.ProgramId, dayDef.DayType, weekNo);
+                await CreateSessionWorkouts(newSession.SessionId, activeProgram.ProgramId, dayDef.DayType, weekNo, fitnessLevel, isRehab);
 
                 // Ensure calendar entry exists
                 await EnsureCalendarEntryExists(activeProgram.CycleNo, currentDay, activeProgram.CurrentDayNo, false);
@@ -201,10 +204,10 @@ public class WorkoutController : ControllerBase
                 .OrderBy(sw => sw.OrderNo)
                 .ToListAsync();
 
-            // ✅ Repair missing warmups for pending sessions
+            // ✅ Repair missing warmups for pending sessions (with rehab support)
             if (!isCompleted && !isSkipped)
             {
-                await EnsureWarmupsExist(session.SessionId, activeProgram.ProgramId, dayDef.DayType, weekNo);
+                await EnsureWarmupsExist(session.SessionId, activeProgram.ProgramId, dayDef.DayType, weekNo, fitnessLevel, isRehab);
                 // Reload to include the newly added warmups
                 allWorkouts = await _context.UsrUserSessionWorkouts
                     .Include(sw => sw.Workout)
@@ -863,8 +866,13 @@ public class WorkoutController : ControllerBase
         _logger.LogInformation($"Advanced program day to {activeProgram.CurrentDayNo} for user {userId}");
     }
 
-    private async Task EnsureWarmupsExist(int sessionId, int programId, string dayType, int weekNo)
+    private async Task EnsureWarmupsExist(int sessionId, int programId, string dayType, int weekNo, string fitnessLevel, bool isRehab)
     {
+        // Build allowed difficulties
+        var allowedDifficulties = new List<string> { fitnessLevel };
+        if (isRehab)
+            allowedDifficulties.Add("REHAB LEVEL");
+
         // Check if session already has any warmups
         bool hasWarmups = await _context.UsrUserSessionWorkouts
             .Include(sw => sw.Workout)
@@ -872,16 +880,18 @@ public class WorkoutController : ControllerBase
 
         if (hasWarmups) return;
 
-        // If not, add 2 random warmups
+        // If not, add 2 random warmups filtered by allowed difficulties
         var warmups = await _context.WrkWorkouts
-            .Where(w => w.Category == "WARMUP" && w.IsActive == true)
+            .Where(w => w.Category == "WARMUP"
+                     && w.IsActive == true
+                     && allowedDifficulties.Contains(w.DifficultyLevel))
             .OrderBy(x => EF.Functions.Random())
             .Take(2)
             .ToListAsync();
 
         if (!warmups.Any())
         {
-            _logger.LogWarning("No active warmups found in database");
+            _logger.LogWarning("No active warmups found for the allowed difficulty levels");
             return;
         }
 
@@ -947,9 +957,10 @@ public class WorkoutController : ControllerBase
         _logger.LogInformation($"Reordered {allWorkouts.Count} workouts for session {sessionId}");
     }
 
-    private async Task CreateSessionWorkouts(int sessionId, int programId, string dayType, int weekNo)
+    private async Task CreateSessionWorkouts(int sessionId, int programId, string dayType, int weekNo, string fitnessLevel, bool isRehab)
     {
-        _logger.LogInformation($"Creating session workouts for Session {sessionId}, Program {programId}, DayType {dayType}, Week {weekNo}");
+        _logger.LogInformation($"Creating session workouts for Session {sessionId}, Program {programId}, DayType {dayType}, Week {weekNo}, FitnessLevel: {fitnessLevel}, IsRehab: {isRehab}");
+
 
         // Check if workouts already exist
         var existingWorkouts = await _context.UsrUserSessionWorkouts
@@ -960,13 +971,20 @@ public class WorkoutController : ControllerBase
             return;
         }
 
+        // Define allowed difficulties
+        var allowedDifficulties = new List<string> { fitnessLevel };
+        if (isRehab)
+            allowedDifficulties.Add("REHAB LEVEL");
+
         var sessionWorkouts = new List<UsrUserSessionWorkout>();
         int order = 1;
 
-        // 1. Add 2 random warmups (efficient random)
+        // 1. Add 2 random warmups filtered by allowed difficulties
         var warmups = await _context.WrkWorkouts
-            .Where(w => w.Category == "WARMUP" && w.IsActive == true)
-            .OrderBy(x => EF.Functions.Random()) // SQL Server NEWID()
+            .Where(w => w.Category == "WARMUP"
+                     && w.IsActive == true
+                     && allowedDifficulties.Contains(w.DifficultyLevel))
+            .OrderBy(x => EF.Functions.Random())
             .Take(2)
             .ToListAsync();
 
@@ -983,27 +1001,35 @@ public class WorkoutController : ControllerBase
             });
         }
 
-        // 2. Add main workouts from template
+        // 2. Add main workouts from template (filtered by allowed difficulties)
         var templateWorkouts = await _context.WrkProgramTemplateDaytypeWorkouts
             .Where(tw => tw.ProgramId == programId && tw.WeekNo == weekNo && tw.DayType == dayType)
-            .OrderBy(tw => tw.WorkoutOrder)
+            .Join(_context.WrkWorkouts, tw => tw.WorkoutId, w => w.WorkoutId, (tw, w) => new { tw, w })
+            .Where(j => allowedDifficulties.Contains(j.w.DifficultyLevel))
+            .OrderBy(j => j.tw.WorkoutOrder)
             .Take(8)
-            .Select(tw => new { tw.WorkoutId, tw.SetsDefault, tw.RepsDefault })
+            .Select(j => new { j.tw.WorkoutId, j.tw.SetsDefault, j.tw.RepsDefault })
             .ToListAsync();
 
         if (!templateWorkouts.Any())
         {
-            // Fallback to week 1
+
+
+            // Fallback to week 1 with same difficulty filter
             templateWorkouts = await _context.WrkProgramTemplateDaytypeWorkouts
                 .Where(tw => tw.ProgramId == programId && tw.WeekNo == 1 && tw.DayType == dayType)
-                .OrderBy(tw => tw.WorkoutOrder)
+                .Join(_context.WrkWorkouts, tw => tw.WorkoutId, w => w.WorkoutId, (tw, w) => new { tw, w })
+                .Where(j => allowedDifficulties.Contains(j.w.DifficultyLevel))
+                .OrderBy(j => j.tw.WorkoutOrder)
                 .Take(8)
-                .Select(tw => new { tw.WorkoutId, tw.SetsDefault, tw.RepsDefault })
+                .Select(j => new { j.tw.WorkoutId, j.tw.SetsDefault, j.tw.RepsDefault })
                 .ToListAsync();
         }
 
         if (!templateWorkouts.Any())
         {
+
+
             // Fallback to random workouts (excluding warmups and cardio)
             var fallbackWorkouts = await _context.WrkWorkouts
                 .Where(w => w.IsActive == true
