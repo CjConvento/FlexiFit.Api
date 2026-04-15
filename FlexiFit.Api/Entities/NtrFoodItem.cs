@@ -42,4 +42,6 @@ public partial class NtrFoodItem
     public virtual ICollection<NtrDailyMealItemLog> NtrDailyMealItemLogs { get; set; } = new List<NtrDailyMealItemLog>();
 
     public virtual ICollection<NtrTemplateMealItem> NtrTemplateMealItems { get; set; } = new List<NtrTemplateMealItem>();
+
+    public virtual ICollection<NtrFoodAllergies> FoodAllergies { get; set; } = new List<NtrFoodAllergies>();
 }

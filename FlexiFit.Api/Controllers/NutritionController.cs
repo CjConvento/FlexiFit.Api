@@ -116,8 +116,7 @@ public class NutritionController : ControllerBase
                 await _db.SaveChangesAsync();
 
                 // Seed meals with the intake target
-                await SeedDailyMeals(dailyLog.DailyLogId, calendarDay.TemplateId,
-                                     dayInWeek, variationCode, intakeTarget);
+                await SeedDailyMeals(userId.Value, dailyLog.DailyLogId, calendarDay.TemplateId, dayInWeek, variationCode, intakeTarget);
 
                 // Reload the daily log to include the seeded meals
                 dailyLog = await _db.NtrDailyLogs
@@ -158,7 +157,7 @@ public class NutritionController : ControllerBase
 
                 if (existingItemCount == 0)
                 {
-                    await SeedDailyMeals(dailyLog.DailyLogId, calendarDay.TemplateId,
+                    await SeedDailyMeals(userId.Value, dailyLog.DailyLogId, calendarDay.TemplateId,
                                          dayInWeek, variationCode, intakeTarget);
 
                     // Reload to get meal logs
@@ -248,7 +247,7 @@ public class NutritionController : ControllerBase
 
             if (existingItemCount == 0)
             {
-                await SeedDailyMeals(dailyLog.DailyLogId, calendarDay.TemplateId,
+                await SeedDailyMeals(userId.Value, dailyLog.DailyLogId, calendarDay.TemplateId,
                                      calendarDay.DayNo, calendarDay.VariationCode,
                                      dailyLog.TargetNetCalories);
             }
@@ -648,10 +647,10 @@ public class NutritionController : ControllerBase
 
     #region Helper Methods
 
-    private async Task SeedDailyMeals(int dailyLogId, int templateId, int dayNo, string variationCode, decimal targetIntakeCalories)
+    private async Task SeedDailyMeals(int userId, int dailyLogId, int templateId, int dayNo, string variationCode, decimal targetIntakeCalories)
     {
-        _logger.LogInformation("Seeding meals: TemplateId={TemplateId}, DayNo={DayNo}, Variation={Variation}, Target={Target}",
-            templateId, dayNo, variationCode, targetIntakeCalories);
+        _logger.LogInformation("Seeding meals: UserId={UserId}, TemplateId={TemplateId}, DayNo={DayNo}, Variation={Variation}, Target={Target}",
+            userId, templateId, dayNo, variationCode, targetIntakeCalories);
 
         // Ensure dayNo is within 1-7
         if (dayNo < 1 || dayNo > 7)
@@ -660,7 +659,13 @@ public class NutritionController : ControllerBase
             dayNo = 1;
         }
 
-        // First, try to get the exact template day
+        // 1. Get user's allergy IDs
+        var userAllergyIds = await _db.NtrUserAllergies
+            .Where(ua => ua.UserId == userId)
+            .Select(ua => ua.AllergyId)
+            .ToListAsync();
+
+        // 2. Load template day (exact match, then fallbacks)
         var templateDay = await _db.NtrTemplateDays
             .Include(td => td.NtrTemplateDayMeals)
                 .ThenInclude(tdm => tdm.NtrTemplateMealItems)
@@ -669,12 +674,10 @@ public class NutritionController : ControllerBase
                                        && td.DayNo == dayNo
                                        && td.VariationCode == variationCode);
 
-        // If not found, fallback to any variation for that day and template
         if (templateDay == null)
         {
             _logger.LogWarning("Exact template day not found for Variation={Variation}. Falling back to first available variation for Day={DayNo}, Template={TemplateId}.",
                 variationCode, dayNo, templateId);
-
             templateDay = await _db.NtrTemplateDays
                 .Include(td => td.NtrTemplateDayMeals)
                     .ThenInclude(tdm => tdm.NtrTemplateMealItems)
@@ -682,7 +685,6 @@ public class NutritionController : ControllerBase
                 .FirstOrDefaultAsync(td => td.TemplateId == templateId && td.DayNo == dayNo);
         }
 
-        // If still not found, try any day 1 (as last resort)
         if (templateDay == null)
         {
             _logger.LogWarning("No template day found for Day={DayNo}. Falling back to Day=1.", dayNo);
@@ -702,77 +704,149 @@ public class NutritionController : ControllerBase
         _logger.LogInformation("Using template day {TemplateDayId} with Variation={Variation}, DayNo={DayNo}.",
             templateDay.TemplateDayId, templateDay.VariationCode, templateDay.DayNo);
 
-        // Collect ALL items (both mandatory and optional)
-        var allItems = templateDay.NtrTemplateDayMeals
-            .SelectMany(tdm => tdm.NtrTemplateMealItems)
-            .ToList();
+        // 3. Get user's dietary type for fallback safe foods
+        var nutProfile = await _db.NtrUserNutritionProfiles
+            .FirstOrDefaultAsync(p => p.UserId == userId);
+        string dietaryType = nutProfile?.DietaryType ?? "BALANCED";
 
-        if (!allItems.Any())
+        // 4. Process each meal type
+        var mealTypes = new[] { "Breakfast", "Lunch", "Dinner", "Snack" };
+        var mealPercentages = new Dictionary<string, double>
+    {
+        { "Breakfast", 0.25 },
+        { "Lunch", 0.35 },
+        { "Dinner", 0.30 },
+        { "Snack", 0.10 }
+    };
+
+        string GetMealTypeCode(string mealType) => mealType switch
         {
-            _logger.LogWarning("No items found in template day.");
-            return;
-        }
+            "Breakfast" => "B",
+            "Lunch" => "L",
+            "Dinner" => "D",
+            "Snack" => "S",
+            _ => mealType.Substring(0, 1)
+        };
 
-        decimal totalDefaultCalories = allItems.Sum(i => i.Food.Calories * (decimal)i.DefaultQty);
-        if (totalDefaultCalories == 0)
-        {
-            _logger.LogWarning("Total default calories is zero.");
-            return;
-        }
-
-        // Compute scaling factor to reach target intake
-        decimal scalingFactor = targetIntakeCalories / totalDefaultCalories;
-        _logger.LogInformation("Total default calories: {TotalCal}, Scaling factor: {Factor}", totalDefaultCalories, scalingFactor);
-
-        // Prepare item logs and meal summaries
-        var itemLogs = new List<NtrDailyMealItemLog>();
+        // We'll accumulate items and meal summaries
+        var allItemLogs = new List<NtrDailyMealItemLog>();
         var mealSummaries = new Dictionary<string, (decimal calories, decimal protein, decimal carbs, decimal fats)>();
 
-        foreach (var tdm in templateDay.NtrTemplateDayMeals)
+        foreach (var mealType in mealTypes)
         {
-            string mealType = tdm.MealType;
-            decimal mealCal = 0, mealProt = 0, mealCarbs = 0, mealFats = 0;
+            decimal targetCalories = (decimal)((double)targetIntakeCalories * mealPercentages[mealType]);
+            decimal currentCalories = 0;
+            var itemsForMeal = new List<(NtrFoodItem food, decimal qty, int sortOrder)>();
+            var usedFoodIds = new HashSet<int>();
+            string mealCode = GetMealTypeCode(mealType);
 
-            foreach (var item in tdm.NtrTemplateMealItems)
+            // First, add all safe items from the template for this meal type
+            var templateMealsForType = templateDay.NtrTemplateDayMeals
+                .Where(tdm => tdm.MealType == mealType)
+                .SelectMany(tdm => tdm.NtrTemplateMealItems)
+                .ToList();
+
+            decimal templateTotalDefaultCalories = templateMealsForType.Sum(i => i.Food.Calories * (decimal)i.DefaultQty);
+            decimal scalingFactor = templateTotalDefaultCalories > 0 ? targetCalories / templateTotalDefaultCalories : 1;
+
+            foreach (var item in templateMealsForType)
             {
                 if (item.Food == null) continue;
 
-                decimal scaledQty = (decimal)item.DefaultQty * scalingFactor;
-                decimal cal = item.Food.Calories * scaledQty;
-                decimal prot = item.Food.ProteinG * scaledQty;
-                decimal carb = item.Food.CarbsG * scaledQty;
-                decimal fat = item.Food.FatsG * scaledQty;
-
-                itemLogs.Add(new NtrDailyMealItemLog
+                // Check if food is safe
+                bool isSafe = !item.Food.FoodAllergies.Any(fa => userAllergyIds.Contains(fa.AllergyId));
+                if (!isSafe)
                 {
-                    DailyLogId = dailyLogId,
-                    MealType = mealType,
-                    FoodId = item.FoodId,
-                    Qty = scaledQty,
-                    IsAddon = item.IsOptionalAddon,
-                    Calories = cal,
-                    ProteinG = prot,
-                    CarbsG = carb,
-                    FatsG = fat,
-                    SortOrder = item.SortOrder
-                });
+                    _logger.LogInformation("Skipping unsafe template food: {FoodName} (FoodId={FoodId}) for user {UserId}", item.Food.FoodName, item.FoodId, userId);
+                    continue;
+                }
 
-                mealCal += cal;
-                mealProt += prot;
-                mealCarbs += carb;
-                mealFats += fat;
+                decimal qty = (decimal)item.DefaultQty * scalingFactor;
+                qty = Math.Clamp(qty, 0.5m, 2.0m); // keep quantity reasonable
+                itemsForMeal.Add((item.Food, qty, item.SortOrder));
+                usedFoodIds.Add(item.FoodId);
+                currentCalories += item.Food.Calories * qty;
             }
 
-            mealSummaries[mealType] = (mealCal, mealProt, mealCarbs, mealFats);
+            // If after filtering we still have a deficit, add random safe foods (excluding already used)
+            if (currentCalories < targetCalories)
+            {
+                int maxAttempts = 20;
+                while (currentCalories < targetCalories && maxAttempts-- > 0)
+                {
+                    var safeFoods = await _db.NtrFoodItems
+                        .Where(f => f.MealType == mealType &&
+                                    f.DietaryType == dietaryType &&
+                                    !f.FoodAllergies.Any(fa => userAllergyIds.Contains(fa.AllergyId)) &&
+                                    !usedFoodIds.Contains(f.FoodId))
+                        .ToListAsync();
+
+                    if (!safeFoods.Any()) break;
+
+                    var random = new Random();
+                    var food = safeFoods[random.Next(safeFoods.Count)];
+
+                    decimal remaining = targetCalories - currentCalories;
+                    decimal qty = 1;
+                    if (food.Calories > 0)
+                    {
+                        if (remaining < food.Calories)
+                            qty = remaining / food.Calories;
+                        else
+                            qty = Math.Min(2, (decimal)Math.Ceiling((double)(remaining / food.Calories)));
+                        qty = Math.Clamp(qty, 0.5m, 2.0m);
+                    }
+
+                    var calContribution = food.Calories * qty;
+                    currentCalories += calContribution;
+                    itemsForMeal.Add((food, qty, itemsForMeal.Count + 1)); // sort order at end
+                    usedFoodIds.Add(food.FoodId);
+                }
+            }
+
+            // Create item logs and meal summary
+            if (itemsForMeal.Any())
+            {
+                decimal totalCal = 0, totalProt = 0, totalCarbs = 0, totalFats = 0;
+                int sortOrder = 1;
+                foreach (var (food, qty, _) in itemsForMeal.OrderBy(x => x.sortOrder))
+                {
+                    var cal = food.Calories * qty;
+                    var prot = food.ProteinG * qty;
+                    var carb = food.CarbsG * qty;
+                    var fat = food.FatsG * qty;
+
+                    allItemLogs.Add(new NtrDailyMealItemLog
+                    {
+                        DailyLogId = dailyLogId,
+                        MealType = mealCode,
+                        FoodId = food.FoodId,
+                        Qty = qty,
+                        IsAddon = false,
+                        Calories = cal,
+                        ProteinG = prot,
+                        CarbsG = carb,
+                        FatsG = fat,
+                        SortOrder = sortOrder++
+                    });
+
+                    totalCal += cal;
+                    totalProt += prot;
+                    totalCarbs += carb;
+                    totalFats += fat;
+                }
+
+                mealSummaries[mealCode] = (totalCal, totalProt, totalCarbs, totalFats);
+            }
         }
 
-        // Insert meal summaries (totals per meal)
-        foreach (var (mealType, totals) in mealSummaries)
+        // Insert meal summaries
+        foreach (var (mealCode, totals) in mealSummaries)
         {
             var mealLog = new NtrDailyMealLog
             {
                 DailyLogId = dailyLogId,
-                MealType = mealType,
+                MealType = mealCode,
                 Calories = (int)totals.calories,
                 ProteinG = totals.protein,
                 CarbsG = totals.carbs,
@@ -781,13 +855,12 @@ public class NutritionController : ControllerBase
             _db.NtrDailyMealLogs.Add(mealLog);
         }
 
-        _db.NtrDailyMealItemLogs.AddRange(itemLogs);
+        _db.NtrDailyMealItemLogs.AddRange(allItemLogs);
         await _db.SaveChangesAsync();
 
-        _logger.LogInformation("Seeded {ItemCount} meal items (including optional) and {MealCount} meal summaries.",
-            itemLogs.Count, mealSummaries.Count);
+        _logger.LogInformation("Seeded {ItemCount} meal items and {MealCount} meal summaries (allergy‑filtered, with safe fallbacks).",
+            allItemLogs.Count, mealSummaries.Count);
     }
-
 
     private async Task TryAdvanceProgramDay(int userId, DateOnly date)
     {

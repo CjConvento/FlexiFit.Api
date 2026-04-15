@@ -26,7 +26,7 @@ namespace FlexiFit.Api.Controllers
             IMemoryCache memoryCache)
         {
             _context = context;
-            _contextFactory = contextFactory; 
+            _contextFactory = contextFactory;
             _logger = logger;
             _cache = memoryCache;
         }
@@ -81,7 +81,7 @@ namespace FlexiFit.Api.Controllers
             });
         }
 
-        [Authorize] 
+        [Authorize]
         [HttpGet("dashboard")]
         public async Task<IActionResult> GetDashboard()
         {
@@ -289,7 +289,7 @@ namespace FlexiFit.Api.Controllers
                 dashboardData.TodayMeals = todayMeals;
                 _logger.LogInformation("Dashboard data built successfully, returning response.");
                 var json = System.Text.Json.JsonSerializer.Serialize(dashboardData);
-                _logger.LogInformation($"Dashboard response size: {json.Length} characters");   
+                _logger.LogInformation($"Dashboard response size: {json.Length} characters");
                 return Ok(dashboardData);
             }
             catch (Exception ex)
@@ -354,10 +354,10 @@ namespace FlexiFit.Api.Controllers
                 _ => "general"
             };
         }
-        
+
         [Authorize]
         [HttpPost("onboarding/profile")]
-        public async Task<IActionResult> SubmitOnboardingProfile([FromBody] OnboardingProfileRequest request)
+        public async Task<IActionResult> SubmitOnboardingProfile([FromBody] OnboardingProfileRequest request)   
         {
             var userId = GetUserId();
             if (userId == null) return Unauthorized();
@@ -624,42 +624,104 @@ namespace FlexiFit.Api.Controllers
                 }
                 await _context.SaveChangesAsync();
 
-                // --- 7. NESTED SEEDING: FOOD ITEMS (Para may pagkain agad Dashboard) ---
-                var templateDay = await _context.NtrTemplateDays
-                    .Include(td => td.NtrTemplateDayMeals)
-                        .ThenInclude(tdm => tdm.NtrTemplateMealItems)
-                            .ThenInclude(tmi => tmi.Food)
-                    .FirstOrDefaultAsync(td => td.TemplateId == safeTemplateId && td.DayNo == 1);
 
-                if (templateDay != null)
+                // --- 7. ALLERGY‑AWARE MEAL SEEDING (CALORIE‑BASED) ---
+                // Helper to map full meal type to single character
+                string GetMealCode(string mt) => mt switch
                 {
-                    foreach (var tdm in templateDay.NtrTemplateDayMeals)
+                    "Breakfast" => "B",
+                    "Lunch" => "L",
+                    "Dinner" => "D",
+                    "Snack" => "S",
+                    _ => mt.Substring(0, 1)
+                };
+
+                // 1. Get user allergy IDs once (before the loop)
+                var userAllergyIds = await _context.NtrUserAllergies
+                    .Where(ua => ua.UserId == userId.Value)
+                    .Select(ua => ua.AllergyId)
+                    .ToListAsync();
+
+                // 2. Define meal types and their calorie percentages
+                var mealTypes = new[] { "Breakfast", "Lunch", "Dinner", "Snack" };
+                var mealPercentages = new Dictionary<string, double>
+{
+    { "Breakfast", 0.25 },
+    { "Lunch", 0.35 },
+    { "Dinner", 0.30 },
+    { "Snack", 0.10 }
+};
+
+                string dietaryType = (request.DietType ?? "BALANCED").ToUpper();
+
+                // 3. Seed each meal type
+                foreach (var mealType in mealTypes)
+                {
+                    string mealCode = GetMealCode(mealType);   // ✅ idagdag ito
+                    double targetCalories = calorieTarget * mealPercentages[mealType];
+                    double currentCalories = 0;
+                    var selectedItems = new List<(NtrFoodItem food, decimal qty)>();
+                    int maxAttempts = 20;
+
+
+                    while (currentCalories < targetCalories && maxAttempts-- > 0)
+                    {
+                        // Get safe foods for this meal type (filtered by allergies)
+                        var safeFoods = await _context.NtrFoodItems
+                            .Where(f => f.MealType == mealType &&
+                                        f.DietaryType == dietaryType &&
+                                        !f.FoodAllergies.Any(fa => userAllergyIds.Contains(fa.AllergyId)))
+                            .ToListAsync();
+
+                        if (!safeFoods.Any()) break;
+
+                        // Randomly pick a food
+                        var random = new Random();
+                        var food = safeFoods[random.Next(safeFoods.Count)];
+
+                        // Determine quantity
+                        decimal qty = 1;
+                        if (food.Calories > 0)
+                        {
+                            double remaining = targetCalories - currentCalories;
+                            if (remaining < (double)food.Calories)
+                                qty = (decimal)(remaining / (double)food.Calories);
+                            else
+                                qty = Math.Min(2, (decimal)Math.Ceiling(remaining / (double)food.Calories));
+                            qty = Math.Clamp(qty, 0.5m, 2.0m);
+                        }
+
+                        var calContribution = food.Calories * qty;
+                        currentCalories += (double)calContribution;
+                        selectedItems.Add((food: food, qty: qty)); // explicit tuple naming to avoid ambiguity
+                    }
+
+                    // Create meal logs from selected items
+                    if (selectedItems.Any())
                     {
                         decimal totalCal = 0, totalProt = 0, totalCarbs = 0, totalFats = 0;
                         var itemsToLog = new List<NtrDailyMealItemLog>();
+                        int sortOrder = 1;
 
-                        foreach (var item in tdm.NtrTemplateMealItems)
+                        foreach (var (food, qty) in selectedItems)
                         {
-                            if (item.Food == null) continue;
-
-                            var qty = (decimal)item.DefaultQty;
-                            var cal = item.Food.Calories * qty;
-                            var prot = item.Food.ProteinG * qty;
-                            var carb = item.Food.CarbsG * qty;
-                            var fat = item.Food.FatsG * qty;
+                            var cal = food.Calories * qty;
+                            var prot = food.ProteinG * qty;
+                            var carb = food.CarbsG * qty;
+                            var fat = food.FatsG * qty;
 
                             itemsToLog.Add(new NtrDailyMealItemLog
                             {
-                                DailyLogId = dailyLog.DailyLogId, // ✅ Correctly scoped
-                                MealType = tdm.MealType,
-                                FoodId = item.FoodId,
-                                Qty = item.DefaultQty,
-                                IsAddon = item.IsOptionalAddon,
+                                DailyLogId = dailyLog.DailyLogId,
+                                MealType = mealCode,
+                                FoodId = food.FoodId,
+                                Qty = qty,
+                                IsAddon = false,
                                 Calories = cal,
                                 ProteinG = prot,
                                 CarbsG = carb,
                                 FatsG = fat,
-                                SortOrder = item.SortOrder
+                                SortOrder = sortOrder++
                             });
 
                             totalCal += cal;
@@ -671,7 +733,7 @@ namespace FlexiFit.Api.Controllers
                         var mealLog = new NtrDailyMealLog
                         {
                             DailyLogId = dailyLog.DailyLogId,
-                            MealType = tdm.MealType,
+                            MealType = mealCode,
                             Calories = (int)totalCal,
                             ProteinG = totalProt,
                             CarbsG = totalCarbs,
@@ -680,8 +742,8 @@ namespace FlexiFit.Api.Controllers
                         _context.NtrDailyMealLogs.Add(mealLog);
                         _context.NtrDailyMealItemLogs.AddRange(itemsToLog);
                     }
-                    await _context.SaveChangesAsync();
                 }
+                await _context.SaveChangesAsync();
 
 
 
@@ -893,6 +955,9 @@ namespace FlexiFit.Api.Controllers
 
                 // Delete nutrition profile (dietary preferences)
                 await _context.NtrUserNutritionProfiles.Where(x => x.UserId == userId).ExecuteDeleteAsync();
+
+                // ✅ ITO ANG NAWALANG LINYA – DELETE USER ALLERGIES
+                await _context.NtrUserAllergies.Where(x => x.UserId == userId).ExecuteDeleteAsync();
 
                 // --- 3. ACTIVITY SUMMARY (calories burned, minutes) ---
                 await _context.ActActivitySummaries.Where(x => x.UserId == userId).ExecuteDeleteAsync();
