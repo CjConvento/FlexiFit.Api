@@ -56,4 +56,6 @@ public partial class UsrUser
     public virtual ICollection<UsrUserProgramInstance> UsrUserProgramInstances { get; set; } = new List<UsrUserProgramInstance>();
 
     public virtual ICollection<UsrUserWorkoutProgress> UsrUserWorkoutProgresses { get; set; } = new List<UsrUserWorkoutProgress>();
+
+    public virtual ICollection<NtrUserAllergies> UserAllergies { get; set; } = new List<NtrUserAllergies>();
 }

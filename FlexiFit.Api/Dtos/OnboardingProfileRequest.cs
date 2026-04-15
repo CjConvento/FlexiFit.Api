@@ -66,6 +66,9 @@ namespace FlexiFit.Api.Dtos
 
         [JsonPropertyName("IsRehab")]
         public bool IsRehab { get; set; }
+
+        [JsonPropertyName("Allergies")]
+        public List<string> Allergies { get; set; } = new();
     }
 
     // Gawa ka rin ng maliit na class na 'to sa parehong file para sa programs
