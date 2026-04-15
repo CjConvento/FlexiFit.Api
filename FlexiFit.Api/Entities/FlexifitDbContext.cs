@@ -25,6 +25,11 @@ public partial class FlexiFitDbContext : DbContext
 
     public virtual DbSet<NtrDailyMealLog> NtrDailyMealLogs { get; set; }
 
+    public DbSet<NtrAllergies> NtrAllergies { get; set; }
+    public DbSet<NtrUserAllergies> NtrUserAllergies { get; set; }
+    public DbSet<NtrFoodAllergies> NtrFoodAllergies { get; set; }
+
+
     public virtual DbSet<NtrFoodItem> NtrFoodItems { get; set; }
 
     public virtual DbSet<NtrMealPlanCalendar> NtrMealPlanCalendars { get; set; }
@@ -85,9 +90,6 @@ public partial class FlexiFitDbContext : DbContext
 
     public virtual DbSet<WrkWorkoutLoadStep> WrkWorkoutLoadSteps { get; set; }
 
-//    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-//#warning To protect potentially sensitive information in your connection string, you should move it out of source code. You can avoid scaffolding the connection string by using the Name= syntax to read it from configuration - see https://go.microsoft.com/fwlink/?linkid=2131148. For more guidance on storing connection strings, see https://go.microsoft.com/fwlink/?LinkId=723263.
-//        => optionsBuilder.UseSqlServer("Server=172.26.0.192;Database=FLEXIFIT;User Id=cy;Password=N@t@jimur@#cy18;TrustServerCertificate=True");
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -274,7 +276,47 @@ public partial class FlexiFitDbContext : DbContext
                 .HasConstraintName("FK_ntr_daily_meal_logs_daily");
         });
 
-        modelBuilder.Entity<NtrFoodItem>(entity =>
+        modelBuilder.Entity<NtrAllergies>(entity =>
+        {
+            entity.ToTable("ntr_allergies");
+            entity.HasKey(e => e.AllergyId);
+            entity.Property(e => e.AllergyId).HasColumnName("allergy_id");
+            entity.Property(e => e.AllergyName).HasColumnName("allergy_name").HasMaxLength(100);
+        });
+
+        modelBuilder.Entity<NtrUserAllergies>(entity =>
+        {
+            entity.ToTable("ntr_user_allergies");
+            entity.HasKey(e => new { e.UserId, e.AllergyId });
+
+            entity.HasOne(e => e.User)
+                .WithMany(u => u.UserAllergies)
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.Allergy)
+                .WithMany(a => a.UserAllergies)
+                .HasForeignKey(e => e.AllergyId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<NtrFoodAllergies>(entity =>
+        {
+            entity.ToTable("ntr_food_allergies");
+            entity.HasKey(e => new { e.FoodId, e.AllergyId });
+
+            entity.HasOne(e => e.Food)
+                .WithMany(f => f.FoodAllergies)
+                .HasForeignKey(e => e.FoodId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.Allergy)
+                .WithMany(a => a.FoodAllergies)
+                .HasForeignKey(e => e.AllergyId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+    modelBuilder.Entity<NtrFoodItem>(entity =>
         {
             entity.HasKey(e => e.FoodId).HasName("PK__ntr_food__2F4C4DD8703F737A");
 
