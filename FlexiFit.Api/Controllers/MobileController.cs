@@ -461,6 +461,26 @@ namespace FlexiFit.Api.Controllers
 
                 if (_context.Entry(details).State == EntityState.Detached) _context.UsrUserOnboardingDetails.Add(details);
 
+                // --- 3.5 ALLERGIES (NEW) ---
+                // Remove existing user allergies
+                var existingAllergies = _context.NtrUserAllergies.Where(ua => ua.UserId == userId.Value);
+                _context.NtrUserAllergies.RemoveRange(existingAllergies);
+
+                // Add new allergies from request
+                if (request.Allergies != null && request.Allergies.Any())
+                {
+                    foreach (var allergyName in request.Allergies)
+                    {
+                        var allergy = await _context.NtrAllergies.FirstOrDefaultAsync(a => a.AllergyName == allergyName);
+                        if (allergy == null)
+                        {
+                            allergy = new NtrAllergies { AllergyName = allergyName };
+                            _context.NtrAllergies.Add(allergy);
+                        }
+                        _context.NtrUserAllergies.Add(new NtrUserAllergies { UserId = userId.Value, AllergyId = allergy.AllergyId });
+                    }
+                    await _context.SaveChangesAsync();
+                }
 
                 // --- 4. NUTRITION ENGINE (SEEDING INITIAL MEALS) ---
                 double w = (double)request.WeightKg;
