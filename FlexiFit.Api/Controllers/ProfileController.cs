@@ -288,6 +288,7 @@ namespace FlexiFit.Api.Controllers
 
             if (nutProfile == null) return NotFound("Nutrition profile not found.");
 
+            // Update weight
             nutProfile.WeightKg = (decimal)request.NewWeight;
 
             if (cycle != null)
@@ -296,14 +297,64 @@ namespace FlexiFit.Api.Controllers
                 double currentHeight = (double)nutProfile.HeightCm;
                 int currentAge = (int)nutProfile.Age;
 
+                // BMR (Mifflin-St Jeor)
                 double bmr = (profile?.Gender?.ToUpper() == "MALE")
                     ? (10 * currentWeight) + (6.25 * currentHeight) - (5 * currentAge) + 5
                     : (10 * currentWeight) + (6.25 * currentHeight) - (5 * currentAge) - 161;
 
-                cycle.DailyTargetNetCalories = (int)(bmr * 1.2);
-                cycle.ProteinTargetG = (decimal)(currentWeight * 2.0);
+                // Activity multiplier
+                string activityLevel = nutProfile.ActivityLevel ?? "SEDENTARY";
+                string normalized = activityLevel.ToUpper().Replace("_", "").Replace(" ", "");
+                double multiplier = normalized switch
+                {
+                    "SEDENTARY" => 1.2,
+                    "LIGHTLYACTIVE" => 1.375,
+                    "ACTIVE" => 1.55,
+                    "VERYACTIVE" => 1.725,
+                    _ => 1.375
+                };
 
-                // TINANGGAL NATIN ANG cycle.UpdatedAt KASI WALA ITO SA ENTITY MO
+                // Base maintenance calories (TDEE)
+                double maintenanceCalories = bmr * multiplier;
+
+                // Adjust based on goal and target weight
+                double targetWeight = nutProfile.TargetWeightKg.HasValue
+                    ? (double)nutProfile.TargetWeightKg.Value
+                    : currentWeight; 
+                string goal = nutProfile.NutritionGoal?.ToUpper() ?? "MAINTAIN";
+
+                double calorieAdjustment = 0;
+                if (goal == "LOSE")
+                {
+                    // Deficit: 20% of maintenance, or a fixed 500 kcal (whichever is smaller)
+                    // But also consider how far from target weight
+                    double deficit = Math.Min(0.2 * maintenanceCalories, 500);
+                    calorieAdjustment = -deficit;
+                }
+                else if (goal == "GAIN")
+                {
+                    double surplus = Math.Min(0.2 * maintenanceCalories, 500);
+                    calorieAdjustment = +surplus;
+                }
+                // else MAINTAIN -> no adjustment
+
+                // Optional: further adjust based on weight difference (aggressive if far from target)
+                double weightDiff = currentWeight - targetWeight;
+                if (goal == "LOSE" && weightDiff > 5)
+                {
+                    calorieAdjustment -= 100; // extra deficit if more than 5kg overweight
+                }
+                else if (goal == "GAIN" && weightDiff < -5)
+                {
+                    calorieAdjustment += 100; // extra surplus if more than 5kg underweight
+                }
+
+                int dailyCalories = (int)(maintenanceCalories + calorieAdjustment);
+                // Ensure minimum safe calories (e.g., 1200 for women, 1500 for men – simple check)
+                dailyCalories = Math.Max(dailyCalories, 1200);
+
+                cycle.DailyTargetNetCalories = dailyCalories;
+                cycle.ProteinTargetG = (decimal)(currentWeight * 2.0);
             }
 
             await _db.SaveChangesAsync();
