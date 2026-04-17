@@ -7,10 +7,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Remove="Credentials\firebase-service-account.json" />
-  </ItemGroup>
-
-  <ItemGroup>
     <None Include="Credentials\firebase-service-account.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
@@ -33,6 +29,10 @@
   </PackageReference>
 
   <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
+</ItemGroup>
+
+<ItemGroup>
+  <Folder Include="Credentials\" />
 </ItemGroup>
 
 </Project>
