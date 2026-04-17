@@ -498,7 +498,6 @@ namespace FlexiFit.Api.Controllers
                 {
                     "SEDENTARY" => 1.2,
                     "LIGHTLYACTIVE" => 1.375,
-                    "MODERATELYACTIVE" => 1.55,
                     "ACTIVE" => 1.55,
                     "VERYACTIVE" => 1.725,
                     _ => 1.375
