@@ -23,11 +23,14 @@ namespace FlexiFit.Api.Controllers
         // ideclare dito ang db
         private readonly FlexiFitDbContext _db;
 
+        private readonly ILogger<ProfileController> _logger;
+
         // Dito sa constructor, dapat dalawa na silang tinatanggap
-        public ProfileController(IConfiguration config, FlexiFitDbContext db)
+        public ProfileController(IConfiguration config, FlexiFitDbContext db, ILogger<ProfileController> logger)
         {
             _config = config;
             _db = db;
+            _logger = logger;
         }
 
 
@@ -288,21 +291,54 @@ namespace FlexiFit.Api.Controllers
 
             if (nutProfile == null) return NotFound("Nutrition profile not found.");
 
-            // Update weight
+            nutProfile.WeightKg = (decimal)request.NewWeight;
+            _db.Entry(nutProfile).State = EntityState.Modified;
+
+            // Get the latest metric record
+            var latestMetric = await _db.UsrUserMetrics
+                .Where(m => m.UserId == userId)
+                .OrderByDescending(m => m.RecordedAt)
+                .FirstOrDefaultAsync();
+
+            // Update weight in the latest metric (or create a new one)
+            if (latestMetric != null)
+            {
+                latestMetric.CurrentWeightKg = (decimal)request.NewWeight;
+                latestMetric.RecordedAt = DateTime.UtcNow;
+            }
+            else
+            {
+                // Use ternary operator to avoid null‑propagation casting issues
+                latestMetric = new UsrUserMetric
+                {
+                    UserId = userId,
+                    CurrentWeightKg = (decimal)request.NewWeight,
+                    CurrentHeightCm = nutProfile.HeightCm,
+                    FitnessGoal = nutProfile.NutritionGoal ?? "MAINTAIN",
+                    NutritionGoal = nutProfile.DietaryType ?? "BALANCED",
+                    CalorieTarget = cycle?.DailyTargetNetCalories ?? 2000,
+                    ProteinTargetG = cycle != null ? (int)cycle.ProteinTargetG : 120,
+                    CarbsTargetG = cycle != null ? (int)cycle.CarbsTargetG : 200,
+                    FatsTargetG = cycle != null ? (int)cycle.FatsTargetG : 60,
+                    RecordedAt = DateTime.UtcNow
+                };
+                _db.UsrUserMetrics.Add(latestMetric);
+            }
+
+            // Update nutrition profile weight
             nutProfile.WeightKg = (decimal)request.NewWeight;
 
+            // Recalculate cycle targets (if cycle exists)
             if (cycle != null)
             {
                 double currentWeight = (double)request.NewWeight;
                 double currentHeight = (double)nutProfile.HeightCm;
                 int currentAge = (int)nutProfile.Age;
 
-                // BMR (Mifflin-St Jeor)
                 double bmr = (profile?.Gender?.ToUpper() == "MALE")
                     ? (10 * currentWeight) + (6.25 * currentHeight) - (5 * currentAge) + 5
                     : (10 * currentWeight) + (6.25 * currentHeight) - (5 * currentAge) - 161;
 
-                // Activity multiplier
                 string activityLevel = nutProfile.ActivityLevel ?? "SEDENTARY";
                 string normalized = activityLevel.ToUpper().Replace("_", "").Replace(" ", "");
                 double multiplier = normalized switch
@@ -314,20 +350,13 @@ namespace FlexiFit.Api.Controllers
                     _ => 1.375
                 };
 
-                // Base maintenance calories (TDEE)
                 double maintenanceCalories = bmr * multiplier;
-
-                // Adjust based on goal and target weight
-                double targetWeight = nutProfile.TargetWeightKg.HasValue
-                    ? (double)nutProfile.TargetWeightKg.Value
-                    : currentWeight; 
+                double targetWeight = nutProfile.TargetWeightKg.HasValue ? (double)nutProfile.TargetWeightKg.Value : currentWeight;
                 string goal = nutProfile.NutritionGoal?.ToUpper() ?? "MAINTAIN";
 
                 double calorieAdjustment = 0;
                 if (goal == "LOSE")
                 {
-                    // Deficit: 20% of maintenance, or a fixed 500 kcal (whichever is smaller)
-                    // But also consider how far from target weight
                     double deficit = Math.Min(0.2 * maintenanceCalories, 500);
                     calorieAdjustment = -deficit;
                 }
@@ -336,29 +365,30 @@ namespace FlexiFit.Api.Controllers
                     double surplus = Math.Min(0.2 * maintenanceCalories, 500);
                     calorieAdjustment = +surplus;
                 }
-                // else MAINTAIN -> no adjustment
 
-                // Optional: further adjust based on weight difference (aggressive if far from target)
                 double weightDiff = currentWeight - targetWeight;
-                if (goal == "LOSE" && weightDiff > 5)
-                {
-                    calorieAdjustment -= 100; // extra deficit if more than 5kg overweight
-                }
-                else if (goal == "GAIN" && weightDiff < -5)
-                {
-                    calorieAdjustment += 100; // extra surplus if more than 5kg underweight
-                }
+                if (goal == "LOSE" && weightDiff > 5) calorieAdjustment -= 100;
+                else if (goal == "GAIN" && weightDiff < -5) calorieAdjustment += 100;
 
                 int dailyCalories = (int)(maintenanceCalories + calorieAdjustment);
-                // Ensure minimum safe calories (e.g., 1200 for women, 1500 for men – simple check)
                 dailyCalories = Math.Max(dailyCalories, 1200);
 
+                // Recalculate all macros as integers
+                int proteinTarget = (int)(currentWeight * 2.0);
+                int fatsTarget = (int)((dailyCalories * 0.25) / 9);
+                int carbsTarget = (int)((dailyCalories - (proteinTarget * 4) - (fatsTarget * 9)) / 4);
+
                 cycle.DailyTargetNetCalories = dailyCalories;
-                cycle.ProteinTargetG = (decimal)(currentWeight * 2.0);
+                cycle.ProteinTargetG = proteinTarget;
+                cycle.CarbsTargetG = carbsTarget;
+                cycle.FatsTargetG = fatsTarget;
+                cycle.CreatedAt = DateTime.UtcNow;
             }
 
             await _db.SaveChangesAsync();
-            return Ok(new { message = "Weight updated!" });
+            _logger.LogInformation("Weight updated for user {UserId} to {Weight} kg (both metric and nutrition profile)", userId, request.NewWeight);
+
+            return Ok(new { message = "Weight updated successfully!" });
         }
 
         [Authorize]
