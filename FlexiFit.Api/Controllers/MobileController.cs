@@ -959,6 +959,10 @@ namespace FlexiFit.Api.Controllers
                 await _context.UsrUserSessionInstances.Where(x => sessionIds.Contains(x.SessionId)).ExecuteDeleteAsync();
                 await _context.UsrUserWorkoutProgresses.Where(x => x.UserId == userId).ExecuteDeleteAsync();
                 await _context.UsrUserWorkoutSessions.Where(x => x.UserId == userId).ExecuteDeleteAsync();
+
+                // --- 1.5 WORKOUT CALENDARS ---
+                await _context.WktWorkoutCalendars.Where(x => x.UserId == userId).ExecuteDeleteAsync();
+
                 await _context.UsrUserProgramInstances.Where(x => x.UserId == userId).ExecuteDeleteAsync();
 
                 // --- 2. NUTRITION ---
