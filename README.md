@@ -30,9 +30,9 @@ The architecture enforces domain separation across multiple specialized controll
 ### 🥗 Intelligent Nutrition Engine
 *   `Nutrition` - Calculates dynamic macro boundaries and nutritional distributions through math equations.
 
-### 🦾 Calisthenics Workout & Progression Tracks
+### 🦾 Workout & Progression Tracks
 *   `Program` & `UserProgram` - Translates raw body metrics into progressive workout levels.
-*   `Workout` - Applies the custom injury filtering mechanism to ensure client training parameters stay safe yet active.
+*   `Workout` - Applies the custom injury filtering such as for Rehab Program to ensure client training parameters stay safe yet active.
 
 ### 🔔 System Utilities
 *   `Notifications` - Handles internal telemetry updates and system alerts.
@@ -75,9 +75,9 @@ Welcome, developers! To clone, configure, and test this API locally on your mach
 
 ### 📋 Prerequisites
 Before starting, ensure you have the following installed:
-- [.NET Core 8.0 SDK](https://microsoft.com)
-- [Visual Studio 2022](https://microsoft.com) / VS Code
-- [Microsoft SQL Server Express](https://microsoft.com) (or LocalDB)
+- [.NET Core 8.0 SDK]
+- [Visual Studio 2022] / VS Code
+- [Microsoft SQL Server Express] (or LocalDB)
 
 ### 🚀 1. Clone the Repository
 Open your terminal or command prompt and run:
