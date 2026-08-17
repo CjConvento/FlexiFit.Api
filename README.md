@@ -125,4 +125,4 @@ Open your terminal inside the root project directory and execute the following c
 ## 📸 API Documentation Preview
 Below is the layout map of the exposed modules as seen on the interactive Swagger UI layer:
 
-![FlexiFit API Swagger Documentation Preview](wwwroot/images/flexifit_api_swagger_ss.png)
+![FlexiFit API Swagger Documentation Preview](FlexiFit.Api/wwwroot/images/flexifit_api_swagger_ss.png)
