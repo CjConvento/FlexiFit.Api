@@ -7,9 +7,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="Credentials\firebase-service-account.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
     <None Include="Credentials\firebase-service-account.json" Condition="Exists('Credentials\firebase-service-account.json')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
