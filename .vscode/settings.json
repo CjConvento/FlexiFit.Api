@@ -1,0 +1,10 @@
+{
+  "appService.preDeployTask": "publish-release",
+  "appService.deploySubpath": "FlexiFit.Api/bin/Release/net8.0/publish",
+  "appService.zipIgnorePattern": [
+    "wwwroot/uploads/**",
+    "**/wwwroot/uploads/**",
+    "wwwroot/vids/**",
+    "**/wwwroot/vids/**"
+  ]
+}

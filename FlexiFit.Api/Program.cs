@@ -12,52 +12,8 @@ using Microsoft.Data.SqlClient;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ========== ADD THESE TWO LINES ==========
-Console.WriteLine($"Environment: {builder.Environment.EnvironmentName}");
-var conn = builder.Configuration.GetConnectionString("FlexifitDb");
-Console.WriteLine($"Connection string used: {conn}");
 // =========================================
-
-using (var testConnection = new SqlConnection(conn))
-{
-    try
-    {
-        testConnection.Open();
-        Console.WriteLine("Database connection successful!");
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"Direct connection failed: {ex.Message}");
-        if (ex.InnerException != null)
-        {
-            Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
-        }
-    }
-}
-
-using (var testConnection = new SqlConnection(conn))
-{
-    try
-    {
-        testConnection.Open();
-        Console.WriteLine("Database connection successful!");
-
-        // Query the usr_users table
-        using (var command = new SqlCommand("SELECT COUNT(*) FROM usr_users", testConnection))
-        {
-            var count = command.ExecuteScalar();
-            Console.WriteLine($"Number of users in usr_users: {count}");
-        }
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"Query failed: {ex.Message}");
-        if (ex.InnerException != null)
-        {
-            Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
-        }
-    }
-}
+builder.Services.AddLogging();
 
 // Controllers
 // --- FIXED PART ---
@@ -146,7 +102,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             OnAuthenticationFailed = context =>
             {
                 var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
-                Console.WriteLine("!!! JWT validation failed: " + context.Exception.Message);
+                
+                logger.LogError("JWT validation failed: {ExceptionMessage}", context.Exception.Message);
+                
                 return Task.CompletedTask;
             }
         };
@@ -162,9 +120,13 @@ var serviceAccountPath = Path.Combine(
 
 if (FirebaseApp.DefaultInstance == null)
 {
+    // Gamitin ang CredentialFactory para basahin ang JSON file nang ligtas
+    var credential = CredentialFactory.FromFile<ServiceAccountCredential>(serviceAccountPath)
+                                      .ToGoogleCredential();
+
     FirebaseApp.Create(new AppOptions
     {
-        Credential = GoogleCredential.FromFile(serviceAccountPath)
+        Credential = credential
     });
 }
 
@@ -174,23 +136,35 @@ builder.Services.AddScoped<FirebaseTokenVerifier>();
 builder.Services.AddScoped<DeviceTokenService>();
 builder.Services.AddScoped<IUserService, UserService>(); // <-- idagdag ito
 
+// ✅ CHANGED: CORS - dynamic mula sa configuration (para sa production)
+var corsOrigins = builder.Configuration.GetSection("CorsOrigins").Get<string[]>();
+if (corsOrigins == null || corsOrigins.Length == 0)
+{
+    corsOrigins = new[] { "http://localhost:5100" }; // default para sa development
+}
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAdminPanel",
-        policy => policy.WithOrigins("http://localhost:5100") // Port ng Admin Panel mo
+        policy => policy.WithOrigins(corsOrigins) // Port ng Admin Panel mo
                         .AllowAnyMethod()
-                        .AllowAnyHeader());
+                        .AllowAnyHeader()
+                        .AllowCredentials());
 });
 builder.Services.AddMemoryCache();
 var app = builder.Build();
 
+var logger = app.Services.GetRequiredService<ILogger<Program>>();
+
+logger.LogInformation("Environment: {Environment}", app.Environment.EnvironmentName);
+
 if (app.Environment.IsDevelopment())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
-    app.UseDeveloperExceptionPage(); // 👈 dito ilagay
+    app.UseDeveloperExceptionPage(); // Para lang sa development
 }
 
+app.UseSwagger();
+app.UseSwaggerUI();
 app.UseStaticFiles();
 
 // --- ILAGAY ITO DITO ---
