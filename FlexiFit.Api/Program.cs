@@ -112,22 +112,57 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
-// Firebase Admin init
-var serviceAccountPath = Path.Combine(
-    builder.Environment.ContentRootPath,
-    "Credentials",
-    "firebase-service-account.json");
-
+// =======================================================
+// 🔥 FIREBASE ADMIN INITIALIZATION
+// =======================================================
 if (FirebaseApp.DefaultInstance == null)
 {
-    // Gamitin ang CredentialFactory para basahin ang JSON file nang ligtas
-    var credential = CredentialFactory.FromFile<ServiceAccountCredential>(serviceAccountPath)
-                                      .ToGoogleCredential();
-
-    FirebaseApp.Create(new AppOptions
+    try
     {
-        Credential = credential
-    });
+        // ✅ 1. UNAHIN ANG ENVIRONMENT VARIABLE (Para sa Azure)
+        string? firebaseJson = Environment.GetEnvironmentVariable("FIREBASE_SERVICE_ACCOUNT");
+
+        if (!string.IsNullOrEmpty(firebaseJson))
+        {
+            FirebaseApp.Create(new AppOptions()
+            {
+                Credential = GoogleCredential.FromJson(firebaseJson)
+            });
+            Console.WriteLine("✅ Firebase initialized using environment variable.");
+        }
+        else
+        {
+            // ✅ 2. FALLBACK: BASAHIN MULA SA FILE (Para sa Local Development)
+            var serviceAccountPath = Path.Combine(
+                builder.Environment.ContentRootPath,
+                "Credentials",
+                "firebase-service-account.json");
+
+            if (File.Exists(serviceAccountPath))
+            {
+                var credential = CredentialFactory.FromFile<ServiceAccountCredential>(serviceAccountPath)
+                                                  .ToGoogleCredential();
+
+                FirebaseApp.Create(new AppOptions
+                {
+                    Credential = credential
+                });
+                Console.WriteLine("✅ Firebase initialized using file: {serviceAccountPath}");
+            }
+            else
+            {
+                // ⚠️ 3. KUNG WALA, MAG-LOG NG WARNING AT HUWAG I-INITIALIZE
+                Console.WriteLine("⚠️ Firebase credentials not found. Skipping Firebase initialization.");
+                Console.WriteLine("   Set FIREBASE_SERVICE_ACCOUNT environment variable or add Credentials/firebase-service-account.json file.");
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"❌ Firebase initialization failed: {ex.Message}");
+        // Optional: throw kung kailangan talaga ang Firebase
+        // throw;
+    }
 }
 
 // Services
