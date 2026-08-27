@@ -1,0 +1,31 @@
+name: Deploy FlexiFit API to Azure
+
+on:
+  push:
+    branches:
+      - master # Triggers the workflow every time there's push to the master branch
+
+jobs:
+  build-and-deploy:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x' #.NET 8 framework
+
+      - name: Clean and Publish Project (32-Bit Build)
+        run: |
+          dotnet clean
+          dotnet publish FlexiFit.Api/FlexiFit.Api.csproj -c Release -r win-x86 --self-contained false -o ./publish
+
+      - name: Deploy Compiled Core to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: 'flexifit-api'
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: ./publish
