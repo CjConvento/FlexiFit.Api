@@ -1,135 +1,227 @@
-# FlexiFit API - Personalized Fitness & Nutrition Planning System
+# FlexiFit API — Personalized Fitness & Nutrition Platform Core
 
-An inclusive, high-performance, and scalable **REST Web API** engineered to power the FlexiFit personalized fitness ecosystem. This system utilizes a custom, rule-based **Mathematical Logic Algorithm** to dynamically generate workout and nutirition plan, featuring specialized programs designed specifically for injured users.
+**Status: Active Core Framework** — Authentication, Relational Schema Architecture, Engine Calculation Modules, and API Documentation Layer are fully operational and verified. Advanced Multi-Platform Sync engines are currently in progress (see [Roadmap](#-startup-modernization-roadmap)).
 
-Built using an **AI-Assisted Engineering workflow**, Large Language Models (LLMs) were leveraged during development to refine mathematical models and accelerate syntactical optimization, ensuring a cost-efficient, deterministic, and highly reliable backend architecture.
+An inclusive, high-performance, and microservices-ready **REST Web API** engineered to power the entire FlexiFit personalized health ecosystem. The backend subsystem leverages a custom, deterministic, rule-based **Mathematical Logic Algorithm** to dynamically compute caloric boundaries, target macronutrient yields, and generate progressive athletic programming—featuring specialized, low-impact exercise tracking matrices designed specifically for user injury mitigation and active rehabilitation.
 
----
-
-## Tech Stack
-
-* **Backend Framework:** .NET 8.0 (C#)
-* **Database Access:** Entity Framework Core & Dapper
-* **Authentication:** JWT Bearer Token & Firebase Admin SDK
-* **API Documentation:** Swagger UI (Swashbuckle)
-
----  
-
-## System Modules & API Endpoints Layout
-The architecture enforces domain separation across multiple specialized controllers verified within the preview panel:
-
-### Auth & Profile Management
-*   `Auth` - Manages token distribution for secure client sessions.
-*   `Profile` & `ProfileStatus` - Tracks target biometric indices and user physical stats.
-*   `Users` & `SettingsAccount` - Safeguards user identity data and credential updates.
-
-### Calendar & Mobile Delivery
-*   `Calendar` - Orchestrates activity logging and scheduled program routines.
-*   `Mobile` - Low-latency endpoint routing optimized for mobile integration.
-
-### Intelligent Nutrition Engine
-*   `Nutrition` - Calculates dynamic macro boundaries and nutritional distributions through math equations.
-
-### Workout & Progression Tracks
-*   `Program` & `UserProgram` - Translates raw body metrics into progressive workout levels.
-*   `Workout` - Applies the custom injury filtering such as for Rehab Program to ensure client training parameters stay safe yet active.
-
-### System Utilities
-*   `Notifications` - Handles internal telemetry updates and system alerts.
-*   `Test` - Built-in integration checkpoints to verify overall server and deployment health.
+> **Startup & Enterprise-Ready Architecture:** While developed as a personal capstone initiative, this project was architected from Day One to adhere to rigid production-grade benchmarks. The system is designed to seamlessly scale into a SaaS framework or support sudden customer load spikes in a commercial startup launch.
 
 ---
 
-## Core System Features
+## Technology Stack & Core Infrastructure
 
-The **FlexiFit API** powers the app with secure data management, user authentication, and adaptive programs:
-
-### 1. Robust User Authentication & Security
-* **Firebase Sign-In Integration:** Verifies incoming user accounts safely using token payloads passed from the Firebase client layer.
-* **Hybrid Login:** Validates matched `email` and `firebaseUid` combinations directly from the internal system database.
-* **Secure JWT Access Issuance:** Generates a custom cryptographic JSON Web Token (JWT) with precise expiry times upon a successful login.
-* **Role-Based Access Control:** Protects backend data routes by restricting execution access to authenticated `USER` or `ADMIN` roles using custom padlock locks.
-
-### 2. Intelligent Calendar & Workout Logging
-* **Activity Tracking Matrix:** Stores and retrieves unique calendar schedules associated with user fitness goals.
-* **Persistence & Queries:** Connects to specific schemas (`usr_users` table data) to adapr based on user's activity historical metrics.
-
-### 3. Cross-Origin Resource Sharing (CORS) Configuration
-* **Admin Panel Bridge:** Explicitly opens secure communication ports (`http://localhost:5100`) allowing administrative dashboards to securely read FlexiFit assets without security blocks.
-* **High-Performance Memory Caching:** Minimizes heavy continuous hits to the database server by saving fast, recurring framework checks directly into the local memory cache layer.
+| Architecture Layer | Core Components / Technologies Used |
+|---|---|
+| **Backend Engine** | C# / .NET 8.0 (Modern Cross-Platform Enterprise Framework) |
+| **Data Access / ORM** | Hybrid Data Layer utilizing Entity Framework Core (EF Core 8.0) and Dapper for high-performance direct SQL querying |
+| **Authentication Infrastructure** | JSON Web Tokens (JWT Bearer Tokenization) & Firebase Admin SDK |
+| **API Blueprint Layer** | Interactive Swagger UI Framework via Swashbuckle OpenAPI Specification |
+| **Development Sandbox** | Independent Automated Staging Instance deployed on Microsoft Azure Services |
+| **Version Management** | Git Distributed Version Control System with GitHub Workflows |
 
 ---
 
-## Database Architecture & Modular Schemas
-The database is engineered with strict domain segregation using specific naming conventions and table prefixes to maintain peak query efficiency and system reliability across over 40 relational tables:
+## Relational Database Architecture & Modular Schemas
 
-*   **`usr_` (User & Telemetry Management):** Handles secure device tokens, notification settings, onboarding details, and historical session logs. Features version-controlled profile backups (`usr_user_profile_versions`) to maintain clean historical audit trails.
-*   **`ntr_` (Intelligent Nutrition Engine):** Maps allergy matrix systems (`ntr_user_allergies`), food properties, daily meal logs, and automated caloric/macronutrient target structures calculated by backend equations.
-*   **`wrk_` & `wkt_` (Workouts & Progressions):** Houses the relational workout calendars, template, and difficulty progression instances (Tiers 1 to 10) driven by the system's rule-based adaptive logic filters.
+The data layer is structured using modular relational boundaries with explicit naming conventions and entity table prefixes across **more than 40 database tables** to maintain peak query efficiency and audit tracking at scale:
+
+- **`usr_` (User Profiling & Identity Telemetry):** Manages safe device tokens, customized notification rules, multi-factor onboarding configurations, and atomic historical transaction trails. It utilizes a dedicated tracking structure (`usr_user_profile_versions`) to support profile audit logs without compromising query speeds.
+- **`ntr_` (Intelligent Nutrition Calculation Subsystem):** Maps automated allergy matrix systems (`ntr_user_allergies`), food database indexes, daily macro-tracking logs, and programmatic caloric calculations.
+- **`wrk_` & `wkt_` (Workout Regimens & Athletic Progressions):** Houses the relational database layout for complex exercise templates, custom difficulty progression models (spanning Tiers 1 through 10), and rule-based physical condition filtering variables.
 
 ---
 
-## Developer Setup & Local Installation Guide
+## Project Directory Tree & Structural Hierarchy
 
-Welcome, developers! To clone, configure, and test this API locally on your machine, please follow these step-by-step instructions.
+The solution enforces strict domain decoupling, keeping business rules, validation blocks, database entities, and external cross-cutting infrastructures isolated within dedicated folders:
 
-### Prerequisites
-Before starting, ensure you have the following installed:
-- [.NET Core 8.0 SDK]
-- [Visual Studio 2022] / VS Code
-- [Microsoft SQL Server Express] (or LocalDB)
+```text
+FlexiFit.Api/
+├── Controllers/                         # REST API Request/Response Gateways
+│   ├── AuthController.cs                # Token distribution & authentication
+│   ├── CalendarController.cs            # Activity logs & schedule management
+│   ├── MobileController.cs              # Low-latency endpoints for mobile client payload
+│   ├── NotificationController.cs        # Telemetry updates & system alerts
+│   ├── NutritionController.cs           # Caloric targets & dynamic macro equations
+│   ├── ProfileController.cs             # Base biometric configurations
+│   ├── ProfileStatus.cs                 # User health index status tracking
+│   ├── ProgressController.cs            # Progressive workout leveling matrices
+│   ├── SettingsAccountController.cs     # System identity credentials & parameter updates
+│   ├── TestController.cs                # Environment runtime check tools
+│   ├── UserProgramController.cs         # Workout tier mapping algorithms
+│   ├── UsersController.cs               # Administrative user account management
+│   └── WorkoutController.cs             # Injury condition logic filtering (e.g., Rehab)
+├── Credentials/                         # Out-of-band external configurations
+│   └── firebase-service-account.json    # Private identity platform tokens (Git-ignored)
+├── Dtos/                                # Data Transfer Objects (Strict Request/Response Validation)
+│   ├── AdminCreateUserDto.cs            # Admin privilege account provisioning limits
+│   ├── AuthDtos.cs                      # Credential serialization structures
+│   ├── BootstrapResponseDto.cs          # Client application initial bootstrap matrix
+│   ├── CalendarHistoryDto.cs            # Workout and diet historical telemetry maps
+│   ├── NotificationDto.cs               # Real-time message attributes
+│   ├── NutritionDtos.cs                 # Mathematical macro response bounds
+│   ├── OnboardingProfileRequest.cs      # Initial profile onboarding variable packets
+│   ├── ProfileStatusResponse.cs         # Biometric tracker snapshots
+│   ├── ProgressionResponseDto.cs        # User tier progress indexes
+│   ├── ProgressTrackerDto.cs            # Continuous tracking metric layouts
+│   ├── RefreshTokenRequest.cs           # Stateful session continuation properties
+│   ├── TokenAuth.cs                     # Token verification parameters
+│   ├── UpdateEmailDto.cs                # Identity state manipulation request
+│   ├── UpdateGoogleEmailDto.cs          # Federated social login structural maps
+│   ├── UpdateOnboardingRequest.cs       # Dynamic telemetry re-calculation indices
+│   ├── UpdateWeightRequest.cs           # Core biometric mass index inputs
+│   ├── UploadAvatarForm.cs              # Multi-part binary image stream definitions
+│   ├── UserManagementResponse.cs        # Admin console dashboard objects
+│   ├── UserProfileResponse.cs           # Account layout data objects
+│   └── WorkoutDtos.cs                   # Routine configuration bundles
+├── Entities/                            # Domain Data Layers & Database Schemas
+│   ├── ActActivitySummary.cs            # Global physical tracking models
+│   ├── DailyProgressLog.cs              # Atomic transaction entries
+│   ├── FlexifitContext.cs               # Core EF Core Context class instance
+│   ├── FlexifitDbContext.cs             # Target Relational Database mapping engine
+│   ├── NtrAllergies.cs                  # Dynamic enterprise meal exemption systems
+│   ├── NtrDailyLog.cs                   # Dietary intake recording tracks
+│   ├── NtrDailyMealItemLog.cs           # Discrete ingredient measurement rows
+│   ├── NtrDailyMealLog.cs               # Complete daily target meal buckets
+│   ├── NtrFoodAllergies.cs              # Food element to cross-allergy mapping table
+│   ├── NtrFoodItem.cs                   # Macronutrient structural item matrix
+│   ├── NtrFoodItem.Extensions.cs        # Extended custom food calculation models
+│   ├── NtrMealPlanCalendar.cs           # Relational dietary timeline allocations
+│   ├── NtrMealTemplate.cs               # Standard caloric baseline models
+│   ├── NtrTemplateDay.cs                # Cycle menu matrix configurations
+│   ├── NtrTemplateDayMeal.cs            # Meal distribution templates
+│   ├── NtrTemplateDayMealItem.cs        # Ingredient assignment components
+│   ├── NtrUserAllergies.cs              # Personal client allergy mappings
+│   ├── NtrUserCycleTarget.cs            # Custom nutritional timeframes
+│   ├── NtrUserNutritionProfile.cs       # Math-driven personal metabolic targets
+│   ├── NtrWaterLog.cs                   # Hydration tracking rows
+│   ├── UsrDeviceToken.cs                # Device targeting registry
+│   ├── UsrNotificationHistory.cs        # System push event logs
+│   ├── UsrUser.cs                       # Primary system user entity
+│   ├── UsrUser.Extensions.cs            # Helper domain method hooks
+│   ├── UsrUserGeneralAchievement.cs     # Completed system awards and badges
+│   ├── UsrUserMetric.cs                 # Chronological body weight tracking matrix
+│   ├── UsrUserNotificationSetting.cs    # User push message alert choices
+│   ├── UsrUserOnboardingDetail.cs       # Onboarding baseline metrics
+│   ├── UsrUserProfile.cs                # Complete active biometric account info
+│   ├── UsrUserProfileVersion.cs         # Audit trails for shifting historical profiles
+│   ├── UsrUserProgramAchievement.cs     # Completed physical exercise awards
+│   ├── UsrUserProgramInstance.cs        # Currently active workout roadmap assignments
+│   ├── UsrUserSessionInstance.cs        # Session runtime diagnostic references
+│   ├── UsrUserSessionWorkout.cs         # Real-time continuous monitoring logs
+│   ├── UsrUserWorkoutProgress.cs        # Dynamic workload growth calculations
+│   ├── UsrUserWorkoutSession.cs         # Complete workout tracking history
+│   ├── VwNtrUserDailySummary.cs         # Consolidated SQL Server evaluation viewport
+│   ├── WktWorkoutCalendar.cs            # System routine schedule charts
+│   ├── WrkProgramTemplate.cs            # Algorithmic exercise template bounds
+│   ├── WrkProgramTemplateDay.cs         # Split day schedule configurations
+│   ├── WrkProgramTemplateDaytypeWorko.. # Complex relationship join specifications
+│   ├── WrkWorkout.cs                    # Fundamental exercise movement model
+│   └── WrkWorkoutLoadStep.cs            # Progressive loading parameters (Sets x Reps x Load)
+├── Services/                            # Core Software Services & Business Logic Layers
+│   ├── DeviceTokenService.cs            # Remote notification device tracking logic
+│   ├── FirebaseTokenVerifier.cs         # Federated identity payload signature checks
+│   ├── IUserService.cs                  # User management capability contract
+│   ├── JwtService.cs                    # Custom JSON Web Token cryptographic signatures
+│   └── UserService.cs                   # Concrete user identity workflow execution
+├── scripts/                             # Infrastructure Deployment Automation
+│   ├── redeploy-flexifit.ps1            # App Pool Interruption & Publishing Pipeline
+│   └── redeploy-flexifit.bat            # Elevated execution execution bundle script
+├── wwwroot/                             # Static Assets & Media Deployment Root
+│   └── images/                          # Organized multi-track system images
+│       ├── foods/                       # Dynamic menu visual assets (Keto, Vegan, etc.)
+│       └── workouts/                    # Routine tutorial vectors (Cardio, Rehab, etc.)
+├── appsettings.json                     # Shared Configuration Overlay (Production Settings)
+├── appsettings.Development.json         # Local Environment Variables & Sandbox overrides
+├── appsettings.template.json            # Clean Environment Configuration Blueprint
+├── FlexiFit.Api.csproj                  # MSBuild XML Framework Dependencies Manifest
+├── Program.cs                           # Primary Web Host Engine Bootstrap Execution entry
+└── README.md                            # Comprehensive Architecture System Documentation
 
-### 1. Clone the Repository
-Open your terminal or command prompt and run:
-```bash
-git clone https://github.com/CjConvento/FlexiFit.Api
-cd FlexiFit.Api
 ```
 
-### 2. Environment Variables & Security Configuration
-For safety and compliance, production credentials and security tokens are excluded from this source control. You must provide your own credentials inside the `appsettings.Development.json` file found in the Web API project folder following the appsettings template:
+## Deep Engineering & Hardening Features
 
-*   **JWT Authentication:**
-    - Replace the placeholder under `JwtSettings:Secret` with your own secure, 256-bit string key.
-*   **Firebase Service Account:**
-    - Generate a private key JSON from your own Firebase Console (**Project Settings > Service Accounts**).
-    - Download the file, save it securely inside your local project directory, and map its path under the `Firebase` block configuration.
-
-### 3. Database Connection String & Enterprise Schema Setup
-To safely reconstruct the database schema without needing heavy backup files, update the connection strings:
-1. Locate the `ConnectionStrings` block in your local `appsettings.Development.json`.
-2. Update the values with your local SQL Server details (Server Name, Database Name, and Authentication preferences).
+1. **Hybrid Identity Federation Validation:** Implements token payload verification passed directly from the client layer utilizing the Firebase Admin SDK, validating matched records inside our core database storage for maximum identity safety.
+2. **Decoupled Security Padlocks:** Protects exposed REST routes using granular JWT authorization decorators, mapping strict execution barriers bounded to authentic `USER` or `ADMIN` enterprise security definitions.
+3. **Advanced Memory-Cache Strategy:** Leverages localized memory-caching abstractions (`IMemoryCache`) to bypass repetitive operational checks against the relational database engine, significantly mitigating database request congestion for high-frequency settings queries.
+4. **Isolated Sandbox Staging Pipeline:** Maintained via an active developer staging branch mapped directly to a **Microsoft Azure Instance via GitHub Actions CI/CD pipelines** to safely validate cross-origin resource adjustments and server runtime configurations using safe synthetic test profiles.
 
 ---
 
-## Running the Application
+## Local Staging Setup & Execution Framework
 
-Open your terminal inside the root project directory and execute the following commands to initialize the web host pipeline:
+### Environment Prerequisites
+Ensure your local terminal contains the following runtime libraries prior to local setup:
+- [.NET Core 8.0 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
+- [Microsoft SQL Server / SQL Server Express Edition](https://www.microsoft.com/en-us/sql-server/sql-server-downloads)
+- Integrated Development Environment (Visual Studio 2022 / VS Code)
 
-1. **Clear old build artifacts:**
+### Installation Instructions
+
+1. **Clone the repository locally:**
+   ```bash
+   git clone https://github.com/CjConvento/FlexiFit.Api
+   cd FlexiFit.Api
+   ```
+
+2. **Configure Application Overlays:**
+   Establish your own customized data endpoints inside `appsettings.Development.json` using the global workspace template.
+   - **JWT Key Layer:** Insert a reliable 256-bit secure secret passphrase inside `JwtSettings:Secret`.
+   - **Firebase Credentials:** Download your secure administration workspace profile configuration private key (`.json`) straight from the Firebase Console (**Project Settings > Service Accounts**) and link the exact filepath into your application runtime configs.
+
+3. **Establish Core Connection Metrics:**
+   Map your target database configuration strings pointing to your local SQL Server instance inside the designated properties of `ConnectionStrings:DefaultConnection`.
+
+---
+
+## Running the Staging Web API
+
+Initialize compilation workflows by firing these commands inside your terminal workspace:
+
+1. **Purge legacy compilation cached parameters:**
    ```powershell
    dotnet clean
    ```
 
-2. **Launch the Web API:**
+2. **Launch the core system execution loop:**
    ```powershell
    dotnet run
    ```
 
+> **Local Host Note:** Once the terminal logs confirm that the server boot configuration is complete, the application hosting pipeline will run locally on your machine. You can view your localized endpoints directly via your environment's default hosting ports.
+
 ---
 
-## API Access & Swagger Documentation
+## Connected Applications & Client Ecosystem
 
-The FlexiFit API is available in two environments:
+To view how this backend services cluster connects with consumer-facing environments, you may explore the corresponding repository tracking branches:
 
-| Environment | URL | Description |
+| Subsystem Component | Target Access Gateway Link | Operational Context & Framework |
 | :--- | :--- | :--- |
-| **Local Development** | [http://localhost:5160/swagger](http://localhost:5160/swagger) | For local testing and development |
-| **Live (Azure)** | [https://flexift-api-bqdrdcchf8faagatjapaneast-01.azurewebsites.net/swagger/index.html](https://flexift-api-bqdrdcchf8faagatjapaneast-01.azurewebsites.net/swagger/index.html) | Public URL hosted on Azure |
-   
+| **Mobile Client App** | [Explore Frontend App Source](https://github.com/CjConvento/FlexiFitApp_Initial) | **Native Android Application Architecture** built using Kotlin to integrate seamlessly with our C# Web API endpoints, handling user data sessions via secure JWT bearer tokens. |
+| **API Blueprint Layer** | [Interact with the Live Swagger UI](https://flexifit-api-bqdrdcchf8faagat.japaneast-01.azurewebsites.net/swagger/index.html) | **Cloud Sandbox Staging.** Live documentation playground hosted on Azure App Service to test calculations and route responses inside real-time executions. |
+
+---
+
+## Startup Modernization & Scaling Roadmap
+
+- [ ] **Distributed Caching Migration:** Migrating the existing localized memory caching framework (`IMemoryCache`) into a high-performance **Redis Distributed Cache** registry. This architectural refactoring track isolates application runtime memory, preserves cache state across web host restarts, and prepares the backend architecture for distributed load balancing.
+- [ ] **Cross-Platform Mobile Interface Migration:** Shifting the native Kotlin frontend implementation layer to a cross-platform **Flutter (Dart)** infrastructure to uniformly expand client application deployment reach across both iOS and Android stores from a single code base.
+- [ ] Implement robust horizontal table data pagination frameworks and localized text fuzzy searching modules across all large entity endpoints.
+- [ ] Introduce real-time automated workout compliance notifications and telemetry alert loops.
+
 ---
 
 ## API Documentation Preview
 Below is the layout map of the exposed modules as seen on the interactive Swagger UI layer:
 
 ![FlexiFit API Swagger Documentation Preview](FlexiFit.Api/wwwroot/images/flexifit_api_swagger_ss.png)
+
+---
+
+## Project Author
+
+[Natajimura](https://github.com/CjConvento) - Cj Convento
+- Junior .NET Software Engineer
+- Designed and maintained as a production-ready portfolio asset targeting high-performance commercial applicability.
