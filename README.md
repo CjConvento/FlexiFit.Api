@@ -120,6 +120,11 @@ Open your terminal inside the root project directory and execute the following c
    Once the terminal displays the output log *Application started*, open your web browser and navigate to the documentation portal link:
    **[http://localhost:5160/swagger](http://localhost:5160/swagger)**
 
+
+3. **Access Swagger UI Via Public Domain:**
+   You can also access the Live API hosted by the developer via url, open your web browser and navigate to the public domain url:
+   **[HOSTED FLEXIFIT API](https://flexifit-api-bqdrdcchf8faagat.japaneast-01.azurewebsites.net/swagger/index.html)**
+   
 ---
 
 ## API Documentation Preview
