@@ -6,7 +6,7 @@ Built using an **AI-Assisted Engineering workflow**, Large Language Models (LLMs
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 * **Backend Framework:** .NET 8.0 (C#)
 * **Database Access:** Entity Framework Core & Dapper
@@ -18,23 +18,23 @@ Built using an **AI-Assisted Engineering workflow**, Large Language Models (LLMs
 ## System Modules & API Endpoints Layout
 The architecture enforces domain separation across multiple specialized controllers verified within the preview panel:
 
-### 🔐 Auth & Profile Management
+### Auth & Profile Management
 *   `Auth` - Manages token distribution for secure client sessions.
 *   `Profile` & `ProfileStatus` - Tracks target biometric indices and user physical stats.
 *   `Users` & `SettingsAccount` - Safeguards user identity data and credential updates.
 
-### 📅 Calendar & Mobile Delivery
+### Calendar & Mobile Delivery
 *   `Calendar` - Orchestrates activity logging and scheduled program routines.
 *   `Mobile` - Low-latency endpoint routing optimized for mobile integration.
 
-### 🥗 Intelligent Nutrition Engine
+### Intelligent Nutrition Engine
 *   `Nutrition` - Calculates dynamic macro boundaries and nutritional distributions through math equations.
 
-### 🦾 Workout & Progression Tracks
+### Workout & Progression Tracks
 *   `Program` & `UserProgram` - Translates raw body metrics into progressive workout levels.
 *   `Workout` - Applies the custom injury filtering such as for Rehab Program to ensure client training parameters stay safe yet active.
 
-### 🔔 System Utilities
+### System Utilities
 *   `Notifications` - Handles internal telemetry updates and system alerts.
 *   `Test` - Built-in integration checkpoints to verify overall server and deployment health.
 
@@ -44,17 +44,17 @@ The architecture enforces domain separation across multiple specialized controll
 
 The **FlexiFit API** powers the app with secure data management, user authentication, and adaptive programs:
 
-### 1. 🔐 Robust User Authentication & Security
+### 1. Robust User Authentication & Security
 * **Firebase Sign-In Integration:** Verifies incoming user accounts safely using token payloads passed from the Firebase client layer.
 * **Hybrid Login:** Validates matched `email` and `firebaseUid` combinations directly from the internal system database.
 * **Secure JWT Access Issuance:** Generates a custom cryptographic JSON Web Token (JWT) with precise expiry times upon a successful login.
 * **Role-Based Access Control:** Protects backend data routes by restricting execution access to authenticated `USER` or `ADMIN` roles using custom padlock locks.
 
-### 2. 🗓️ Intelligent Calendar & Workout Logging
+### 2. Intelligent Calendar & Workout Logging
 * **Activity Tracking Matrix:** Stores and retrieves unique calendar schedules associated with user fitness goals.
 * **Persistence & Queries:** Connects to specific schemas (`usr_users` table data) to adapr based on user's activity historical metrics.
 
-### 3. 🖥️ Cross-Origin Resource Sharing (CORS) Configuration
+### 3. Cross-Origin Resource Sharing (CORS) Configuration
 * **Admin Panel Bridge:** Explicitly opens secure communication ports (`http://localhost:5100`) allowing administrative dashboards to securely read FlexiFit assets without security blocks.
 * **High-Performance Memory Caching:** Minimizes heavy continuous hits to the database server by saving fast, recurring framework checks directly into the local memory cache layer.
 
@@ -73,20 +73,20 @@ The database is engineered with strict domain segregation using specific naming 
 
 Welcome, developers! To clone, configure, and test this API locally on your machine, please follow these step-by-step instructions.
 
-### 📋 Prerequisites
+### Prerequisites
 Before starting, ensure you have the following installed:
 - [.NET Core 8.0 SDK]
 - [Visual Studio 2022] / VS Code
 - [Microsoft SQL Server Express] (or LocalDB)
 
-### 🚀 1. Clone the Repository
+### 1. Clone the Repository
 Open your terminal or command prompt and run:
 ```bash
 git clone https://github.com/CjConvento/FlexiFit.Api
 cd FlexiFit.Api
 ```
 
-### 🔑 2. Environment Variables & Security Configuration
+### 2. Environment Variables & Security Configuration
 For safety and compliance, production credentials and security tokens are excluded from this source control. You must provide your own credentials inside the `appsettings.Development.json` file found in the Web API project folder following the appsettings template:
 
 *   **JWT Authentication:**
@@ -95,7 +95,7 @@ For safety and compliance, production credentials and security tokens are exclud
     - Generate a private key JSON from your own Firebase Console (**Project Settings > Service Accounts**).
     - Download the file, save it securely inside your local project directory, and map its path under the `Firebase` block configuration.
 
-### 🗄️ 3. Database Connection String & Enterprise Schema Setup
+### 3. Database Connection String & Enterprise Schema Setup
 To safely reconstruct the database schema without needing heavy backup files, update the connection strings:
 1. Locate the `ConnectionStrings` block in your local `appsettings.Development.json`.
 2. Update the values with your local SQL Server details (Server Name, Database Name, and Authentication preferences).
@@ -118,11 +118,11 @@ Open your terminal inside the root project directory and execute the following c
 
 3. **Access Swagger UI Catalog:**
    Once the terminal displays the output log *Application started*, open your web browser and navigate to the documentation portal link:
-   👉 **[http://localhost:5160/swagger](http://localhost:5160/swagger)**
+   **[http://localhost:5160/swagger](http://localhost:5160/swagger)**
 
 ---
 
-## 📸 API Documentation Preview
+## API Documentation Preview
 Below is the layout map of the exposed modules as seen on the interactive Swagger UI layer:
 
 ![FlexiFit API Swagger Documentation Preview](FlexiFit.Api/wwwroot/images/flexifit_api_swagger_ss.png)
