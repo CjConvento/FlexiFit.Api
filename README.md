@@ -116,14 +116,16 @@ Open your terminal inside the root project directory and execute the following c
    dotnet run
    ```
 
-3. **Access Swagger UI Catalog:**
-   Once the terminal displays the output log *Application started*, open your web browser and navigate to the documentation portal link:
-   **[http://localhost:5160/swagger](http://localhost:5160/swagger)**
+---
 
+## API Access & Swagger Documentation
 
-3. **Access Swagger UI Via Public Domain:**
-   You can also access the Live API hosted by the developer via url, open your web browser and navigate to the public domain url:
-   **[HOSTED FLEXIFIT API](https://flexifit-api-bqdrdcchf8faagat.japaneast-01.azurewebsites.net/swagger/index.html)**
+The FlexiFit API is available in two environments:
+
+| Environment | URL | Description |
+| :--- | :--- | :--- |
+| **Local Development** | [http://localhost:5160/swagger](http://localhost:5160/swagger) | For local testing and development |
+| **Live (Azure)** | [https://flexift-api-bqdrdcchf8faagatjapaneast-01.azurewebsites.net/swagger/index.html](https://flexift-api-bqdrdcchf8faagatjapaneast-01.azurewebsites.net/swagger/index.html) | Public URL hosted on Azure |
    
 ---
 
