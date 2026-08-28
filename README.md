@@ -222,6 +222,7 @@ Below is the layout map of the exposed modules as seen on the interactive Swagge
 
 ## Project Author
 
-[Natajimura](https://github.com/CjConvento) - Cj Convento
-- Junior .NET Software Engineer
-- Designed and maintained as a production-ready portfolio asset targeting high-performance commercial applicability.
+**Natajimura**
+- GitHub: [@CjConvento](https://github.com/CjConvento)
+- LinkedIn: [Cy](https://www.linkedin.com/in/cyrenz-jonathan-convento-650a931b7/)
+- Email: conventocj110@gmail.com
