@@ -93,6 +93,41 @@ public partial class FlexiFitDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+
+        // ==========================================
+        // 🚀 DITO MO ISISISINGIT ANG AUTOMATIC SNAKE_CASE LOOP:
+        foreach (var entity in modelBuilder.Model.GetEntityTypes())
+        {
+            var tableName = entity.GetTableName();
+            if (tableName != null)
+            {
+                var snakeCaseTable = System.Text.RegularExpressions.Regex.Replace(tableName, "([a-z0-9])([A-Z])", "$1_$2").ToLower();
+
+                if (snakeCaseTable == "usr_user_workout_progresses") 
+                    snakeCaseTable = "usr_user_workout_progress";
+                
+                else if (snakeCaseTable == "usr_notification_histories") 
+                    snakeCaseTable = "usr_notification_history";
+                
+                else if (snakeCaseTable == "act_activity_summaries") 
+                    snakeCaseTable = "act_activity_summary";
+
+                entity.SetTableName(snakeCaseTable);
+            }
+
+            foreach (var property in entity.GetProperties())
+            {
+                var columnName = property.GetColumnName();
+                if (columnName != null)
+                {
+                    var snakeCaseColumn = System.Text.RegularExpressions.Regex.Replace(columnName, "([a-z0-9])([A-Z])", "$1_$2").ToLower();
+                    property.SetColumnName(snakeCaseColumn);
+                }
+            }
+        }
+        // ==========================================
+
+
         modelBuilder.Entity<ActActivitySummary>(entity =>
         {
             entity.HasKey(e => e.SummaryId).HasName("PK__act_acti__85F93E83EE5828C3");

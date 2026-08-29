@@ -3,7 +3,6 @@ using FirebaseAdmin.Auth;
 using FlexiFit.Api.Dtos;
 using FlexiFit.Api.Services;
 using FlexiFit.Api.Entities;
-using FlexiFit.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
@@ -41,7 +40,7 @@ public class AuthController : ControllerBase
         _deviceTokenService = deviceTokenService;
         _userService = userService;
         _config = config;
-        _connectionString = _config.GetConnectionString("FlexifitDb");
+        _connectionString = _config.GetConnectionString("FlexifitDb") ?? "";
     }
 
     // POST: /api/auth/register
@@ -166,10 +165,10 @@ public class AuthController : ControllerBase
 
         // 3. Generate new JWT token using JwtService (same as in MapToAuthResponse)
         var token = _jwt.CreateToken(
-            user.UserId,
-            user.FirebaseUid,
-            user.Role,
-            user.Email
+            user.UserId!,
+            user.FirebaseUid!,
+            user.Role!,
+            user.Email!
         );
 
         // 4. Build response
@@ -189,7 +188,7 @@ public class AuthController : ControllerBase
 
     private string GenerateJwtToken(string email, string userId, string firebaseUid)
     {
-        var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]));
+        var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]!));
         var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
 
         var claims = new[]
@@ -214,10 +213,10 @@ public class AuthController : ControllerBase
     private AuthResponse MapToAuthResponse(UsrUser user)
     {
         var token = _jwt.CreateToken(
-            user.UserId,
-            user.FirebaseUid,
-            user.Role,
-            user.Email
+            user.UserId!,
+            user.FirebaseUid!,
+            user.Role!,  
+            user.Email!
         );
 
         var photo = user.UsrUserProfile?.AvatarUrl;

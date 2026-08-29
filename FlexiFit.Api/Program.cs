@@ -187,6 +187,8 @@ builder.Services.AddCors(options =>
                         .AllowCredentials());
 });
 builder.Services.AddMemoryCache();
+Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true; // <---
+
 var app = builder.Build();
 
 var logger = app.Services.GetRequiredService<ILogger<Program>>();

@@ -16,7 +16,7 @@ namespace FlexiFit.Api.Controllers
 
         public UsersController(IConfiguration configuration, ILogger<UsersController> logger, IHostEnvironment env)
         {
-            _connectionString = configuration.GetConnectionString("FlexifitDb");
+            _connectionString = configuration.GetConnectionString("FlexifitDb") ?? "";
             _logger = logger;
             _env = env;
 
@@ -46,7 +46,7 @@ namespace FlexiFit.Api.Controllers
             {
                 using (var connection = new SqlConnection(_connectionString))
                 {
-                    var sql = @"INSERT INTO dbo.Usr_Users 
+                    var sql = @"INSERT INTO dbo.usr_users 
                                 (firebase_uid, email, name, username, is_verified, role, status, auth_provider, created_at, updated_at) 
                                 VALUES 
                                 (@firebase_uid, @email, @name, @username, 1, @role, 'ACTIVE', @auth_provider, GETDATE(), GETDATE())";
@@ -79,7 +79,7 @@ namespace FlexiFit.Api.Controllers
             {
                 using (var connection = new SqlConnection(_connectionString))
                 {
-                    var sql = "SELECT * FROM dbo.Usr_Users ORDER BY created_at DESC";
+                    var sql = "SELECT * FROM dbo.usr_users ORDER BY created_at DESC";
                     var users = await connection.QueryAsync(sql);
                     return Ok(users);
                 }
@@ -107,7 +107,7 @@ namespace FlexiFit.Api.Controllers
                     var sql = @"SELECT user_id, firebase_uid, name, username, email, 
                                role, status, is_verified, auth_provider, 
                                created_at, updated_at 
-                        FROM dbo.Usr_Users 
+                        FROM dbo.usr_users 
                         WHERE user_id = @id";
                     var user = await connection.QueryFirstOrDefaultAsync(sql, new { id });
                     if (user == null)
@@ -138,11 +138,11 @@ namespace FlexiFit.Api.Controllers
                 {
                     // Check if user exists
                     var exists = await connection.ExecuteScalarAsync<bool>(
-                        "SELECT COUNT(1) FROM dbo.Usr_Users WHERE user_id = @id", new { id });
+                        "SELECT COUNT(1) FROM dbo.usr_users WHERE user_id = @id", new { id });
                     if (!exists)
                         return NotFound(new { message = "User not found." });
 
-                    var sql = @"UPDATE dbo.Usr_Users 
+                    var sql = @"UPDATE dbo.usr_users 
                         SET name = @name,
                             username = @username,
                             email = @email,
@@ -184,7 +184,7 @@ namespace FlexiFit.Api.Controllers
                 using (var connection = new SqlConnection(_connectionString))
                 {
                     // 1. I-check muna kung existing ang user
-                    var checkSql = "SELECT COUNT(1) FROM dbo.Usr_Users WHERE user_id = @id";
+                    var checkSql = "SELECT COUNT(1) FROM dbo.usr_users WHERE user_id = @id";
                     var exists = await connection.ExecuteScalarAsync<bool>(checkSql, new { id });
 
                     if (!exists)
@@ -194,7 +194,7 @@ namespace FlexiFit.Api.Controllers
                     }
 
                     // 2. Execute Delete
-                    var deleteSql = "DELETE FROM dbo.Usr_Users WHERE user_id = @id";
+                    var deleteSql = "DELETE FROM dbo.usr_users WHERE user_id = @id";
                     int affectedRows = await connection.ExecuteAsync(deleteSql, new { id });
 
                     if (affectedRows > 0)
