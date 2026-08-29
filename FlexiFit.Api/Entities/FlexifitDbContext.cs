@@ -94,7 +94,7 @@ public partial class FlexiFitDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
 
-        // ==========================================
+        // =========================================
         // 🚀 DITO MO ISISISINGIT ANG AUTOMATIC SNAKE_CASE LOOP:
         foreach (var entity in modelBuilder.Model.GetEntityTypes())
         {
