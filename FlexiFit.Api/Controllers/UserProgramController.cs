@@ -35,7 +35,7 @@ namespace FlexiFit.Api.Controllers
         }
 
         [HttpPost("debug/fast-forward-to-end")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Roles = "ADMIN")]
         public async Task<IActionResult> FastForwardToEnd()
         {
             var userId = GetUserId();

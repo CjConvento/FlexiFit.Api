@@ -9,7 +9,7 @@ namespace FlexiFit.Api.Controllers
 {
     [Route("api/users")]
     [ApiController]
-    [Authorize(Roles = "Admin")] 
+    [Authorize(Roles = "ADMIN")] 
     public class UsersController : ControllerBase
     {
         private readonly string _connectionString;
