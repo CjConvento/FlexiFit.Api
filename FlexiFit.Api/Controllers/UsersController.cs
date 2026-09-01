@@ -3,11 +3,13 @@ using Microsoft.Data.SqlClient;
 using Dapper;
 using FlexiFit.Api.DTOs;
 using Microsoft.Extensions.Hosting;  // for IHostEnvironment
+using Microsoft.AspNetCore.Authorization;
 
 namespace FlexiFit.Api.Controllers
 {
     [Route("api/users")]
     [ApiController]
+    [Authorize(Roles = "Admin")] 
     public class UsersController : ControllerBase
     {
         private readonly string _connectionString;

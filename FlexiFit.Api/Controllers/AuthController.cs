@@ -133,8 +133,7 @@ public class AuthController : ControllerBase
         return Ok(MapToAuthResponse(user));
     }
 
-    [HttpPost("logintoken")]
-
+    #if DEBUG
     // POST: /api/auth/refresh
     [HttpPost("refresh")]
     [AllowAnonymous] // Hindi kailangan ng JWT kasi expired na
@@ -185,6 +184,7 @@ public class AuthController : ControllerBase
 
         return Ok(response);
     }
+    #endif
 
     private string GenerateJwtToken(string email, string userId, string firebaseUid, string role)
     {

@@ -3,6 +3,7 @@ using FlexiFit.Api.Dtos;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 
 namespace FlexiFit.Api.Controllers
 {
@@ -34,6 +35,7 @@ namespace FlexiFit.Api.Controllers
         }
 
         [HttpPost("debug/fast-forward-to-end")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> FastForwardToEnd()
         {
             var userId = GetUserId();
