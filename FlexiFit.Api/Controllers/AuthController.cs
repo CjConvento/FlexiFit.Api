@@ -186,7 +186,7 @@ public class AuthController : ControllerBase
         return Ok(response);
     }
 
-    private string GenerateJwtToken(string email, string userId, string firebaseUid)
+    private string GenerateJwtToken(string email, string userId, string firebaseUid, string role)
     {
         var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]!));
         var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
