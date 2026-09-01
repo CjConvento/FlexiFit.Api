@@ -196,7 +196,7 @@ public class AuthController : ControllerBase
             new Claim(ClaimTypes.Email, email),
             new Claim(ClaimTypes.NameIdentifier, userId),
             new Claim("FirebaseUid", firebaseUid),
-            new Claim(ClaimTypes.Role, "Admin"),
+            new Claim(ClaimTypes.Role, role),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };
 
