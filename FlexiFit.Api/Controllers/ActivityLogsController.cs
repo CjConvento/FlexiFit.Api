@@ -25,7 +25,7 @@ namespace FlexiFit.Api.Controllers
         /// GET: api/actlogs/admin/all
         /// </summary>
         [HttpGet("admin/all")]
-        public async Task<ActionResult<IEnumerable<object>>> AdminGetAllLogs(
+        public async Task<ActionResult<object>> AdminGetAllLogs(
             [FromQuery] string? search = null,
             [FromQuery] DateTime? fromDate = null,
             [FromQuery] DateTime? toDate = null,
@@ -36,9 +36,22 @@ namespace FlexiFit.Api.Controllers
             {
                 _logger.LogInformation("📡 ADMIN: Fetching all activity logs");
 
-                // Base query - union of all activity types
-                var query = _context.ActivityLogsView
-                    .AsQueryable();
+                // ✅ Gumamit ng ActActivitySummary at i-join sa UsrUser
+                var query = from a in _context.ActActivitySummaries
+                            join u in _context.UsrUsers on a.UserId equals u.UserId
+                            select new
+                            {
+                                a.SummaryId,
+                                a.UserId,
+                                a.CaloriesBurned,
+                                a.TotalMinutes,
+                                a.LogDate,
+                                a.UpdatedAt,
+                                Username = u.Username,
+                                Email = u.Email,
+                                // Combine into a single detail string
+                                Details = $"{a.CaloriesBurned} calories burned in {a.TotalMinutes} minutes"
+                            };
 
                 if (!string.IsNullOrEmpty(search))
                 {
@@ -50,20 +63,36 @@ namespace FlexiFit.Api.Controllers
 
                 if (fromDate.HasValue)
                 {
-                    query = query.Where(a => a.ActivityDate >= fromDate.Value);
+                    var fromDateOnly = DateOnly.FromDateTime(fromDate.Value);
+                    query = query.Where(a => a.LogDate >= fromDateOnly);
                 }
 
                 if (toDate.HasValue)
                 {
-                    query = query.Where(a => a.ActivityDate <= toDate.Value);
+                    var toDateOnly = DateOnly.FromDateTime(toDate.Value);
+                    query = query.Where(a => a.LogDate <= toDateOnly);
                 }
 
                 var total = await query.CountAsync();
 
                 var logs = await query
-                    .OrderByDescending(a => a.ActivityDate)
+                    .OrderByDescending(a => a.LogDate)
+                    .ThenByDescending(a => a.UpdatedAt)
                     .Skip((page - 1) * pageSize)
                     .Take(pageSize)
+                    .Select(a => new
+                    {
+                        a.SummaryId,
+                        a.UserId,
+                        a.Username,
+                        a.Email,
+                        a.CaloriesBurned,
+                        a.TotalMinutes,
+                        a.LogDate,
+                        a.UpdatedAt,
+                        a.Details,
+                        ActivityType = "Workout" // Since ActActivitySummary tracks workouts
+                    })
                     .ToListAsync();
 
                 _logger.LogInformation("✅ ADMIN: Retrieved {Count} activity logs (Total: {Total})", logs.Count, total);
@@ -94,13 +123,27 @@ namespace FlexiFit.Api.Controllers
             {
                 _logger.LogInformation("📡 ADMIN: Fetching activity log ID: {Id}", id);
 
-                var log = await _context.ActivityLogsView
-                    .FirstOrDefaultAsync(a => a.UserId == id);
+                var log = await (from a in _context.ActActivitySummaries
+                                 join u in _context.UsrUsers on a.UserId equals u.UserId
+                                 where a.SummaryId == id
+                                 select new
+                                 {
+                                     a.SummaryId,
+                                     a.UserId,
+                                     u.Username,
+                                     u.Email,
+                                     a.CaloriesBurned,
+                                     a.TotalMinutes,
+                                     a.LogDate,
+                                     a.UpdatedAt,
+                                     ActivityType = "Workout"
+                                 })
+                                 .FirstOrDefaultAsync();
 
                 if (log == null)
                 {
-                    _logger.LogWarning("❌ ADMIN: Activity log not found for user: {Id}", id);
-                    return NotFound(new { error = $"Activity log with user ID {id} not found." });
+                    _logger.LogWarning("❌ ADMIN: Activity log not found: {Id}", id);
+                    return NotFound(new { error = $"Activity log with ID {id} not found." });
                 }
 
                 return Ok(log);
@@ -122,57 +165,28 @@ namespace FlexiFit.Api.Controllers
             {
                 _logger.LogInformation("📡 ADMIN: Deleting activity log ID: {Id}", id);
 
-                var log = await _context.ActivityLogsView
-                    .FirstOrDefaultAsync(a => a.UserId == id);
+                var log = await _context.ActActivitySummaries
+                    .FirstOrDefaultAsync(a => a.SummaryId == id);
 
                 if (log == null)
                 {
-                    _logger.LogWarning("❌ ADMIN: Activity log not found for user: {Id}", id);
+                    _logger.LogWarning("❌ ADMIN: Activity log not found: {Id}", id);
                     return NotFound(new { error = $"Activity log with ID {id} not found." });
                 }
 
-                // Delete related records (workout sessions, nutrition logs, water logs)
-                using var transaction = await _context.Database.BeginTransactionAsync();
+                _context.ActActivitySummaries.Remove(log);
+                await _context.SaveChangesAsync();
 
-                try
-                {
-                    // 1. Delete workout sessions
-                    var workoutSessions = await _context.UsrUserWorkoutSessions
-                        .Where(s => s.UserId == id && s.Status == "COMPLETED")
-                        .ToListAsync();
-                    _context.UsrUserWorkoutSessions.RemoveRange(workoutSessions);
-
-                    // 2. Delete nutrition logs
-                    var nutritionLogs = await _context.NtrDailyLogs
-                        .Where(d => d.UserId == id && d.MarkedDoneAt != null)
-                        .ToListAsync();
-                    _context.NtrDailyLogs.RemoveRange(nutritionLogs);
-
-                    // 3. Delete water logs
-                    var waterLogs = await _context.NtrWaterLogs
-                        .Where(w => w.UserId == id)
-                        .ToListAsync();
-                    _context.NtrWaterLogs.RemoveRange(waterLogs);
-
-                    await _context.SaveChangesAsync();
-                    await transaction.CommitAsync();
-
-                    _logger.LogInformation("✅ ADMIN: Activity logs deleted for user: {Id}", id);
-                    return Ok(new { message = "Activity logs deleted successfully." });
-                }
-                catch
-                {
-                    await transaction.RollbackAsync();
-                    throw;
-                }
+                _logger.LogInformation("✅ ADMIN: Activity log deleted: {Id}", id);
+                return Ok(new { message = "Activity log deleted successfully." });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ ADMIN: Error deleting activity logs for user: {Id}", id);
-                return StatusCode(500, new { error = "An error occurred while deleting the activity logs." });
+                _logger.LogError(ex, "❌ ADMIN: Error deleting activity log ID: {Id}", id);
+                return StatusCode(500, new { error = "An error occurred while deleting the activity log." });
             }
         }
 
         #endregion
     }
-}   
+}
