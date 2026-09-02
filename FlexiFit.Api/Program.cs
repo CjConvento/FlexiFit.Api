@@ -63,11 +63,10 @@ builder.Services.AddSwaggerGen(options =>
 
 // DbContext
 builder.Services.AddDbContextFactory<FlexiFitDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("FlexifitDb")));
-
-// 👇 Add this line
-builder.Services.AddDbContext<FlexiFitDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("FlexifitDb")));
+    options.UseSqlServer(
+        builder.Configuration.GetConnectionString("FlexifitDb")
+    )
+); 
 
 // Custom JWT setup
 var jwtSection = builder.Configuration.GetSection("Jwt");

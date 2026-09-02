@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using FlexiFit.Api.Dtos;
 using FlexiFit.Api.Entities;
-using FlexiFit.Api.Dtos; 
+using Microsoft.Data.SqlClient;
+using System.Data;
 
 namespace FlexiFit.Api.Controllers
 {
@@ -37,96 +39,123 @@ namespace FlexiFit.Api.Controllers
             {
                 _logger.LogInformation("📡 ADMIN: Fetching all activity logs");
 
-                // ✅ REPLICATE THE OLD UNION LOGIC
-                // 1. Workout sessions (each workout item becomes one row)
-                var workoutLogs = from s in _context.UsrUserWorkoutSessions
-                                  join sw in _context.UsrUserSessionWorkouts on s.SessionId equals sw.SessionId
-                                  join w in _context.WrkWorkouts on sw.WorkoutId equals w.WorkoutId
-                                  where s.Status == "COMPLETED"
-                                  select new
-                                  {
-                                      s.UserId,
-                                      ActivityType = "Workout",
-                                      ActivityDate = s.CompletedAt ?? DateTime.UtcNow,
-                                      Details = $"Completed workout: {w.WorkoutName} (Day {s.WorkoutDay})"
-                                  };
+                // ✅ RAW SQL - UNION of Workout, Nutrition, Water logs
+                var sql = @"
+                    SELECT 
+                        a.user_id,
+                        u.username,
+                        u.email,
+                        a.activity_type,
+                        a.activity_date,
+                        a.details
+                    FROM (
+                        -- 1. WORKOUT SESSIONS
+                        SELECT 
+                            s.user_id,
+                            'Workout' AS activity_type,
+                            s.completed_at AS activity_date,
+                            CONCAT('Completed workout: ', w.workout_name, ' (Day ', s.workout_day, ')') AS details
+                        FROM usr_user_workout_sessions s
+                        INNER JOIN usr_user_session_workouts sw ON s.session_id = sw.session_id
+                        INNER JOIN wrk_workouts w ON sw.workout_id = w.workout_id
+                        WHERE s.status = 'COMPLETED'
 
-                // 2. Nutrition daily logs (when marked done)
-                var nutritionLogs = from d in _context.NtrDailyLogs
-                                    where d.MarkedDoneAt != null
-                                    select new
-                                    {
-                                        d.UserId,
-                                        ActivityType = "Nutrition",
-                                        ActivityDate = d.PlanDate.ToDateTime(TimeOnly.MinValue), // ✅ DateOnly → DateTime
-                                        Details = $"Logged meals: {d.CaloriesConsumed} kcal consumed, {d.CaloriesBurned} kcal burned"
-                                    };
+                        UNION ALL
 
-                // 3. Water logs
-                var waterLogs = from w in _context.NtrWaterLogs
-                                select new
-                                {
-                                    w.UserId,
-                                    ActivityType = "Water",
-                                    ActivityDate = w.LogDate.ToDateTime(TimeOnly.MinValue), // ✅ DateOnly → DateTime
-                                    Details = $"Logged {w.WaterMl} ml water"
-                                };
+                        -- 2. NUTRITION DAILY LOGS
+                        SELECT 
+                            d.user_id,
+                            'Nutrition' AS activity_type,
+                            d.plan_date AS activity_date,
+                            CONCAT('Logged meals: ', d.calories_consumed, ' kcal consumed, ', d.calories_burned, ' kcal burned') AS details
+                        FROM ntr_daily_logs d
+                        WHERE d.marked_done_at IS NOT NULL
 
-                // Combine all logs (UNION ALL)
-                var allLogs = workoutLogs
-                    .Concat(nutritionLogs)
-                    .Concat(waterLogs)
-                    .Join(_context.UsrUsers, a => a.UserId, u => u.UserId, (a, u) => new
-                    {
-                        a.UserId,
-                        u.Username,
-                        u.Email,
-                        a.ActivityType,
-                        a.ActivityDate,
-                        a.Details
-                    });
+                        UNION ALL
 
-                // Apply filters
+                        -- 3. WATER LOGS
+                        SELECT 
+                            w.user_id,
+                            'Water' AS activity_type,
+                            w.log_date AS activity_date,
+                            CONCAT('Logged ', w.water_ml, ' ml water') AS details
+                        FROM ntr_water_logs w
+                    ) a
+                    INNER JOIN usr_users u ON a.user_id = u.user_id
+                    WHERE 1=1
+                ";
+
+                var parameters = new List<SqlParameter>();
+
+                // Apply filters (parameterized - SAFE)
                 if (!string.IsNullOrEmpty(search))
                 {
-                    allLogs = allLogs.Where(l =>
-                        (l.Username ?? "").Contains(search) ||
-                        (l.Email ?? "").Contains(search) ||
-                        (l.Details ?? "").Contains(search));
+                    sql += " AND (u.username LIKE @search OR u.email LIKE @search OR a.details LIKE @search)";
+                    parameters.Add(new SqlParameter("@search", $"%{search}%"));
                 }
 
                 if (fromDate.HasValue)
                 {
-                    var from = fromDate.Value.Date;
-                    allLogs = allLogs.Where(l => l.ActivityDate >= from);
+                    sql += " AND a.activity_date >= @fromDate";
+                    parameters.Add(new SqlParameter("@fromDate", fromDate.Value));
                 }
 
                 if (toDate.HasValue)
                 {
-                    var to = toDate.Value.Date.AddDays(1).AddTicks(-1);
-                    allLogs = allLogs.Where(l => l.ActivityDate <= to);
+                    sql += " AND a.activity_date <= @toDate";
+                    parameters.Add(new SqlParameter("@toDate", toDate.Value));
                 }
 
-                // Count total
-                var total = await allLogs.CountAsync();
+                // Count query - for pagination
+                var countSql = $@"
+                    SELECT COUNT(*)
+                    FROM (
+                        SELECT s.user_id, s.completed_at AS activity_date
+                        FROM usr_user_workout_sessions s
+                        INNER JOIN usr_user_session_workouts sw ON s.session_id = sw.session_id
+                        INNER JOIN wrk_workouts w ON sw.workout_id = w.workout_id
+                        WHERE s.status = 'COMPLETED'
+                        UNION ALL
+                        SELECT d.user_id, d.plan_date AS activity_date
+                        FROM ntr_daily_logs d
+                        WHERE d.marked_done_at IS NOT NULL
+                        UNION ALL
+                        SELECT w.user_id, w.log_date AS activity_date
+                        FROM ntr_water_logs w
+                    ) a
+                    INNER JOIN usr_users u ON a.user_id = u.user_id
+                    WHERE 1=1
+                ";
+
+                // Apply same filters to count query
+                if (!string.IsNullOrEmpty(search))
+                {
+                    countSql += " AND (u.username LIKE @search OR u.email LIKE @search)";
+                }
+                if (fromDate.HasValue)
+                {
+                    countSql += " AND a.activity_date >= @fromDate";
+                }
+                if (toDate.HasValue)
+                {
+                    countSql += " AND a.activity_date <= @toDate";
+                }
+
+                var total = await _context.Database
+                    .SqlQueryRaw<int>(countSql, parameters.ToArray())
+                    .FirstOrDefaultAsync();
 
                 // Pagination
-                var logs = await allLogs
-                    .OrderByDescending(l => l.ActivityDate)
-                    .Skip((page - 1) * pageSize)
-                    .Take(pageSize)
-                    .Select(l => new ActivityLogDto
-                    {
-                        user_id = l.UserId,
-                        username = l.Username ?? "",
-                        email = l.Email ?? "",
-                        activity_type = l.ActivityType,
-                        activity_date = l.ActivityDate,
-                        details = l.Details
-                    })
+                sql += " ORDER BY a.activity_date DESC OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY";
+                parameters.Add(new SqlParameter("@offset", (page - 1) * pageSize));
+                parameters.Add(new SqlParameter("@pageSize", pageSize));
+
+                // ✅ Execute raw SQL and map to DTO
+                var logs = await _context.Database
+                    .SqlQueryRaw<ActivityLogDto>(sql, parameters.ToArray())
                     .ToListAsync();
 
-                _logger.LogInformation("✅ ADMIN: Retrieved {Count} activity logs (Total: {Total})", logs.Count, total);
+                _logger.LogInformation($"✅ Retrieved {logs.Count} logs, Total: {total}");
 
                 return Ok(new
                 {
@@ -139,7 +168,7 @@ namespace FlexiFit.Api.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ ADMIN: Error fetching activity logs");
+                _logger.LogError(ex, "❌ Error fetching activity logs");
                 return StatusCode(500, new { error = "An error occurred while fetching activity logs." });
             }
         }
@@ -152,7 +181,7 @@ namespace FlexiFit.Api.Controllers
         {
             try
             {
-                _logger.LogInformation("📡 ADMIN: Fetching activity log for user ID: {Id}", id);
+                _logger.LogInformation($"📡 ADMIN: Fetching activity log for user ID: {id}");
 
                 var user = await _context.UsrUsers
                     .FirstOrDefaultAsync(u => u.UserId == id);
@@ -162,8 +191,7 @@ namespace FlexiFit.Api.Controllers
                     return NotFound(new { error = $"User with ID {id} not found." });
                 }
 
-                // Return basic user info (simplified)
-                var log = new
+                return Ok(new
                 {
                     UserId = user.UserId,
                     Username = user.Username,
@@ -171,13 +199,11 @@ namespace FlexiFit.Api.Controllers
                     ActivityType = "User Activity",
                     ActivityDate = DateTime.UtcNow,
                     Details = "User activity log"
-                };
-
-                return Ok(log);
+                });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ ADMIN: Error fetching activity log for user: {Id}", id);
+                _logger.LogError(ex, $"❌ Error fetching activity log for user: {id}");
                 return StatusCode(500, new { error = "An error occurred while fetching the activity log." });
             }
         }
@@ -190,7 +216,7 @@ namespace FlexiFit.Api.Controllers
         {
             try
             {
-                _logger.LogInformation("📡 ADMIN: Deleting activity logs for user ID: {Id}", id);
+                _logger.LogInformation($"📡 ADMIN: Deleting activity logs for user ID: {id}");
 
                 var user = await _context.UsrUsers
                     .FirstOrDefaultAsync(u => u.UserId == id);
@@ -220,12 +246,12 @@ namespace FlexiFit.Api.Controllers
 
                 await _context.SaveChangesAsync();
 
-                _logger.LogInformation("✅ Activity logs deleted for user ID: {Id}", id);
+                _logger.LogInformation($"✅ Activity logs deleted for user ID: {id}");
                 return Ok(new { message = "Activity logs deleted successfully." });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ ADMIN: Error deleting activity logs for user: {Id}", id);
+                _logger.LogError(ex, $"❌ Error deleting activity logs for user: {id}");
                 return StatusCode(500, new { error = "An error occurred while deleting the activity logs." });
             }
         }
