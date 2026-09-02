@@ -108,7 +108,7 @@ namespace FlexiFit.Api.Controllers
 
                 // Count query - for pagination
                 var countSql = $@"
-                    SELECT COUNT(*)
+                    SELECT COUNT(*) AS Value
                     FROM (
                         SELECT s.user_id, s.completed_at AS activity_date
                         FROM usr_user_workout_sessions s
