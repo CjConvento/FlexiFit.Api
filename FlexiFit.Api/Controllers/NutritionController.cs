@@ -168,7 +168,7 @@ public class NutritionController : ControllerBase
             }
 
             // 9. Get Today's Meals (using actual logged items)
-            var mealGroups = await GetMealGroups(dailyLog.DailyLogId, calendarDay.TemplateId,
+            var mealGroups = await GetMealGroups(dailyLog!.DailyLogId, calendarDay.TemplateId,
                                                  dayInWeek, variationCode, baseUrl);
 
             // 10. Get Water Intake
@@ -200,7 +200,7 @@ public class NutritionController : ControllerBase
                 WaterConsumedMl = waterTotal,
                 WaterTargetMl = 2500,
                 Meals = mealGroups,
-                DailyLogId = dailyLog.DailyLogId,
+                DailyLogId = dailyLog!.DailyLogId,
                 TemplateName = templateName   // <-- ADD THIS
             });
         }
@@ -290,7 +290,7 @@ public class NutritionController : ControllerBase
                 WaterConsumedMl = 0,
                 WaterTargetMl = 2500,
                 Meals = mealGroups,
-                DailyLogId = dailyLog.DailyLogId,
+                DailyLogId = dailyLog!.DailyLogId,
                 TemplateName = templateName   // <-- ADD THIS
             });
         }
@@ -598,7 +598,7 @@ public class NutritionController : ControllerBase
                 .Where(a => a.UserId == userId && a.LogDate == todayDateOnly)
                 .SumAsync(a => (double?)a.CaloriesBurned) ?? 0;
 
-            double net = dailyLog.CaloriesConsumed - burnedCalories;
+            double net = dailyLog!.CaloriesConsumed - burnedCalories;
             double target = dailyLog.TargetNetCalories;
             bool goalMet = Math.Abs(net - target) <= target * 0.10;
 
@@ -644,6 +644,188 @@ public class NutritionController : ControllerBase
         }
     }
 
+    #region Admin CRUD Endpoints
+
+    /// <summary>
+    /// GET: api/nutrition/admin/foods
+    /// </summary>
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("admin/foods")]
+    public async Task<ActionResult<IEnumerable<NtrFoodItem>>> AdminGetAllFoods()
+    {
+        try
+        {
+            _logger.LogInformation("📡 ADMIN: Fetching all foods");
+            var foods = await _db.NtrFoodItems
+                .OrderBy(f => f.FoodName)
+                .ToListAsync();
+            _logger.LogInformation("✅ ADMIN: Retrieved {Count} foods", foods.Count);
+            return Ok(foods);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ ADMIN: Error fetching foods");
+            return StatusCode(500, new { error = "An error occurred while fetching foods." });
+        }
+    }
+    
+    /// <summary>
+    /// GET: api/nutrition/admin/foods/{id}
+    /// </summary>
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("admin/foods/{id}")]
+    public async Task<ActionResult<NtrFoodItem>> AdminGetFood(int id)
+    {
+        try
+        {
+            _logger.LogInformation("📡 ADMIN: Fetching food ID: {Id}", id);
+            var food = await _db.NtrFoodItems
+                .FirstOrDefaultAsync(f => f.FoodId == id);
+
+            if (food == null)
+            {
+                _logger.LogWarning("❌ ADMIN: Food not found: {Id}", id);
+                return NotFound(new { error = $"Food with ID {id} not found." });
+            }
+
+            return Ok(food);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ ADMIN: Error fetching food ID: {Id}", id);
+            return StatusCode(500, new { error = "An error occurred while fetching the food." });
+        }
+    }
+
+    /// <summary>
+    /// POST: api/nutrition/admin/foods
+    /// </summary>
+    [Authorize(Roles = "ADMIN")]
+    [HttpPost("admin/foods")]
+    public async Task<ActionResult<NtrFoodItem>> AdminCreateFood([FromBody] NtrFoodItem food)
+    {
+        try
+        {
+            if (!ModelState.IsValid)
+            {
+                _logger.LogWarning("❌ ADMIN: Invalid model state for food creation");
+                return BadRequest(ModelState);
+            }
+
+            _logger.LogInformation("📡 ADMIN: Creating new food: {Name}", food.FoodName);
+
+            food.CreatedAt = DateTime.UtcNow;
+            food.UpdatedAt = DateTime.UtcNow;
+            food.IsActive = true;
+
+            _db.NtrFoodItems.Add(food);
+            await _db.SaveChangesAsync();
+
+            _logger.LogInformation("✅ ADMIN: Food created with ID: {Id}", food.FoodId);
+            return CreatedAtAction(nameof(AdminGetFood), new { id = food.FoodId }, food);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ ADMIN: Error creating food: {Name}", food.FoodName);
+            return StatusCode(500, new { error = "An error occurred while creating the food." });
+        }
+    }
+
+    /// <summary>
+    /// PUT: api/nutrition/admin/foods/{id}
+    /// </summary>
+    [Authorize(Roles = "ADMIN")]
+    [HttpPut("admin/foods/{id}")]
+    public async Task<IActionResult> AdminUpdateFood(int id, [FromBody] NtrFoodItem food)
+    {
+        try
+        {
+            if (id != food.FoodId)
+            {
+                _logger.LogWarning("❌ ADMIN: ID mismatch: {Id} vs {FoodId}", id, food.FoodId);
+                return BadRequest(new { error = "ID mismatch." });
+            }
+
+            if (!ModelState.IsValid)
+            {
+                _logger.LogWarning("❌ ADMIN: Invalid model state for food update");
+                return BadRequest(ModelState);
+            }
+
+            _logger.LogInformation("📡 ADMIN: Updating food ID: {Id}", id);
+
+            var existing = await _db.NtrFoodItems
+                .FirstOrDefaultAsync(f => f.FoodId == id);
+
+            if (existing == null)
+            {
+                _logger.LogWarning("❌ ADMIN: Food not found: {Id}", id);
+                return NotFound(new { error = $"Food with ID {id} not found." });
+            }
+
+            // Update fields
+            existing.FoodName = food.FoodName;
+            existing.MealType = food.MealType;
+            existing.DietaryType = food.DietaryType;
+            existing.Category = food.Category;
+            existing.SizeType = food.SizeType;
+            existing.ServingUnit = food.ServingUnit;
+            existing.ServingWeightG = food.ServingWeightG;
+            existing.Calories = food.Calories;
+            existing.ProteinG = food.ProteinG;
+            existing.CarbsG = food.CarbsG;
+            existing.FatsG = food.FatsG;
+            existing.IsActive = food.IsActive;
+            existing.ImgFilename = food.ImgFilename;
+            existing.Description = food.Description;
+            existing.UpdatedAt = DateTime.UtcNow;
+
+            await _db.SaveChangesAsync();
+
+            _logger.LogInformation("✅ ADMIN: Food updated: {Id}", id);
+            return Ok(new { message = "Food updated successfully." });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ ADMIN: Error updating food ID: {Id}", id);
+            return StatusCode(500, new { error = "An error occurred while updating the food." });
+        }
+    }
+
+    /// <summary>
+    /// DELETE: api/nutrition/admin/foods/{id}
+    /// </summary>
+    [Authorize(Roles = "ADMIN")]
+    [HttpDelete("admin/foods/{id}")]
+    public async Task<IActionResult> AdminDeleteFood(int id)
+    {
+        try
+        {
+            _logger.LogInformation("📡 ADMIN: Deleting food ID: {Id}", id);
+
+            var food = await _db.NtrFoodItems
+                .FirstOrDefaultAsync(f => f.FoodId == id);
+
+            if (food == null)
+            {
+                _logger.LogWarning("❌ ADMIN: Food not found: {Id}", id);
+                return NotFound(new { error = $"Food with ID {id} not found." });
+            }
+
+            _db.NtrFoodItems.Remove(food);
+            await _db.SaveChangesAsync();
+
+            _logger.LogInformation("✅ ADMIN: Food deleted: {Id}", id);
+            return Ok(new { message = "Food deleted successfully." });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ ADMIN: Error deleting food ID: {Id}", id);
+            return StatusCode(500, new { error = "An error occurred while deleting the food." });
+        }
+    }
+
+    #endregion
 
     #region Helper Methods
 

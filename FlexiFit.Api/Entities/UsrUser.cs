@@ -26,6 +26,7 @@ public partial class UsrUser
     public DateTime UpdatedAt { get; set; }
 
     public string AuthProvider { get; set; } = null!;
+    public string? PasswordHash { get; set; }
 
     public virtual ICollection<ActActivitySummary> ActActivitySummaries { get; set; } = new List<ActActivitySummary>();
 

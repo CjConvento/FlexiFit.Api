@@ -16,6 +16,7 @@
   </ItemGroup>
 
 <ItemGroup>
+  <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
   <PackageReference Include="Dapper" Version="2.1.72" />
   <PackageReference Include="FirebaseAdmin" Version="3.4.0" />
   <PackageReference Include="Google.Apis.Auth" Version="1.73.0" />

@@ -149,8 +149,8 @@ public class WorkoutController : ControllerBase
                     Program = new WorkoutProgramDto
                     {
                         ProgramId = activeProgram.ProgramId,
-                        ProgramName = activeProgram.ProgramName,
-                        Description = activeProgram.ProgramDescription,
+                        ProgramName = activeProgram.ProgramName!,
+                        Description = activeProgram.ProgramDescription!,
                         Environment = activeProgram.ProgramEnvironment,
                         Level = activeProgram.ProgramLevel,
                         Status = activeProgram.Status,
@@ -243,8 +243,8 @@ public class WorkoutController : ControllerBase
                 Program = new WorkoutProgramDto
                 {
                     ProgramId = activeProgram.ProgramId,
-                    ProgramName = activeProgram.ProgramName,
-                    Description = activeProgram.ProgramDescription,
+                    ProgramName = activeProgram.ProgramName!,
+                    Description = activeProgram.ProgramDescription!,
                     Environment = activeProgram.ProgramEnvironment,
                     Level = activeProgram.ProgramLevel,
                     Status = activeProgram.Status,
@@ -404,7 +404,7 @@ public class WorkoutController : ControllerBase
             activeProgram = await _context.UsrUserProgramInstances
                 .FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
 
-            bool advanced = activeProgram.CurrentDayNo > originalDay;
+            bool advanced = activeProgram!.CurrentDayNo > originalDay;
             int nextDay = advanced ? activeProgram.CurrentDayNo : originalDay + 1;
 
             string message = isSkipped ? $"Day {originalDay} skipped." :
@@ -693,6 +693,224 @@ public class WorkoutController : ControllerBase
         }
     }
 
+    // ========== ADMIN CRUD Endpoints ==========            
+    #region Admin CRUD Endpoints  ← DITO ILAGAY           
+                                                            
+    /// <summary>
+    /// GET: api/workout/admin/all
+    /// </summary>
+    [Authorize(Roles = "ADMIN")]  // 🔐 ADMIN only
+    [HttpGet("admin/all")]
+    public async Task<ActionResult<IEnumerable<WrkWorkout>>> AdminGetAllWorkouts()
+    {
+        try
+        {
+            _logger.LogInformation("📡 ADMIN: Fetching all workouts");
+
+            var workouts = await _context.WrkWorkouts
+                .OrderBy(w => w.WorkoutName)
+                .ToListAsync();
+
+            _logger.LogInformation("✅ ADMIN: Retrieved {Count} workouts", workouts.Count);
+            return Ok(workouts);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ ADMIN: Error fetching workouts");
+            return StatusCode(500, new { error = "An error occurred while fetching workouts." });
+        }
+    }
+                                                            
+    /// <summary>
+    /// GET: api/workout/admin/{id}
+    /// </summary>
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("admin/{id}")]
+    public async Task<ActionResult<WrkWorkout>> AdminGetWorkout(int id)
+    {
+        try
+        {
+            _logger.LogInformation("📡 ADMIN: Fetching workout ID: {Id}", id);
+
+            var workout = await _context.WrkWorkouts
+                .FirstOrDefaultAsync(w => w.WorkoutId == id);
+
+            if (workout == null)
+            {
+                _logger.LogWarning("❌ ADMIN: Workout not found: {Id}", id);
+                return NotFound(new { error = $"Workout with ID {id} not found." });
+            }
+
+            return Ok(workout);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ ADMIN: Error fetching workout ID: {Id}", id);
+            return StatusCode(500, new { error = "An error occurred while fetching the workout." });
+        }
+    }
+
+    /// <summary>
+    /// POST: api/workout/admin/create
+    /// </summary>
+    [Authorize(Roles = "ADMIN")]
+    [HttpPost("admin/create")]
+    public async Task<ActionResult<WrkWorkout>> AdminCreateWorkout([FromBody] WrkWorkout workout)
+    {
+        try
+        {
+            if (!ModelState.IsValid)
+            {
+                _logger.LogWarning("❌ ADMIN: Invalid model state for workout creation");
+                return BadRequest(ModelState);
+            }
+
+            _logger.LogInformation("📡 ADMIN: Creating new workout: {Name}", workout.WorkoutName);
+
+            workout.CreatedAt = DateTime.UtcNow;
+            workout.UpdatedAt = DateTime.UtcNow;
+            workout.IsActive = false; // Default: inactive (needs admin approval)
+
+            _context.WrkWorkouts.Add(workout);
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("✅ ADMIN: Workout created with ID: {Id}", workout.WorkoutId);
+            return CreatedAtAction(nameof(AdminGetWorkout), new { id = workout.WorkoutId }, workout);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ ADMIN: Error creating workout: {Name}", workout.WorkoutName);
+            return StatusCode(500, new { error = "An error occurred while creating the workout." });
+        }
+    }
+
+    /// <summary>
+    /// PUT: api/workout/admin/{id}
+    /// </summary>
+    [Authorize(Roles = "ADMIN")]
+    [HttpPut("admin/{id}")]
+    public async Task<IActionResult> AdminUpdateWorkout(int id, [FromBody] WrkWorkout workout)
+    {
+        try
+        {
+            if (id != workout.WorkoutId)
+            {
+                _logger.LogWarning("❌ ADMIN: ID mismatch: {Id} vs {WorkoutId}", id, workout.WorkoutId);
+                return BadRequest(new { error = "ID mismatch." });
+            }
+
+            if (!ModelState.IsValid)
+            {
+                _logger.LogWarning("❌ ADMIN: Invalid model state for workout update");
+                return BadRequest(ModelState);
+            }
+
+            _logger.LogInformation("📡 ADMIN: Updating workout ID: {Id}", id);
+
+            var existing = await _context.WrkWorkouts
+                .FirstOrDefaultAsync(w => w.WorkoutId == id);
+
+            if (existing == null)
+            {
+                _logger.LogWarning("❌ ADMIN: Workout not found: {Id}", id);
+                return NotFound(new { error = $"Workout with ID {id} not found." });
+            }
+
+            // Update fields
+            existing.WorkoutName = workout.WorkoutName;
+            existing.MuscleGroup = workout.MuscleGroup;
+            existing.Equipment = workout.Equipment;
+            existing.Environment = workout.Environment;
+            existing.Category = workout.Category;
+            existing.DifficultyLevel = workout.DifficultyLevel;
+            existing.IsWeighted = workout.IsWeighted;
+            existing.Notes = workout.Notes;
+            existing.CaloriesBurned = workout.CaloriesBurned;
+            existing.IsActive = workout.IsActive;
+            existing.ImgFilename = workout.ImgFilename;
+            existing.Duration = workout.Duration;
+            existing.VideoUrl = workout.VideoUrl;
+            existing.UpdatedAt = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("✅ ADMIN: Workout updated: {Id}", id);
+            return Ok(new { message = "Workout updated successfully." });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ ADMIN: Error updating workout ID: {Id}", id);
+            return StatusCode(500, new { error = "An error occurred while updating the workout." });
+        }
+    }
+
+    /// <summary>
+    /// DELETE: api/workout/admin/{id}
+    /// </summary>
+    [Authorize(Roles = "ADMIN")]
+    [HttpDelete("admin/{id}")]
+    public async Task<IActionResult> AdminDeleteWorkout(int id)
+    {
+        try
+        {
+            _logger.LogInformation("📡 ADMIN: Deleting workout ID: {Id}", id);
+
+            var workout = await _context.WrkWorkouts
+                .FirstOrDefaultAsync(w => w.WorkoutId == id);
+
+            if (workout == null)
+            {
+                _logger.LogWarning("❌ ADMIN: Workout not found: {Id}", id);
+                return NotFound(new { error = $"Workout with ID {id} not found." });
+            }
+
+            _context.WrkWorkouts.Remove(workout);
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("✅ ADMIN: Workout deleted: {Id}", id);
+            return Ok(new { message = "Workout deleted successfully." });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ ADMIN: Error deleting workout ID: {Id}", id);
+            return StatusCode(500, new { error = "An error occurred while deleting the workout." });
+        }
+    }
+
+    /// <summary>
+    /// GET: api/workout/admin/tutorials
+    /// </summary>
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("admin/tutorials")]
+    public async Task<ActionResult<IEnumerable<object>>> AdminGetTutorials()
+    {
+        try
+        {
+            _logger.LogInformation("📡 ADMIN: Fetching workouts with video tutorials");
+
+            var tutorials = await _context.WrkWorkouts
+                .Where(w => !string.IsNullOrEmpty(w.VideoUrl))
+                .OrderBy(w => w.WorkoutName)
+                .Select(w => new
+                {
+                    w.WorkoutId,
+                    w.WorkoutName,
+                    w.VideoUrl
+                })
+                .ToListAsync();
+
+            _logger.LogInformation("✅ ADMIN: Retrieved {Count} tutorials", tutorials.Count);
+            return Ok(tutorials);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ ADMIN: Error fetching tutorials");
+            return StatusCode(500, new { error = "An error occurred while fetching tutorials." });
+        }
+    }
+
+    #endregion   
+
     #region Private Helper Methods
 
     private async Task EnsureCalendarEntryExists(int cycleNo, int dayNo, int currentDayNo, bool isRestDay)
@@ -884,7 +1102,7 @@ public class WorkoutController : ControllerBase
         var warmups = await _context.WrkWorkouts
             .Where(w => w.Category == "WARMUP"
                      && w.IsActive == true
-                     && allowedDifficulties.Contains(w.DifficultyLevel))
+                     && allowedDifficulties.Contains(w.DifficultyLevel!))
             .OrderBy(x => EF.Functions.Random())
             .Take(2)
             .ToListAsync();
@@ -983,7 +1201,7 @@ public class WorkoutController : ControllerBase
         var warmups = await _context.WrkWorkouts
             .Where(w => w.Category == "WARMUP"
                      && w.IsActive == true
-                     && allowedDifficulties.Contains(w.DifficultyLevel))
+                     && allowedDifficulties.Contains(w.DifficultyLevel!))
             .OrderBy(x => EF.Functions.Random())
             .Take(2)
             .ToListAsync();
@@ -1005,7 +1223,7 @@ public class WorkoutController : ControllerBase
         var templateWorkouts = await _context.WrkProgramTemplateDaytypeWorkouts
             .Where(tw => tw.ProgramId == programId && tw.WeekNo == weekNo && tw.DayType == dayType)
             .Join(_context.WrkWorkouts, tw => tw.WorkoutId, w => w.WorkoutId, (tw, w) => new { tw, w })
-            .Where(j => allowedDifficulties.Contains(j.w.DifficultyLevel))
+            .Where(j => allowedDifficulties.Contains(j.w.DifficultyLevel!))
             .OrderBy(j => j.tw.WorkoutOrder)
             .Take(8)
             .Select(j => new { j.tw.WorkoutId, j.tw.SetsDefault, j.tw.RepsDefault })
@@ -1019,7 +1237,7 @@ public class WorkoutController : ControllerBase
             templateWorkouts = await _context.WrkProgramTemplateDaytypeWorkouts
                 .Where(tw => tw.ProgramId == programId && tw.WeekNo == 1 && tw.DayType == dayType)
                 .Join(_context.WrkWorkouts, tw => tw.WorkoutId, w => w.WorkoutId, (tw, w) => new { tw, w })
-                .Where(j => allowedDifficulties.Contains(j.w.DifficultyLevel))
+                .Where(j => allowedDifficulties.Contains(j.w.DifficultyLevel!))
                 .OrderBy(j => j.tw.WorkoutOrder)
                 .Take(8)
                 .Select(j => new { j.tw.WorkoutId, j.tw.SetsDefault, j.tw.RepsDefault })
@@ -1114,7 +1332,7 @@ public class WorkoutController : ControllerBase
 
         // Determine image URL
         string imageUrl;
-        string category = sw.Workout.Category?.ToUpper();
+        string category = sw.Workout.Category?.ToUpper()!;
 
         if (category == "WARMUP")
         {

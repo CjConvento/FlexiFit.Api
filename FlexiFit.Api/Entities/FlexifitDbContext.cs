@@ -787,6 +787,9 @@ public partial class FlexiFitDbContext : DbContext
             entity.Property(e => e.Username)
                 .HasMaxLength(50)
                 .HasColumnName("username");
+            entity.Property(e => e.PasswordHash)
+                .HasMaxLength(255)
+                .HasColumnName("password_hash");
         });
 
         modelBuilder.Entity<UsrUserGeneralAchievement>(entity =>

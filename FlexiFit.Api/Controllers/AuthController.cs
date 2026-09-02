@@ -133,6 +133,32 @@ public class AuthController : ControllerBase
         return Ok(MapToAuthResponse(user));
     }
 
+    // POST: /api/auth/admin-login
+    [HttpPost("admin-login")]
+    [AllowAnonymous]
+    public async Task<ActionResult<AuthResponse>> AdminLogin([FromBody] AdminLoginRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.Username) || string.IsNullOrWhiteSpace(req.Password))
+            return BadRequest("Username and password are required.");
+
+        var user = await _db.UsrUsers
+            .Include(u => u.UsrUserProfile)
+            .FirstOrDefaultAsync(u => u.Username == req.Username);
+
+        // Parehong generic error kahit "not found" o "wrong password" ang totoong dahilan —
+        // para hindi ma-enumerate ng attacker kung existing bang username yun
+        if (user == null || string.IsNullOrEmpty(user.PasswordHash))
+            return Unauthorized("Invalid credentials.");
+
+        if (user.Role?.ToUpper() != "ADMIN")
+            return Unauthorized("Admin access required.");
+
+        if (!BCrypt.Net.BCrypt.Verify(req.Password, user.PasswordHash))
+            return Unauthorized("Invalid credentials.");
+
+        return Ok(MapToAuthResponse(user));
+    }
+
     // POST: /api/auth/refresh
     [HttpPost("refresh")]
     [AllowAnonymous] // Hindi kailangan ng JWT kasi expired na

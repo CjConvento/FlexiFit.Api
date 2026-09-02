@@ -25,3 +25,9 @@ public record AuthResponse(
     string? Name,             // Isama na natin para pang-display sa Header ng App
     string? PhotoUrl = null          // Para sa profile picture ni user
 );
+
+// Para sa admin username/password login (fallback sa Google Sign-In)
+public record AdminLoginRequest(
+    string Username,
+    string Password
+);
