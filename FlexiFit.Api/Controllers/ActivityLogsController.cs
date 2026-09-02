@@ -169,7 +169,11 @@ namespace FlexiFit.Api.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "❌ Error fetching activity logs");
-                return StatusCode(500, new { error = "An error occurred while fetching activity logs." });
+                return StatusCode(500, new { 
+                    error = "An error occurred while fetching activity logs.",
+                    details = ex.Message,
+                    stackTrace = ex.StackTrace 
+                });
             }
         }
 
