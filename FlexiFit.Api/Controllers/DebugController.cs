@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace FlexiFit.API.Controllers
 {
     // Tanging ang naka-login na Admin lamang ang pwedeng makapasok dito
-    [Authorize(Roles = "Admin")] 
+    [Authorize(Roles = "ADMIN")] 
     [ApiController]
     [Route("api/dev")]
     public class DebugController : ControllerBase
