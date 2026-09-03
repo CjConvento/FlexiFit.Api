@@ -46,7 +46,7 @@ public class BlobController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error uploading file to {Container}", container);
-            return StatusCode(500, new { message = "Upload failed. Please try again." });
+            return StatusCode(500, new { message = ex.Message, inner = ex.InnerException?.Message });
         }
     }
 
