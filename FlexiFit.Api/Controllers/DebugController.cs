@@ -9,7 +9,7 @@ namespace FlexiFit.API.Controllers
     [Route("api/dev")]
     public class DebugController : ControllerBase
     {
-        [HttpGet("token")]
+        [HttpGet("scrape-token")]
         public IActionResult GetDevToken()
         {
             // Pagkuha ng token kung ito ay galing sa Authorization Header (Bearer Token)
@@ -27,7 +27,7 @@ namespace FlexiFit.API.Controllers
                 return BadRequest(new { message = "Naka-login ka pero hindi mahanap ang token sa request." });
             }
 
-            return Ok(new { jwt = token });
+            return Ok(new { token  = token });
         }
     }
 }
