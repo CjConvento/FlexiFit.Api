@@ -16,7 +16,7 @@ An inclusive, high-performance, and microservices-ready **REST Web API** enginee
 | **Data Access / ORM** | Hybrid Data Layer utilizing Entity Framework Core (EF Core 8.0) and Dapper for high-performance direct SQL querying |
 | **Authentication Infrastructure** | JSON Web Tokens (JWT Bearer Tokenization) & Firebase Admin SDK |
 | **API Blueprint Layer** | Interactive Swagger UI Framework via Swashbuckle OpenAPI Specification |
-| **Development Sandbox** | Independent Automated Staging Instance deployed on Microsoft Azure Services |
+| **Development Sandbox** | Local IIS Hosting with zrok tunneling for public access |
 | **Version Management** | Git Distributed Version Control System with GitHub Workflows |
 
 ---
@@ -145,7 +145,7 @@ FlexiFit.Api/
 1. **Hybrid Identity Federation Validation:** Implements token payload verification passed directly from the client layer utilizing the Firebase Admin SDK, validating matched records inside our core database storage for maximum identity safety.
 2. **Decoupled Security Padlocks:** Protects exposed REST routes using granular JWT authorization decorators, mapping strict execution barriers bounded to authentic `USER` or `ADMIN` enterprise security definitions.
 3. **Advanced Memory-Cache Strategy:** Leverages localized memory-caching abstractions (`IMemoryCache`) to bypass repetitive operational checks against the relational database engine, significantly mitigating database request congestion for high-frequency settings queries.
-4. **Isolated Sandbox Staging Pipeline:** Maintained via an active developer staging branch mapped directly to a **Microsoft Azure Instance via GitHub Actions CI/CD pipelines** to safely validate cross-origin resource adjustments and server runtime configurations using safe synthetic test profiles.
+4. **Isolated Development Pipeline:** Maintained via local IIS hosting with automated redeployment scripts (`redeploy-flexifit.bat` and `.ps1`) for quick and consistent updates during development.
 
 ---
 
@@ -193,6 +193,18 @@ Initialize compilation workflows by firing these commands inside your terminal w
 
 ---
 
+## Current Hosting Status
+
+> **⚠️ Under Development:** The API is currently hosted on a **local IIS server** and exposed via **zrok tunneling** for development and testing purposes. This setup provides HTTPS public access while keeping the infrastructure cost-free and flexible.
+
+| Component | URL | Status |
+| :--- | :--- | :--- |
+| **API (Public Swagger U)** | `https://flexifitapinet.shares.zrok.io/swagger/index.html` | ✅ Accessible |
+| **API (Local)** | `http://localhost:8090` | ✅ Running on IIS |
+| **Admin Panel** | `http://localhost:8070` | ✅ Running on IIS |
+
+---
+
 ## Connected Applications & Client Ecosystem
 
 To view how this backend services cluster connects with consumer-facing environments, you may explore the corresponding repository tracking branches:
@@ -200,7 +212,7 @@ To view how this backend services cluster connects with consumer-facing environm
 | Subsystem Component | Target Access Gateway Link | Operational Context & Framework |
 | :--- | :--- | :--- |
 | **Mobile Client App** | [Explore Frontend App Source](https://github.com/CjConvento/FlexiFitApp_Initial) | **Native Android Application Architecture** built using Kotlin to integrate seamlessly with our C# Web API endpoints, handling user data sessions via secure JWT bearer tokens. |
-| **API Blueprint Layer** | [Interact with the Live Swagger UI](https://flexifit-api-bqdrdcchf8faagat.japaneast-01.azurewebsites.net/swagger/index.html) | **Cloud Sandbox Staging.** Live documentation playground hosted on Azure App Service to test calculations and route responses inside real-time executions. |
+| **API Blueprint Layer** | [Interact with the Live Swagger UI](https://flexifitapinet.shares.zrok.io/swagger/index.html) | **Development Sandbox.** Interactive API documentation hosted locally via IIS and exposed through zrok tunneling for secure public access. |
 
 ---
 
