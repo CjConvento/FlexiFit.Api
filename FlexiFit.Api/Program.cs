@@ -24,23 +24,20 @@ builder.Services.AddControllers() // Tinanggal natin yung semicolon dito
         options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
     });
 
-// =======================================================
-// 🌐 2. DYNAMIC CORS POLICY (SECURED FOR CREDENTIALS)
-// =======================================================
-var corsOrigins = builder.Configuration.GetSection("CorsOrigins").Get<string[]>();
-if (corsOrigins == null || corsOrigins.Length == 0)
-{
-    corsOrigins = new[] { "http://localhost:5100" }; // default para sa development
-}
-
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAdminPanel", policy =>
     {
-        policy.WithOrigins("https://flexifit-adminpanel-b3f3csb2hqgjaufx.japaneast-01.azurewebsites.net") // Port ng Admin Panel mo
-                .WithMethods("GET", "POST", "PUT", "DELETE", "OPTIONS") // Explicitly named para sa credentials validation
-                .WithHeaders("Authorization", "Content-Type", "Accept", "X-Requested-With") // Proteksyon laban sa dynamic wildcard block
-                .AllowCredentials();
+        policy.WithOrigins(
+                "http://localhost:8070",           // Admin Panel (IIS)
+                "http://localhost:5000",           // Admin Panel (dotnet run)
+                "http://localhost:5100",           // Default
+                "https://flexifitadmin.shares.zrok.io", // zrok (if exposed)
+                "https://flexifitapinet.shares.zrok.io"  // API itself
+            )
+            .AllowAnyMethod()
+            .AllowAnyHeader()
+            .AllowCredentials();  // ✅ Okay na ito kasi may specific origins
     });
 });
 
