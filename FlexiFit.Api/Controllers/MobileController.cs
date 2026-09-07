@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Internal;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Identity.Client;
+using Npgsql;
 using System.Security.Claims;
 
 namespace FlexiFit.Api.Controllers

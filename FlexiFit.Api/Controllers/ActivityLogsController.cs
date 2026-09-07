@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using FlexiFit.Api.Dtos;
 using FlexiFit.Api.Entities;
-using Microsoft.Data.SqlClient;
+using Npgsql;
 using System.Data;
 
 namespace FlexiFit.Api.Controllers
@@ -85,25 +85,25 @@ namespace FlexiFit.Api.Controllers
                     WHERE 1=1
                 ";
 
-                var parameters = new List<SqlParameter>();
+                var parameters = new List<NpgsqlParameter>();
 
                 // Apply filters (parameterized - SAFE)
                 if (!string.IsNullOrEmpty(search))
                 {
-                    sql += " AND (u.username LIKE @search OR u.email LIKE @search OR a.details LIKE @search)";
-                    parameters.Add(new SqlParameter("@search", $"%{search}%"));
+                    sql += " AND (u.username ILIKE @search OR u.email ILIKE @search OR a.details ILIKE @search)";
+                    parameters.Add(new NpgsqlParameter("@search", $"%{search}%"));
                 }
 
                 if (fromDate.HasValue)
                 {
                     sql += " AND a.activity_date >= @fromDate";
-                    parameters.Add(new SqlParameter("@fromDate", fromDate.Value));
+                    parameters.Add(new NpgsqlParameter("@fromDate", fromDate.Value));
                 }
 
                 if (toDate.HasValue)
                 {
                     sql += " AND a.activity_date <= @toDate";
-                    parameters.Add(new SqlParameter("@toDate", toDate.Value));
+                    parameters.Add(new NpgsqlParameter("@toDate", toDate.Value));
                 }
 
                 // Count query - for pagination
@@ -130,7 +130,7 @@ namespace FlexiFit.Api.Controllers
                 // Apply same filters to count query
                 if (!string.IsNullOrEmpty(search))
                 {
-                    countSql += " AND (u.username LIKE @search OR u.email LIKE @search)";
+                    countSql += " AND (u.username ILIKE @search OR u.email ILIKE @search)";
                 }
                 if (fromDate.HasValue)
                 {
@@ -146,9 +146,9 @@ namespace FlexiFit.Api.Controllers
                     .FirstOrDefaultAsync();
 
                 // Pagination
-                sql += " ORDER BY a.activity_date DESC OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY";
-                parameters.Add(new SqlParameter("@offset", (page - 1) * pageSize));
-                parameters.Add(new SqlParameter("@pageSize", pageSize));
+                sql += " ORDER BY a.activity_date DESC LIMIT @pageSize OFFSET @offset";
+                parameters.Add(new NpgsqlParameter("@offset", (page - 1) * pageSize));
+                parameters.Add(new NpgsqlParameter("@pageSize", pageSize));
 
                 // ✅ Execute raw SQL and map to DTO
                 var logs = await _context.Database

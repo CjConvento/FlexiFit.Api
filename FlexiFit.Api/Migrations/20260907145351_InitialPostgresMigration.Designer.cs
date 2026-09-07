@@ -3,17 +3,17 @@ using System;
 using FlexiFit.Api.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
 namespace FlexiFit.Api.Migrations
 {
     [DbContext(typeof(FlexiFitDbContext))]
-    [Migration("20260326090426_InitialCreate")]
-    partial class InitialCreate
+    [Migration("20260907145351_InitialPostgresMigration")]
+    partial class InitialPostgresMigration
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -21,42 +21,42 @@ namespace FlexiFit.Api.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasAnnotation("ProductVersion", "8.0.5")
-                .HasAnnotation("Relational:MaxIdentifierLength", 128);
+                .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
-            SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
+            NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("FlexiFit.Api.Entities.ActActivitySummary", b =>
                 {
                     b.Property<int>("SummaryId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("summary_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("SummaryId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("SummaryId"));
 
                     b.Property<int>("CaloriesBurned")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("calories_burned");
 
                     b.Property<DateOnly>("LogDate")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("date")
                         .HasColumnName("log_date")
-                        .HasDefaultValueSql("(CONVERT([date],getdate()))");
+                        .HasDefaultValueSql("CURRENT_DATE");
 
                     b.Property<int>("TotalMinutes")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("total_minutes");
 
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("updated_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<int>("UserId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("user_id");
 
                     b.HasKey("SummaryId")
@@ -74,69 +74,69 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("ProgressId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("progress_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("ProgressId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("ProgressId"));
 
                     b.Property<int?>("CaloriesBurned")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("calories_burned");
 
                     b.Property<int?>("CaloriesIntake")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("calories_intake");
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("created_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<int>("DayNo")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("day_no");
 
                     b.Property<string>("FitnessLevelSnapshot")
                         .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)")
+                        .HasColumnType("character varying(20)")
                         .HasColumnName("fitness_level_snapshot");
 
                     b.Property<int>("InstanceId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("instance_id");
 
                     b.Property<bool>("MealPlanCompleted")
-                        .HasColumnType("bit")
+                        .HasColumnType("boolean")
                         .HasColumnName("meal_plan_completed");
 
                     b.Property<int>("MonthNo")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("month_no");
 
                     b.Property<string>("Notes")
                         .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)")
+                        .HasColumnType("character varying(500)")
                         .HasColumnName("notes");
 
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("updated_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<int>("UserId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("user_id");
 
                     b.Property<int?>("WaterMl")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("water_ml");
 
                     b.Property<int>("WeekNo")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("week_no");
 
                     b.HasKey("ProgressId")
@@ -151,52 +151,72 @@ namespace FlexiFit.Api.Migrations
                     b.ToTable("daily_progress_log", (string)null);
                 });
 
+            modelBuilder.Entity("FlexiFit.Api.Entities.NtrAllergies", b =>
+                {
+                    b.Property<int>("AllergyId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("allergy_id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("AllergyId"));
+
+                    b.Property<string>("AllergyName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("allergy_name");
+
+                    b.HasKey("AllergyId");
+
+                    b.ToTable("ntr_allergies", (string)null);
+                });
+
             modelBuilder.Entity("FlexiFit.Api.Entities.NtrDailyLog", b =>
                 {
                     b.Property<int>("DailyLogId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("daily_log_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("DailyLogId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("DailyLogId"));
 
                     b.Property<int>("CaloriesBurned")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("calories_burned");
 
                     b.Property<int>("CaloriesConsumed")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("calories_consumed");
 
                     b.Property<int>("CycleId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("cycle_id");
 
                     b.Property<bool>("GoalMet")
-                        .HasColumnType("bit")
+                        .HasColumnType("boolean")
                         .HasColumnName("goal_met");
 
                     b.Property<DateTime?>("MarkedDoneAt")
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("marked_done_at");
 
                     b.Property<int?>("NetCalories")
                         .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("net_calories")
-                        .HasComputedColumnSql("([calories_consumed]-[calories_burned])", true);
+                        .HasComputedColumnSql("\"calories_consumed\" - \"calories_burned\"", true);
 
                     b.Property<DateOnly>("PlanDate")
                         .HasColumnType("date")
                         .HasColumnName("plan_date");
 
                     b.Property<int>("TargetNetCalories")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("target_net_calories");
 
                     b.Property<int>("UserId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("user_id");
 
                     b.HasKey("DailyLogId")
@@ -216,10 +236,10 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("ItemLogId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("item_log_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("ItemLogId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("ItemLogId"));
 
                     b.Property<decimal>("Calories")
                         .HasColumnType("decimal(10, 2)")
@@ -230,7 +250,7 @@ namespace FlexiFit.Api.Migrations
                         .HasColumnName("carbs_g");
 
                     b.Property<int>("DailyLogId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("daily_log_id");
 
                     b.Property<decimal>("FatsG")
@@ -238,17 +258,17 @@ namespace FlexiFit.Api.Migrations
                         .HasColumnName("fats_g");
 
                     b.Property<int>("FoodId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("food_id");
 
                     b.Property<bool>("IsAddon")
-                        .HasColumnType("bit")
+                        .HasColumnType("boolean")
                         .HasColumnName("is_addon");
 
                     b.Property<string>("MealType")
                         .IsRequired()
                         .HasMaxLength(10)
-                        .HasColumnType("nvarchar(10)")
+                        .HasColumnType("character varying(10)")
                         .HasColumnName("meal_type");
 
                     b.Property<decimal>("ProteinG")
@@ -263,7 +283,7 @@ namespace FlexiFit.Api.Migrations
 
                     b.Property<int>("SortOrder")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasDefaultValue(1)
                         .HasColumnName("sort_order");
 
@@ -281,13 +301,13 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("MealLogId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("meal_log_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("MealLogId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("MealLogId"));
 
                     b.Property<int>("Calories")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("calories");
 
                     b.Property<decimal>("CarbsG")
@@ -295,7 +315,7 @@ namespace FlexiFit.Api.Migrations
                         .HasColumnName("carbs_g");
 
                     b.Property<int>("DailyLogId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("daily_log_id");
 
                     b.Property<decimal>("FatsG")
@@ -305,7 +325,7 @@ namespace FlexiFit.Api.Migrations
                     b.Property<string>("MealType")
                         .IsRequired()
                         .HasMaxLength(10)
-                        .HasColumnType("nvarchar(10)")
+                        .HasColumnType("character varying(10)")
                         .HasColumnName("meal_type");
 
                     b.Property<decimal>("ProteinG")
@@ -323,14 +343,31 @@ namespace FlexiFit.Api.Migrations
                     b.ToTable("ntr_daily_meal_logs", (string)null);
                 });
 
+            modelBuilder.Entity("FlexiFit.Api.Entities.NtrFoodAllergies", b =>
+                {
+                    b.Property<int>("FoodId")
+                        .HasColumnType("integer")
+                        .HasColumnName("food_id");
+
+                    b.Property<int>("AllergyId")
+                        .HasColumnType("integer")
+                        .HasColumnName("allergy_id");
+
+                    b.HasKey("FoodId", "AllergyId");
+
+                    b.HasIndex("AllergyId");
+
+                    b.ToTable("ntr_food_allergies", (string)null);
+                });
+
             modelBuilder.Entity("FlexiFit.Api.Entities.NtrFoodItem", b =>
                 {
                     b.Property<int>("FoodId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("food_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("FoodId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("FoodId"));
 
                     b.Property<decimal>("Calories")
                         .HasColumnType("decimal(10, 2)")
@@ -344,26 +381,26 @@ namespace FlexiFit.Api.Migrations
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(80)
-                        .HasColumnType("nvarchar(80)")
+                        .HasColumnType("character varying(80)")
                         .HasDefaultValue("Food")
                         .HasColumnName("category");
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("created_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("Description")
                         .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)")
+                        .HasColumnType("character varying(200)")
                         .HasColumnName("description");
 
                     b.Property<string>("DietaryType")
                         .IsRequired()
                         .HasMaxLength(40)
-                        .HasColumnType("nvarchar(40)")
+                        .HasColumnType("character varying(40)")
                         .HasColumnName("dietary_type");
 
                     b.Property<decimal>("FatsG")
@@ -373,24 +410,24 @@ namespace FlexiFit.Api.Migrations
                     b.Property<string>("FoodName")
                         .IsRequired()
                         .HasMaxLength(255)
-                        .HasColumnType("nvarchar(255)")
+                        .HasColumnType("character varying(255)")
                         .HasColumnName("food_name");
 
                     b.Property<string>("ImgFilename")
                         .HasMaxLength(255)
-                        .HasColumnType("nvarchar(255)")
+                        .HasColumnType("character varying(255)")
                         .HasColumnName("img_filename");
 
                     b.Property<bool>("IsActive")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
+                        .HasColumnType("boolean")
                         .HasDefaultValue(true)
                         .HasColumnName("is_active");
 
                     b.Property<string>("MealType")
                         .IsRequired()
                         .HasMaxLength(30)
-                        .HasColumnType("nvarchar(30)")
+                        .HasColumnType("character varying(30)")
                         .HasColumnName("meal_type");
 
                     b.Property<decimal>("ProteinG")
@@ -401,7 +438,7 @@ namespace FlexiFit.Api.Migrations
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(30)
-                        .HasColumnType("nvarchar(30)")
+                        .HasColumnType("character varying(30)")
                         .HasDefaultValue("Serving")
                         .HasColumnName("serving_unit");
 
@@ -413,16 +450,16 @@ namespace FlexiFit.Api.Migrations
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)")
+                        .HasColumnType("character varying(20)")
                         .HasDefaultValue("Regular")
                         .HasColumnName("size_type");
 
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("updated_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.HasKey("FoodId")
                         .HasName("PK__ntr_food__2F4C4DD8703F737A");
@@ -440,28 +477,28 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("CalendarId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("calendar_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("CalendarId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("CalendarId"));
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("created_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<int>("CycleId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("cycle_id");
 
                     b.Property<int>("DayNo")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("day_no");
 
                     b.Property<bool>("IsWorkoutDay")
-                        .HasColumnType("bit")
+                        .HasColumnType("boolean")
                         .HasColumnName("is_workout_day");
 
                     b.Property<DateOnly>("PlanDate")
@@ -472,31 +509,31 @@ namespace FlexiFit.Api.Migrations
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(10)
-                        .HasColumnType("nvarchar(10)")
+                        .HasColumnType("character varying(10)")
                         .HasDefaultValue("PENDING")
                         .HasColumnName("status");
 
                     b.Property<int>("TemplateId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("template_id");
 
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("updated_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("VariationCode")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(10)
-                        .HasColumnType("nvarchar(10)")
+                        .HasColumnType("character varying(10)")
                         .HasDefaultValue("A")
                         .HasColumnName("variation_code");
 
                     b.Property<int>("WeekNo")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("week_no");
 
                     b.HasKey("CalendarId")
@@ -516,46 +553,46 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("TemplateId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("template_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("TemplateId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("TemplateId"));
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("created_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("Description")
                         .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)")
+                        .HasColumnType("character varying(500)")
                         .HasColumnName("description");
 
                     b.Property<string>("DietaryType")
                         .HasMaxLength(40)
-                        .HasColumnType("nvarchar(40)")
+                        .HasColumnType("character varying(40)")
                         .HasColumnName("dietary_type");
 
                     b.Property<bool>("IsActive")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
+                        .HasColumnType("boolean")
                         .HasDefaultValue(true)
                         .HasColumnName("is_active");
 
                     b.Property<string>("TemplateName")
                         .IsRequired()
                         .HasMaxLength(120)
-                        .HasColumnType("nvarchar(120)")
+                        .HasColumnType("character varying(120)")
                         .HasColumnName("template_name");
 
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("updated_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.HasKey("TemplateId")
                         .HasName("PK__ntr_meal__BE44E0790A220F73");
@@ -570,29 +607,29 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("TemplateDayId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("template_day_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("TemplateDayId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("TemplateDayId"));
 
                     b.Property<int>("DayNo")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("day_no");
 
                     b.Property<string>("Notes")
                         .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)")
+                        .HasColumnType("character varying(200)")
                         .HasColumnName("notes");
 
                     b.Property<int>("TemplateId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("template_id");
 
                     b.Property<string>("VariationCode")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(10)
-                        .HasColumnType("nvarchar(10)")
+                        .HasColumnType("character varying(10)")
                         .HasDefaultValue("A")
                         .HasColumnName("variation_code");
 
@@ -609,15 +646,15 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("TemplateMealId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("template_meal_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("TemplateMealId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("TemplateMealId"));
 
                     b.Property<string>("MealType")
                         .IsRequired()
                         .HasMaxLength(10)
-                        .HasColumnType("nvarchar(10)")
+                        .HasColumnType("character varying(10)")
                         .HasColumnName("meal_type");
 
                     b.Property<decimal?>("TargetSharePct")
@@ -625,7 +662,7 @@ namespace FlexiFit.Api.Migrations
                         .HasColumnName("target_share_pct");
 
                     b.Property<int>("TemplateDayId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("template_day_id");
 
                     b.HasKey("TemplateMealId")
@@ -641,10 +678,10 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("TemplateItemId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("template_item_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("TemplateItemId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("TemplateItemId"));
 
                     b.Property<decimal>("DefaultQty")
                         .ValueGeneratedOnAdd()
@@ -653,21 +690,21 @@ namespace FlexiFit.Api.Migrations
                         .HasColumnName("default_qty");
 
                     b.Property<int>("FoodId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("food_id");
 
                     b.Property<bool>("IsOptionalAddon")
-                        .HasColumnType("bit")
+                        .HasColumnType("boolean")
                         .HasColumnName("is_optional_addon");
 
                     b.Property<int>("SortOrder")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasDefaultValue(1)
                         .HasColumnName("sort_order");
 
                     b.Property<int>("TemplateMealId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("template_meal_id");
 
                     b.HasKey("TemplateItemId")
@@ -681,14 +718,31 @@ namespace FlexiFit.Api.Migrations
                     b.ToTable("ntr_template_meal_items", (string)null);
                 });
 
+            modelBuilder.Entity("FlexiFit.Api.Entities.NtrUserAllergies", b =>
+                {
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("user_id");
+
+                    b.Property<int>("AllergyId")
+                        .HasColumnType("integer")
+                        .HasColumnName("allergy_id");
+
+                    b.HasKey("UserId", "AllergyId");
+
+                    b.HasIndex("AllergyId");
+
+                    b.ToTable("ntr_user_allergies", (string)null);
+                });
+
             modelBuilder.Entity("FlexiFit.Api.Entities.NtrUserCycleTarget", b =>
                 {
                     b.Property<int>("CycleId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("cycle_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("CycleId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("CycleId"));
 
                     b.Property<decimal?>("CarbsTargetG")
                         .HasColumnType("decimal(10, 2)")
@@ -697,12 +751,12 @@ namespace FlexiFit.Api.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("created_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<int>("DailyTargetNetCalories")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("daily_target_net_calories");
 
                     b.Property<decimal?>("FatsTargetG")
@@ -712,7 +766,7 @@ namespace FlexiFit.Api.Migrations
                     b.Property<string>("GoalType")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)")
+                        .HasColumnType("character varying(20)")
                         .HasColumnName("goal_type");
 
                     b.Property<decimal?>("ProteinTargetG")
@@ -724,12 +778,12 @@ namespace FlexiFit.Api.Migrations
                         .HasColumnName("start_date");
 
                     b.Property<int>("UserId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("user_id");
 
                     b.Property<int>("WeeksInCycle")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasDefaultValue(4)
                         .HasColumnName("weeks_in_cycle");
 
@@ -744,22 +798,22 @@ namespace FlexiFit.Api.Migrations
             modelBuilder.Entity("FlexiFit.Api.Entities.NtrUserNutritionProfile", b =>
                 {
                     b.Property<int>("UserId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("user_id");
 
                     b.Property<string>("ActivityLevel")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)")
+                        .HasColumnType("character varying(20)")
                         .HasColumnName("activity_level");
 
                     b.Property<int?>("Age")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("age");
 
                     b.Property<string>("DietaryType")
                         .HasMaxLength(40)
-                        .HasColumnType("nvarchar(40)")
+                        .HasColumnType("character varying(40)")
                         .HasColumnName("dietary_type");
 
                     b.Property<decimal?>("HeightCm")
@@ -767,12 +821,13 @@ namespace FlexiFit.Api.Migrations
                         .HasColumnName("height_cm");
 
                     b.Property<bool>("IsProfileComplete")
-                        .HasColumnType("bit");
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_profile_complete");
 
                     b.Property<string>("NutritionGoal")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)")
+                        .HasColumnType("character varying(20)")
                         .HasColumnName("nutrition_goal");
 
                     b.Property<decimal?>("TargetWeightKg")
@@ -782,9 +837,9 @@ namespace FlexiFit.Api.Migrations
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("updated_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<decimal?>("WeightKg")
                         .HasColumnType("decimal(10, 2)")
@@ -800,30 +855,30 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("WaterLogId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("water_log_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("WaterLogId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("WaterLogId"));
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("created_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<DateOnly>("LogDate")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("date")
                         .HasColumnName("log_date")
-                        .HasDefaultValueSql("(CONVERT([date],getdate()))");
+                        .HasDefaultValueSql("CURRENT_DATE");
 
                     b.Property<int>("UserId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("user_id");
 
                     b.Property<int>("WaterMl")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("water_ml");
 
                     b.HasKey("WaterLogId")
@@ -841,27 +896,27 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("DeviceTokenId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("device_token_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("DeviceTokenId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("DeviceTokenId"));
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("created_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("FcmToken")
                         .IsRequired()
                         .HasMaxLength(255)
-                        .HasColumnType("nvarchar(255)")
+                        .HasColumnType("character varying(255)")
                         .HasColumnName("fcm_token");
 
                     b.Property<bool>("IsActive")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
+                        .HasColumnType("boolean")
                         .HasDefaultValue(true)
                         .HasColumnName("is_active");
 
@@ -869,19 +924,19 @@ namespace FlexiFit.Api.Migrations
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(30)
-                        .HasColumnType("nvarchar(30)")
+                        .HasColumnType("character varying(30)")
                         .HasDefaultValue("android")
                         .HasColumnName("platform");
 
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("updated_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<int>("UserId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("user_id");
 
                     b.HasKey("DeviceTokenId")
@@ -899,38 +954,38 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime")
+                        .HasColumnType("timestamp")
                         .HasColumnName("created_at")
-                        .HasDefaultValueSql("(getdate())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("Message")
                         .IsRequired()
                         .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)")
+                        .HasColumnType("character varying(500)")
                         .HasColumnName("message");
 
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)")
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("title");
 
                     b.Property<string>("Type")
                         .IsRequired()
                         .HasMaxLength(20)
                         .IsUnicode(false)
-                        .HasColumnType("varchar(20)")
+                        .HasColumnType("character varying(20)")
                         .HasColumnName("type");
 
                     b.Property<int>("UserId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("user_id");
 
                     b.HasKey("Id");
@@ -944,50 +999,55 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("UserId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("user_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("UserId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("UserId"));
 
                     b.Property<string>("AuthProvider")
                         .IsRequired()
                         .HasMaxLength(20)
                         .IsUnicode(false)
-                        .HasColumnType("varchar(20)")
+                        .HasColumnType("character varying(20)")
                         .HasColumnName("auth_provider");
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("created_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("Email")
                         .HasMaxLength(255)
-                        .HasColumnType("nvarchar(255)")
+                        .HasColumnType("character varying(255)")
                         .HasColumnName("email");
 
                     b.Property<string>("FirebaseUid")
                         .HasMaxLength(128)
-                        .HasColumnType("nvarchar(128)")
+                        .HasColumnType("character varying(128)")
                         .HasColumnName("firebase_uid");
 
                     b.Property<bool>("IsVerified")
-                        .HasColumnType("bit")
+                        .HasColumnType("boolean")
                         .HasColumnName("is_verified");
 
                     b.Property<string>("Name")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)")
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
+
+                    b.Property<string>("PasswordHash")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("password_hash");
 
                     b.Property<string>("Role")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(20)
                         .IsUnicode(false)
-                        .HasColumnType("varchar(20)")
+                        .HasColumnType("character varying(20)")
                         .HasDefaultValue("USER")
                         .HasColumnName("role");
 
@@ -996,44 +1056,41 @@ namespace FlexiFit.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(20)
                         .IsUnicode(false)
-                        .HasColumnType("varchar(20)")
+                        .HasColumnType("character varying(20)")
                         .HasDefaultValue("Active")
                         .HasColumnName("status");
 
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("updated_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("Username")
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)")
+                        .HasColumnType("character varying(50)")
                         .HasColumnName("username");
 
                     b.HasKey("UserId")
                         .HasName("PK__usr_user__B9BE370FB3CBFE25");
 
                     b.HasIndex(new[] { "FirebaseUid" }, "UQ_usr_users_firebase_uid")
-                        .IsUnique()
-                        .HasFilter("[firebase_uid] IS NOT NULL");
+                        .IsUnique();
 
                     b.HasIndex(new[] { "Username" }, "UQ_usr_users_username")
-                        .IsUnique()
-                        .HasFilter("[username] IS NOT NULL");
+                        .IsUnique();
 
                     b.HasIndex(new[] { "Email" }, "UX_usr_users_email")
                         .IsUnique()
-                        .HasFilter("([email] IS NOT NULL)");
+                        .HasFilter("\"email\" IS NOT NULL");
 
                     b.HasIndex(new[] { "FirebaseUid" }, "UX_usr_users_firebase_uid")
-                        .IsUnique()
-                        .HasFilter("[firebase_uid] IS NOT NULL");
+                        .IsUnique();
 
                     b.HasIndex(new[] { "Username" }, "UX_usr_users_username")
                         .IsUnique()
-                        .HasFilter("([username] IS NOT NULL)");
+                        .HasFilter("\"username\" IS NOT NULL");
 
                     b.ToTable("usr_users", (string)null);
                 });
@@ -1042,25 +1099,25 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("AchievementId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("achievement_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("AchievementId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("AchievementId"));
 
                     b.Property<string>("BadgeKey")
                         .IsRequired()
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)")
+                        .HasColumnType("character varying(50)")
                         .HasColumnName("badge_key");
 
                     b.Property<DateTime?>("UnlockedAt")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("unlocked_at")
-                        .HasDefaultValueSql("(getutcdate())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<int>("UserId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("user_id");
 
                     b.HasKey("AchievementId")
@@ -1075,17 +1132,17 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("MetricId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("metric_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("MetricId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("MetricId"));
 
                     b.Property<int?>("CalorieTarget")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("calorie_target");
 
                     b.Property<int?>("CarbsTargetG")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("carbs_target_g");
 
                     b.Property<decimal?>("CurrentHeightCm")
@@ -1097,14 +1154,14 @@ namespace FlexiFit.Api.Migrations
                         .HasColumnName("current_weight_kg");
 
                     b.Property<int?>("FatsTargetG")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("fats_target_g");
 
                     b.Property<string>("FitnessGoal")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)")
+                        .HasColumnType("character varying(50)")
                         .HasDefaultValue("Strength")
                         .HasColumnName("fitness_goal");
 
@@ -1112,23 +1169,23 @@ namespace FlexiFit.Api.Migrations
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)")
+                        .HasColumnType("character varying(50)")
                         .HasDefaultValue("Maintain")
                         .HasColumnName("nutrition_goal");
 
                     b.Property<int?>("ProteinTargetG")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("protein_target_g");
 
                     b.Property<DateTime>("RecordedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("recorded_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<int>("UserId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("user_id");
 
                     b.HasKey("MetricId")
@@ -1143,7 +1200,7 @@ namespace FlexiFit.Api.Migrations
             modelBuilder.Entity("FlexiFit.Api.Entities.UsrUserNotificationSetting", b =>
                 {
                     b.Property<int>("UserId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("user_id");
 
                     b.Property<string>("CalorieDisplayMode")
@@ -1151,64 +1208,64 @@ namespace FlexiFit.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(20)
                         .IsUnicode(false)
-                        .HasColumnType("varchar(20)")
+                        .HasColumnType("character varying(20)")
                         .HasDefaultValue("remaining")
                         .HasColumnName("calorie_display_mode");
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at")
-                        .HasDefaultValueSql("(getdate())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<int>("DailyWaterGoal")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasDefaultValue(8)
                         .HasColumnName("daily_water_goal");
 
                     b.Property<int>("GlassSizeMl")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasDefaultValue(250)
                         .HasColumnName("glass_size_ml");
 
                     b.Property<bool>("MealReminderEnabled")
-                        .HasColumnType("bit")
+                        .HasColumnType("boolean")
                         .HasColumnName("meal_reminder_enabled");
 
                     b.Property<TimeOnly?>("MealReminderTime")
-                        .HasColumnType("time")
+                        .HasColumnType("time without time zone")
                         .HasColumnName("meal_reminder_time");
 
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at")
-                        .HasDefaultValueSql("(getdate())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<TimeOnly?>("WaterEndTime")
-                        .HasColumnType("time")
+                        .HasColumnType("time without time zone")
                         .HasColumnName("water_end_time");
 
                     b.Property<int?>("WaterIntervalMinutes")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("water_interval_minutes");
 
                     b.Property<bool>("WaterReminderEnabled")
-                        .HasColumnType("bit")
+                        .HasColumnType("boolean")
                         .HasColumnName("water_reminder_enabled");
 
                     b.Property<TimeOnly?>("WaterStartTime")
-                        .HasColumnType("time")
+                        .HasColumnType("time without time zone")
                         .HasColumnName("water_start_time");
 
                     b.Property<bool>("WorkoutReminderEnabled")
-                        .HasColumnType("bit")
+                        .HasColumnType("boolean")
                         .HasColumnName("workout_reminder_enabled");
 
                     b.Property<TimeOnly?>("WorkoutReminderTime")
-                        .HasColumnType("time")
+                        .HasColumnType("time without time zone")
                         .HasColumnName("workout_reminder_time");
 
                     b.HasKey("UserId")
@@ -1221,71 +1278,73 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<string>("ActivityLevel")
-                        .HasColumnType("nvarchar(max)")
+                        .HasColumnType("text")
                         .HasColumnName("activity_level");
 
                     b.Property<string>("BodyGoal")
-                        .HasColumnType("nvarchar(max)")
+                        .HasColumnType("text")
                         .HasColumnName("body_goal");
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime2")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at")
-                        .HasDefaultValueSql("GETDATE()");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("DietType")
-                        .HasColumnType("nvarchar(max)")
+                        .HasColumnType("text")
                         .HasColumnName("diet_type");
 
                     b.Property<string>("Environment")
-                        .HasColumnType("nvarchar(max)")
+                        .HasColumnType("text")
                         .HasColumnName("environment");
 
                     b.Property<string>("FitnessGoals")
-                        .HasColumnType("nvarchar(max)")
+                        .HasColumnType("text")
                         .HasColumnName("fitness_goals");
 
                     b.Property<string>("FitnessLevel")
-                        .HasColumnType("nvarchar(max)")
+                        .HasColumnType("text")
                         .HasColumnName("fitness_level");
 
                     b.Property<bool>("HealthNone")
-                        .HasColumnType("bit")
+                        .HasColumnType("boolean")
                         .HasColumnName("health_none");
 
                     b.Property<bool>("JointProblems")
-                        .HasColumnType("bit")
+                        .HasColumnType("boolean")
                         .HasColumnName("joint_problems");
 
                     b.Property<bool>("LowerBodyInjury")
-                        .HasColumnType("bit")
+                        .HasColumnType("boolean")
                         .HasColumnName("lower_body_injury");
 
                     b.Property<string>("SelectedPrograms")
-                        .HasColumnType("nvarchar(max)")
+                        .HasColumnType("text")
                         .HasColumnName("selected_programs");
 
                     b.Property<bool>("ShortBreath")
-                        .HasColumnType("bit")
+                        .HasColumnType("boolean")
                         .HasColumnName("short_breath");
 
                     b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("datetime2")
-                        .HasColumnName("updated_at");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<bool>("UpperBodyInjury")
-                        .HasColumnType("bit")
+                        .HasColumnType("boolean")
                         .HasColumnName("upper_body_injury");
 
                     b.Property<int>("UserId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("user_id");
 
                     b.HasKey("Id");
@@ -1299,14 +1358,14 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("ProfileId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("profile_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("ProfileId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("ProfileId"));
 
                     b.Property<string>("AvatarUrl")
                         .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)")
+                        .HasColumnType("character varying(500)")
                         .HasColumnName("avatar_url");
 
                     b.Property<DateOnly?>("BirthDate")
@@ -1316,35 +1375,35 @@ namespace FlexiFit.Api.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("created_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("Gender")
                         .HasMaxLength(10)
                         .IsUnicode(false)
-                        .HasColumnType("varchar(10)")
+                        .HasColumnType("character varying(10)")
                         .HasColumnName("gender");
 
                     b.Property<string>("Name")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)")
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("updated_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<int>("UserId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("user_id");
 
                     b.Property<string>("Username")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)")
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("username");
 
                     b.HasKey("ProfileId")
@@ -1362,36 +1421,36 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("ProfileVersionId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("profile_version_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("ProfileVersionId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("ProfileVersionId"));
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("created_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("FitnessLevelSelected")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)")
+                        .HasColumnType("character varying(20)")
                         .HasColumnName("fitness_level_selected");
 
                     b.Property<string>("GoalSelected")
                         .IsRequired()
                         .HasMaxLength(30)
-                        .HasColumnType("nvarchar(30)")
+                        .HasColumnType("character varying(30)")
                         .HasColumnName("goal_selected");
 
                     b.Property<bool>("IsCurrent")
-                        .HasColumnType("bit")
+                        .HasColumnType("boolean")
                         .HasColumnName("is_current");
 
                     b.Property<int>("UserId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("user_id");
 
                     b.HasKey("ProfileVersionId")
@@ -1404,7 +1463,7 @@ namespace FlexiFit.Api.Migrations
 
                     b.HasIndex(new[] { "UserId" }, "UX_usr_user_profile_versions_one_current")
                         .IsUnique()
-                        .HasFilter("([is_current]=(1))");
+                        .HasFilter("is_current = true");
 
                     b.ToTable("usr_user_profile_versions", (string)null);
                 });
@@ -1413,42 +1472,42 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("AchievementId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("achievement_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("AchievementId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("AchievementId"));
 
                     b.Property<DateTime>("CompletedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("completed_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<int>("CompletedCount")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasDefaultValue(1)
                         .HasColumnName("completed_count");
 
                     b.Property<int>("ProfileVersionId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("profile_version_id");
 
                     b.Property<int>("ProgramId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("program_id");
 
                     b.Property<string>("Status")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)")
+                        .HasColumnType("character varying(20)")
                         .HasDefaultValue("COMPLETED")
                         .HasColumnName("status");
 
                     b.Property<int>("UserId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("user_id");
 
                     b.HasKey("AchievementId")
@@ -1466,61 +1525,61 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("InstanceId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("instance_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("InstanceId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("InstanceId"));
 
                     b.Property<string>("ChangeReason")
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)")
+                        .HasColumnType("character varying(50)")
                         .HasColumnName("change_reason");
 
                     b.Property<DateTime?>("CompletedAt")
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("completed_at");
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("created_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<int>("CurrentDayNo")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasDefaultValue(1)
                         .HasColumnName("current_day_no");
 
                     b.Property<int>("CycleNo")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("cycle_no");
 
                     b.Property<string>("FitnessLevelAtStart")
                         .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)")
+                        .HasColumnType("character varying(20)")
                         .HasColumnName("fitness_level_at_start");
 
                     b.Property<int>("ProfileVersionId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("profile_version_id");
 
                     b.Property<int>("ProgramId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("program_id");
 
                     b.Property<string>("Status")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)")
+                        .HasColumnType("character varying(20)")
                         .HasDefaultValue("ACTIVE")
                         .HasColumnName("status");
 
                     b.Property<int>("UserId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("user_id");
 
                     b.HasKey("InstanceId")
@@ -1543,46 +1602,46 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("SessionId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("session_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("SessionId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("SessionId"));
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("created_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<int>("DayNo")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("day_no");
 
                     b.Property<string>("DayType")
                         .IsRequired()
                         .HasMaxLength(30)
-                        .HasColumnType("nvarchar(30)")
+                        .HasColumnType("character varying(30)")
                         .HasColumnName("day_type");
 
                     b.Property<int>("InstanceId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("instance_id");
 
                     b.Property<int>("MonthNo")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("month_no");
 
                     b.Property<string>("Status")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)")
+                        .HasColumnType("character varying(20)")
                         .HasDefaultValue("PLANNED")
                         .HasColumnName("status");
 
                     b.Property<int>("WeekNo")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("week_no");
 
                     b.HasKey("SessionId")
@@ -1600,10 +1659,10 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("SessionWorkoutId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("session_workout_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("SessionWorkoutId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("SessionWorkoutId"));
 
                     b.Property<decimal?>("LoadKg")
                         .HasColumnType("decimal(6, 2)")
@@ -1611,24 +1670,24 @@ namespace FlexiFit.Api.Migrations
 
                     b.Property<int>("OrderNo")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasDefaultValue(1)
                         .HasColumnName("order_no");
 
                     b.Property<int>("Reps")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("reps");
 
                     b.Property<int>("SessionId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("session_id");
 
                     b.Property<int>("Sets")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("sets");
 
                     b.Property<int>("WorkoutId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("workout_id");
 
                     b.HasKey("SessionWorkoutId")
@@ -1644,42 +1703,42 @@ namespace FlexiFit.Api.Migrations
             modelBuilder.Entity("FlexiFit.Api.Entities.UsrUserWorkoutProgress", b =>
                 {
                     b.Property<int>("UserId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("user_id");
 
                     b.Property<int>("ProfileVersionId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("profile_version_id");
 
                     b.Property<int>("WorkoutId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("workout_id");
 
                     b.Property<string>("CurrentLevel")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)")
+                        .HasColumnType("character varying(20)")
                         .HasColumnName("current_level");
 
                     b.Property<int>("CurrentStepNo")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("current_step_no");
 
                     b.Property<bool>("IsMastered")
-                        .HasColumnType("bit")
+                        .HasColumnType("boolean")
                         .HasColumnName("is_mastered");
 
                     b.Property<DateTime?>("MasteredAt")
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("mastered_at");
 
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("updated_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.HasKey("UserId", "ProfileVersionId", "WorkoutId");
 
@@ -1692,39 +1751,39 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("SessionId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("session_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("SessionId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("SessionId"));
 
                     b.Property<DateTime?>("CompletedAt")
-                        .HasColumnType("datetime2")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("completed_at");
 
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
                     b.Property<int>("ProgramInstanceId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("program_instance_id");
 
                     b.Property<DateTime?>("StartedAt")
-                        .HasColumnType("datetime2")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("started_at");
 
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)")
+                        .HasColumnType("character varying(20)")
                         .HasColumnName("status");
 
                     b.Property<int>("UserId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("user_id");
 
                     b.Property<int>("WorkoutDay")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("workout_day");
 
                     b.HasKey("SessionId")
@@ -1741,25 +1800,27 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("CalendarId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("calendar_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("CalendarId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("CalendarId"));
 
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2")
-                        .HasColumnName("created_at");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<int>("CycleId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("cycle_id");
 
                     b.Property<int>("DayNo")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("day_no");
 
                     b.Property<bool>("IsWorkoutDay")
-                        .HasColumnType("bit")
+                        .HasColumnType("boolean")
                         .HasColumnName("is_workout_day");
 
                     b.Property<DateOnly>("PlanDate")
@@ -1768,122 +1829,132 @@ namespace FlexiFit.Api.Migrations
 
                     b.Property<string>("Status")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)")
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("PENDING")
                         .HasColumnName("status");
 
                     b.Property<int>("TemplateId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("template_id");
 
                     b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("datetime2")
-                        .HasColumnName("updated_at");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<int>("UserId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("user_id");
 
                     b.Property<string>("VariationCode")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)")
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasDefaultValue("A")
                         .HasColumnName("variation_code");
 
                     b.Property<int>("WeekNo")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("week_no");
 
-                    b.HasKey("CalendarId");
+                    b.HasKey("CalendarId")
+                        .HasName("PK__wkt_workout_calendars");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex(new[] { "UserId", "PlanDate" }, "UX_wkt_workout_calendars_unique")
+                        .IsUnique();
 
-                    b.ToTable("wkt_workout_calendars");
+                    b.ToTable("wkt_workout_calendars", (string)null);
                 });
 
             modelBuilder.Entity("FlexiFit.Api.Entities.WrkProgramTemplate", b =>
                 {
                     b.Property<int>("ProgramId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("program_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("ProgramId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("ProgramId"));
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("created_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<int>("DaysPerWeek")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasDefaultValue(7)
                         .HasColumnName("days_per_week");
 
                     b.Property<string>("Description")
                         .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)")
+                        .HasColumnType("character varying(200)")
                         .HasColumnName("description");
 
                     b.Property<string>("Environment")
                         .IsRequired()
                         .HasMaxLength(30)
-                        .HasColumnType("nvarchar(30)")
+                        .HasColumnType("character varying(30)")
                         .HasColumnName("environment");
 
                     b.Property<string>("Equipment")
                         .IsRequired()
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)")
+                        .HasColumnType("character varying(50)")
                         .HasColumnName("equipment");
 
                     b.Property<string>("FitnessLevel")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)")
+                        .HasColumnType("character varying(20)")
                         .HasColumnName("fitness_level");
 
                     b.Property<bool>("IsActive")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
+                        .HasColumnType("boolean")
                         .HasDefaultValue(true)
                         .HasColumnName("is_active");
 
                     b.Property<int>("MonthsPerCycle")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasDefaultValue(1)
                         .HasColumnName("months_per_cycle");
 
                     b.Property<string>("ProgramCategory")
                         .IsRequired()
                         .HasMaxLength(30)
-                        .HasColumnType("nvarchar(30)")
+                        .HasColumnType("character varying(30)")
                         .HasColumnName("program_category");
 
                     b.Property<string>("ProgramName")
                         .IsRequired()
                         .HasMaxLength(120)
-                        .HasColumnType("nvarchar(120)")
+                        .HasColumnType("character varying(120)")
                         .HasColumnName("program_name");
 
                     b.Property<string>("SessionStructure")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)")
+                        .HasColumnType("character varying(20)")
                         .HasColumnName("session_structure");
 
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("updated_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<int>("WeeksPerMonth")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasDefaultValue(4)
                         .HasColumnName("weeks_per_month");
 
@@ -1902,36 +1973,36 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("TemplateDayId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("template_day_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("TemplateDayId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("TemplateDayId"));
 
                     b.Property<int>("DayNo")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("day_no");
 
                     b.Property<string>("DayType")
                         .IsRequired()
                         .HasMaxLength(30)
-                        .HasColumnType("nvarchar(30)")
+                        .HasColumnType("character varying(30)")
                         .HasColumnName("day_type");
 
                     b.Property<int>("MonthNo")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("month_no");
 
                     b.Property<string>("Notes")
                         .HasMaxLength(300)
-                        .HasColumnType("nvarchar(300)")
+                        .HasColumnType("character varying(300)")
                         .HasColumnName("notes");
 
                     b.Property<int>("ProgramId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("program_id");
 
                     b.Property<int>("WeekNo")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("week_no");
 
                     b.HasKey("TemplateDayId")
@@ -1949,55 +2020,55 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("DaytypeWId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("daytype_w_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("DaytypeWId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("DaytypeWId"));
 
                     b.Property<string>("DayType")
                         .IsRequired()
                         .HasMaxLength(30)
-                        .HasColumnType("nvarchar(30)")
+                        .HasColumnType("character varying(30)")
                         .HasColumnName("day_type");
 
                     b.Property<bool>("IsPrimaryLift")
-                        .HasColumnType("bit")
+                        .HasColumnType("boolean")
                         .HasColumnName("is_primary_lift");
 
                     b.Property<string>("MusclePriority")
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)")
+                        .HasColumnType("character varying(50)")
                         .HasColumnName("muscle_priority");
 
                     b.Property<int>("ProgramId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("program_id");
 
                     b.Property<int>("RepsDefault")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("reps_default");
 
                     b.Property<int?>("RestSeconds")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("rest_seconds");
 
                     b.Property<int>("SetsDefault")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("sets_default");
 
                     b.Property<int>("WeekNo")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasDefaultValue(1)
                         .HasColumnName("week_no");
 
                     b.Property<int>("WorkoutId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("workout_id");
 
                     b.Property<int>("WorkoutOrder")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasDefaultValue(1)
                         .HasColumnName("workout_order");
 
@@ -2018,89 +2089,89 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("WorkoutId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("workout_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("WorkoutId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("WorkoutId"));
 
                     b.Property<int?>("CaloriesBurned")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasDefaultValue(0)
                         .HasColumnName("calories_burned");
 
                     b.Property<string>("Category")
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)")
+                        .HasColumnType("character varying(50)")
                         .HasColumnName("category");
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("created_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("DifficultyLevel")
                         .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)")
+                        .HasColumnType("character varying(20)")
                         .HasColumnName("difficulty_level");
 
                     b.Property<int?>("Duration")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("duration");
 
                     b.Property<string>("Environment")
                         .HasMaxLength(30)
-                        .HasColumnType("nvarchar(30)")
+                        .HasColumnType("character varying(30)")
                         .HasColumnName("environment");
 
                     b.Property<string>("Equipment")
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)")
+                        .HasColumnType("character varying(50)")
                         .HasColumnName("equipment");
 
                     b.Property<string>("ImgFilename")
                         .HasMaxLength(255)
-                        .HasColumnType("nvarchar(255)")
+                        .HasColumnType("character varying(255)")
                         .HasColumnName("img_filename");
 
                     b.Property<bool>("IsActive")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
+                        .HasColumnType("boolean")
                         .HasDefaultValue(true)
                         .HasColumnName("is_active");
 
                     b.Property<bool>("IsWeighted")
-                        .HasColumnType("bit")
+                        .HasColumnType("boolean")
                         .HasColumnName("is_weighted");
 
                     b.Property<string>("MuscleGroup")
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)")
+                        .HasColumnType("character varying(50)")
                         .HasColumnName("muscle_group");
 
                     b.Property<string>("Notes")
                         .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)")
+                        .HasColumnType("character varying(500)")
                         .HasColumnName("notes");
 
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("updated_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("VideoUrl")
                         .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)")
+                        .HasColumnType("character varying(500)")
                         .HasColumnName("video_url");
 
                     b.Property<string>("WorkoutName")
                         .IsRequired()
                         .HasMaxLength(150)
-                        .HasColumnType("nvarchar(150)")
+                        .HasColumnType("character varying(150)")
                         .HasColumnName("workout_name");
 
                     b.HasKey("WorkoutId")
@@ -2118,22 +2189,22 @@ namespace FlexiFit.Api.Migrations
                 {
                     b.Property<int>("LoadStepId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("load_step_id");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("LoadStepId"));
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("LoadStepId"));
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(0)
-                        .HasColumnType("datetime2(0)")
+                        .HasColumnType("timestamp(0) with time zone")
                         .HasColumnName("created_at")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("LevelName")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)")
+                        .HasColumnType("character varying(20)")
                         .HasColumnName("level_name");
 
                     b.Property<decimal?>("LoadKg")
@@ -2141,11 +2212,11 @@ namespace FlexiFit.Api.Migrations
                         .HasColumnName("load_kg");
 
                     b.Property<int>("StepNo")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("step_no");
 
                     b.Property<int>("WorkoutId")
-                        .HasColumnType("int")
+                        .HasColumnType("integer")
                         .HasColumnName("workout_id");
 
                     b.HasKey("LoadStepId")
@@ -2243,6 +2314,25 @@ namespace FlexiFit.Api.Migrations
                     b.Navigation("DailyLog");
                 });
 
+            modelBuilder.Entity("FlexiFit.Api.Entities.NtrFoodAllergies", b =>
+                {
+                    b.HasOne("FlexiFit.Api.Entities.NtrAllergies", "Allergy")
+                        .WithMany("FoodAllergies")
+                        .HasForeignKey("AllergyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("FlexiFit.Api.Entities.NtrFoodItem", "Food")
+                        .WithMany("FoodAllergies")
+                        .HasForeignKey("FoodId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Allergy");
+
+                    b.Navigation("Food");
+                });
+
             modelBuilder.Entity("FlexiFit.Api.Entities.NtrMealPlanCalendar", b =>
                 {
                     b.HasOne("FlexiFit.Api.Entities.NtrUserCycleTarget", "Cycle")
@@ -2305,6 +2395,25 @@ namespace FlexiFit.Api.Migrations
                     b.Navigation("Food");
 
                     b.Navigation("TemplateMeal");
+                });
+
+            modelBuilder.Entity("FlexiFit.Api.Entities.NtrUserAllergies", b =>
+                {
+                    b.HasOne("FlexiFit.Api.Entities.NtrAllergies", "Allergy")
+                        .WithMany("UserAllergies")
+                        .HasForeignKey("AllergyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("FlexiFit.Api.Entities.UsrUser", "User")
+                        .WithMany("UserAllergies")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Allergy");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("FlexiFit.Api.Entities.NtrUserCycleTarget", b =>
@@ -2558,7 +2667,8 @@ namespace FlexiFit.Api.Migrations
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("FK_wkt_workout_calendars_user");
 
                     b.Navigation("User");
                 });
@@ -2607,6 +2717,13 @@ namespace FlexiFit.Api.Migrations
                     b.Navigation("Workout");
                 });
 
+            modelBuilder.Entity("FlexiFit.Api.Entities.NtrAllergies", b =>
+                {
+                    b.Navigation("FoodAllergies");
+
+                    b.Navigation("UserAllergies");
+                });
+
             modelBuilder.Entity("FlexiFit.Api.Entities.NtrDailyLog", b =>
                 {
                     b.Navigation("NtrDailyMealItemLogs");
@@ -2616,6 +2733,8 @@ namespace FlexiFit.Api.Migrations
 
             modelBuilder.Entity("FlexiFit.Api.Entities.NtrFoodItem", b =>
                 {
+                    b.Navigation("FoodAllergies");
+
                     b.Navigation("NtrDailyMealItemLogs");
 
                     b.Navigation("NtrTemplateMealItems");
@@ -2658,6 +2777,8 @@ namespace FlexiFit.Api.Migrations
                     b.Navigation("NtrUserNutritionProfile");
 
                     b.Navigation("NtrWaterLogs");
+
+                    b.Navigation("UserAllergies");
 
                     b.Navigation("UsrDeviceTokens");
 

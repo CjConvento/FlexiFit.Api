@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using FlexiFit.Api.Dtos;
 using System.IO;
 using System.Data;
-using Microsoft.Data.SqlClient;
+using Npgsql;
 using System.Linq;
 using Microsoft.Extensions.Configuration;
 using System.Threading.Tasks;

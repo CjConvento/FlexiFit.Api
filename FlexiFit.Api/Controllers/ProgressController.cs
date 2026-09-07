@@ -7,6 +7,7 @@ using FlexiFit.Api.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
+using Npgsql;
 using System.Collections.Generic;
 
 namespace FlexiFit.Api.Controllers

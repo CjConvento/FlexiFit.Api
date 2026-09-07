@@ -141,12 +141,12 @@ public partial class FlexiFitDbContext : DbContext
             entity.Property(e => e.SummaryId).HasColumnName("summary_id");
             entity.Property(e => e.CaloriesBurned).HasColumnName("calories_burned");
             entity.Property(e => e.LogDate)
-                .HasDefaultValueSql("(CONVERT([date],getdate()))")
+                .HasDefaultValueSql("CURRENT_DATE")
                 .HasColumnName("log_date");
             entity.Property(e => e.TotalMinutes).HasColumnName("total_minutes");
             entity.Property(e => e.UpdatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("updated_at");
             entity.Property(e => e.UserId).HasColumnName("user_id");
 
@@ -170,7 +170,7 @@ public partial class FlexiFitDbContext : DbContext
             entity.Property(e => e.CaloriesIntake).HasColumnName("calories_intake");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("created_at");
             entity.Property(e => e.DayNo).HasColumnName("day_no");
             entity.Property(e => e.FitnessLevelSnapshot)
@@ -184,7 +184,7 @@ public partial class FlexiFitDbContext : DbContext
                 .HasColumnName("notes");
             entity.Property(e => e.UpdatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("updated_at");
             entity.Property(e => e.UserId).HasColumnName("user_id");
             entity.Property(e => e.WaterMl).HasColumnName("water_ml");
@@ -219,7 +219,7 @@ public partial class FlexiFitDbContext : DbContext
                 .HasPrecision(0)
                 .HasColumnName("marked_done_at");
             entity.Property(e => e.NetCalories)
-                .HasComputedColumnSql("([calories_consumed]-[calories_burned])", true)
+                .HasComputedColumnSql("\"calories_consumed\" - \"calories_burned\"", stored: true)
                 .HasColumnName("net_calories");
             entity.Property(e => e.PlanDate).HasColumnName("plan_date");
             entity.Property(e => e.TargetNetCalories).HasColumnName("target_net_calories");
@@ -376,7 +376,7 @@ public partial class FlexiFitDbContext : DbContext
                 .HasColumnName("category");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("created_at");
             entity.Property(e => e.Description)
                 .HasMaxLength(200)
@@ -415,7 +415,7 @@ public partial class FlexiFitDbContext : DbContext
                 .HasColumnName("size_type");
             entity.Property(e => e.UpdatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("updated_at");
         });
 
@@ -434,7 +434,7 @@ public partial class FlexiFitDbContext : DbContext
             entity.Property(e => e.CalendarId).HasColumnName("calendar_id");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("created_at");
             entity.Property(e => e.CycleId).HasColumnName("cycle_id");
             entity.Property(e => e.DayNo).HasColumnName("day_no");
@@ -447,7 +447,7 @@ public partial class FlexiFitDbContext : DbContext
             entity.Property(e => e.TemplateId).HasColumnName("template_id");
             entity.Property(e => e.UpdatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("updated_at");
             entity.Property(e => e.VariationCode)
                 .HasMaxLength(10)
@@ -476,7 +476,7 @@ public partial class FlexiFitDbContext : DbContext
             entity.Property(e => e.TemplateId).HasColumnName("template_id");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("created_at");
             entity.Property(e => e.Description)
                 .HasMaxLength(500)
@@ -492,7 +492,7 @@ public partial class FlexiFitDbContext : DbContext
                 .HasColumnName("template_name");
             entity.Property(e => e.UpdatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("updated_at");
         });
 
@@ -584,7 +584,7 @@ public partial class FlexiFitDbContext : DbContext
                 .HasColumnName("carbs_target_g");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("created_at");
             entity.Property(e => e.DailyTargetNetCalories).HasColumnName("daily_target_net_calories");
             entity.Property(e => e.FatsTargetG)
@@ -634,7 +634,7 @@ public partial class FlexiFitDbContext : DbContext
                 .HasColumnName("target_weight_kg");
             entity.Property(e => e.UpdatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("updated_at");
             entity.Property(e => e.WeightKg)
                 .HasColumnType("decimal(10, 2)")
@@ -658,10 +658,10 @@ public partial class FlexiFitDbContext : DbContext
             entity.Property(e => e.WaterLogId).HasColumnName("water_log_id");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("created_at");
             entity.Property(e => e.LogDate)
-                .HasDefaultValueSql("(CONVERT([date],getdate()))")
+                .HasDefaultValueSql("CURRENT_DATE")
                 .HasColumnName("log_date");
             entity.Property(e => e.UserId).HasColumnName("user_id");
             entity.Property(e => e.WaterMl).HasColumnName("water_ml");
@@ -682,7 +682,7 @@ public partial class FlexiFitDbContext : DbContext
             entity.Property(e => e.DeviceTokenId).HasColumnName("device_token_id");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("created_at");
             entity.Property(e => e.FcmToken)
                 .HasMaxLength(255)
@@ -696,7 +696,7 @@ public partial class FlexiFitDbContext : DbContext
                 .HasColumnName("platform");
             entity.Property(e => e.UpdatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("updated_at");
             entity.Property(e => e.UserId).HasColumnName("user_id");
 
@@ -711,8 +711,8 @@ public partial class FlexiFitDbContext : DbContext
 
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.CreatedAt)
-                .HasDefaultValueSql("(getdate())")
-                .HasColumnType("datetime")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp")
                 .HasColumnName("created_at");
             entity.Property(e => e.Message)
                 .HasMaxLength(500)
@@ -743,13 +743,12 @@ public partial class FlexiFitDbContext : DbContext
 
             entity.HasIndex(e => e.Email, "UX_usr_users_email")
                 .IsUnique()
-                .HasFilter("([email] IS NOT NULL)");
-
+                .HasFilter("\"email\" IS NOT NULL");
             entity.HasIndex(e => e.FirebaseUid, "UX_usr_users_firebase_uid").IsUnique();
 
             entity.HasIndex(e => e.Username, "UX_usr_users_username")
                 .IsUnique()
-                .HasFilter("([username] IS NOT NULL)");
+                .HasFilter("\"username\" IS NOT NULL");
 
             entity.Property(e => e.UserId).HasColumnName("user_id");
             entity.Property(e => e.AuthProvider)
@@ -758,7 +757,7 @@ public partial class FlexiFitDbContext : DbContext
                 .HasColumnName("auth_provider");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("created_at");
             entity.Property(e => e.Email)
                 .HasMaxLength(255)
@@ -782,7 +781,7 @@ public partial class FlexiFitDbContext : DbContext
                 .HasColumnName("status");
             entity.Property(e => e.UpdatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("updated_at");
             entity.Property(e => e.Username)
                 .HasMaxLength(50)
@@ -803,8 +802,7 @@ public partial class FlexiFitDbContext : DbContext
                 .HasMaxLength(50)
                 .HasColumnName("badge_key");
             entity.Property(e => e.UnlockedAt)
-                .HasDefaultValueSql("(getutcdate())")
-                .HasColumnType("datetime")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("unlocked_at");
             entity.Property(e => e.UserId).HasColumnName("user_id");
 
@@ -844,7 +842,7 @@ public partial class FlexiFitDbContext : DbContext
             entity.Property(e => e.ProteinTargetG).HasColumnName("protein_target_g");
             entity.Property(e => e.RecordedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("recorded_at");
             entity.Property(e => e.UserId).HasColumnName("user_id");
 
@@ -868,8 +866,7 @@ public partial class FlexiFitDbContext : DbContext
                 .HasDefaultValue("remaining")
                 .HasColumnName("calorie_display_mode");
             entity.Property(e => e.CreatedAt)
-                .HasDefaultValueSql("(getdate())")
-                .HasColumnType("datetime")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("created_at");
             entity.Property(e => e.DailyWaterGoal)
                 .HasDefaultValue(8)
@@ -880,8 +877,7 @@ public partial class FlexiFitDbContext : DbContext
             entity.Property(e => e.MealReminderEnabled).HasColumnName("meal_reminder_enabled");
             entity.Property(e => e.MealReminderTime).HasColumnName("meal_reminder_time");
             entity.Property(e => e.UpdatedAt)
-                .HasDefaultValueSql("(getdate())")
-                .HasColumnType("datetime")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("updated_at");
             entity.Property(e => e.WaterEndTime).HasColumnName("water_end_time");
             entity.Property(e => e.WaterIntervalMinutes).HasColumnName("water_interval_minutes");
@@ -906,7 +902,11 @@ public partial class FlexiFitDbContext : DbContext
 
             // Kung gusto mong i-set yung default value ng CreatedAt sa SQL side
             entity.Property(e => e.CreatedAt)
-                  .HasDefaultValueSql("GETDATE()");
+                  .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+            entity.Property(e => e.UpdatedAt)
+                  .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                  .HasColumnName("updated_at");  // Kung wala pang column mapping
         });
 
         modelBuilder.Entity<UsrUserProfile>(entity =>
@@ -926,7 +926,7 @@ public partial class FlexiFitDbContext : DbContext
             entity.Property(e => e.BirthDate).HasColumnName("birth_date");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("created_at");
             entity.Property(e => e.Gender)
                 .HasMaxLength(10)
@@ -937,7 +937,7 @@ public partial class FlexiFitDbContext : DbContext
                 .HasColumnName("name");
             entity.Property(e => e.UpdatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("updated_at");
             entity.Property(e => e.UserId).HasColumnName("user_id");
             entity.Property(e => e.Username)
@@ -961,12 +961,12 @@ public partial class FlexiFitDbContext : DbContext
 
             entity.HasIndex(e => e.UserId, "UX_usr_user_profile_versions_one_current")
                 .IsUnique()
-                .HasFilter("([is_current]=(1))");
+                .HasFilter("is_current = true");
 
             entity.Property(e => e.ProfileVersionId).HasColumnName("profile_version_id");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("created_at");
             entity.Property(e => e.FitnessLevelSelected)
                 .HasMaxLength(20)
@@ -993,7 +993,7 @@ public partial class FlexiFitDbContext : DbContext
             entity.Property(e => e.AchievementId).HasColumnName("achievement_id");
             entity.Property(e => e.CompletedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("completed_at");
             entity.Property(e => e.CompletedCount)
                 .HasDefaultValue(1)
@@ -1035,7 +1035,7 @@ public partial class FlexiFitDbContext : DbContext
                 .HasColumnName("completed_at");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("created_at");
             entity.Property(e => e.CurrentDayNo)
                 .HasDefaultValue(1)
@@ -1077,7 +1077,7 @@ public partial class FlexiFitDbContext : DbContext
             entity.Property(e => e.DayNo).HasColumnName("day_no");
             entity.Property(e => e.DayType).HasMaxLength(30).HasColumnName("day_type");
             entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("PLANNED").HasColumnName("status");
-            entity.Property(e => e.CreatedAt).HasPrecision(0).HasDefaultValueSql("(sysutcdatetime())").HasColumnName("created_at");
+            entity.Property(e => e.CreatedAt).HasPrecision(0).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnName("created_at");
 
             // ✅ ONLY relationship to Program Instance
             entity.HasOne(d => d.Instance)
@@ -1138,7 +1138,7 @@ public partial class FlexiFitDbContext : DbContext
                 .HasColumnName("mastered_at");
             entity.Property(e => e.UpdatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("updated_at");
 
             entity.HasOne(d => d.ProfileVersion).WithMany(p => p.UsrUserWorkoutProgresses)
@@ -1175,6 +1175,66 @@ public partial class FlexiFitDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
+        modelBuilder.Entity<WktWorkoutCalendar>(entity =>
+        {
+            entity.HasKey(e => e.CalendarId).HasName("PK__wkt_workout_calendars");
+
+            entity.ToTable("wkt_workout_calendars");
+
+            // Unique constraint: isang user, isang plan_date lang
+            entity.HasIndex(e => new { e.UserId, e.PlanDate }, "UX_wkt_workout_calendars_unique").IsUnique();
+
+            // Properties (gamit ang Column attributes)
+            entity.Property(e => e.CalendarId)
+                .HasColumnName("calendar_id");
+
+            entity.Property(e => e.UserId)
+                .HasColumnName("user_id");
+
+            entity.Property(e => e.CycleId)
+                .HasColumnName("cycle_id");
+
+            entity.Property(e => e.PlanDate)
+                .HasColumnName("plan_date");
+
+            entity.Property(e => e.WeekNo)
+                .HasColumnName("week_no");
+
+            entity.Property(e => e.DayNo)
+                .HasColumnName("day_no");
+
+            entity.Property(e => e.TemplateId)
+                .HasColumnName("template_id");
+
+            entity.Property(e => e.VariationCode)
+                .HasMaxLength(10)
+                .HasDefaultValue("A")
+                .HasColumnName("variation_code");
+
+            entity.Property(e => e.IsWorkoutDay)
+                .HasColumnName("is_workout_day");
+
+            entity.Property(e => e.Status)
+                .HasMaxLength(20)
+                .HasDefaultValue("PENDING")
+                .HasColumnName("status");
+
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnName("created_at");
+
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnName("updated_at");
+
+            // Navigation property: User
+            entity.HasOne(d => d.User)
+                .WithMany() // Wala nang navigation property pabalik sa UsrUser
+                .HasForeignKey(d => d.UserId)
+                .HasConstraintName("FK_wkt_workout_calendars_user")
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
         modelBuilder.Entity<WrkProgramTemplate>(entity =>
         {
             entity.HasKey(e => e.ProgramId).HasName("PK__wrk_prog__3A7890AC32B98A84");
@@ -1188,7 +1248,7 @@ public partial class FlexiFitDbContext : DbContext
             entity.Property(e => e.ProgramId).HasColumnName("program_id");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("created_at");
             entity.Property(e => e.DaysPerWeek)
                 .HasDefaultValue(7)
@@ -1222,7 +1282,7 @@ public partial class FlexiFitDbContext : DbContext
                 .HasColumnName("session_structure");
             entity.Property(e => e.UpdatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("updated_at");
             entity.Property(e => e.WeeksPerMonth)
                 .HasDefaultValue(4)
@@ -1318,7 +1378,7 @@ public partial class FlexiFitDbContext : DbContext
                 .HasColumnName("category");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("created_at");
             entity.Property(e => e.DifficultyLevel)
                 .HasMaxLength(20)
@@ -1345,7 +1405,7 @@ public partial class FlexiFitDbContext : DbContext
                 .HasColumnName("notes");
             entity.Property(e => e.UpdatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("updated_at");
             entity.Property(e => e.VideoUrl)
                 .HasMaxLength(500)
@@ -1375,7 +1435,7 @@ public partial class FlexiFitDbContext : DbContext
             entity.Property(e => e.LoadStepId).HasColumnName("load_step_id");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(0)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("created_at");
             entity.Property(e => e.LevelName)
                 .HasMaxLength(20)

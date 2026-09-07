@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using FlexiFit.Api.Services;
+using Npgsql;
+
 
 namespace FlexiFit.Api.Controllers;
 

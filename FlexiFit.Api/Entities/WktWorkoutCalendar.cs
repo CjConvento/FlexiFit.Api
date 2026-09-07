@@ -46,6 +46,6 @@ namespace FlexiFit.Api.Entities
 
         // Navigation property (optional)
         [ForeignKey(nameof(UserId))]
-        public virtual UsrUser User { get; set; }
+        public virtual UsrUser? User { get; set; }
     }
 }

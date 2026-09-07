@@ -1,5 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.SqlClient;
+using Npgsql; 
 using Dapper;
 using FlexiFit.Api.DTOs;
 using Microsoft.Extensions.Hosting;  // for IHostEnvironment
@@ -28,7 +28,7 @@ namespace FlexiFit.Api.Controllers
             // Optional: test the connection immediately
             try
             {
-                using var testConnection = new SqlConnection(_connectionString);
+                using var testConnection = new NpgsqlConnection(_connectionString);
                 testConnection.Open();
                 Console.WriteLine("UsersController: database connection successful!");
             }
@@ -46,12 +46,12 @@ namespace FlexiFit.Api.Controllers
 
             try
             {
-                using (var connection = new SqlConnection(_connectionString))
+                using (var connection = new NpgsqlConnection(_connectionString))
                 {
-                    var sql = @"INSERT INTO dbo.usr_users 
+                    var sql = @"INSERT INTO usr_users 
                                 (firebase_uid, email, name, username, is_verified, role, status, auth_provider, created_at, updated_at) 
                                 VALUES 
-                                (@firebase_uid, @email, @name, @username, 1, @role, 'ACTIVE', @auth_provider, GETDATE(), GETDATE())";
+                                (@firebase_uid, @email, @name, @username, 1, @role, 'ACTIVE', @auth_provider, CURRENT_TIMESTAMP)";
 
                     await connection.ExecuteAsync(sql, dto);
                     _logger.LogInformation("Successfully inserted user: {Email}", dto.email);
@@ -59,10 +59,10 @@ namespace FlexiFit.Api.Controllers
                     return Ok(new { success = true, message = "User created successfully." });
                 }
             }
-            catch (SqlException ex)
+            catch (NpgsqlException ex)
             {
-                _logger.LogError("SQL Error: {Message}", ex.Message);
-                if (ex.Number == 2627 || ex.Number == 2601)
+                _logger.LogError("PostgreSQL Error: {Message}", ex.Message);
+                if (ex.SqlState == "23505")
                     return Conflict("Duplicate Entry: Email or Username already exists.");
 
                 return StatusCode(500, $"Database error: {ex.Message}");
@@ -79,9 +79,9 @@ namespace FlexiFit.Api.Controllers
         {
             try
             {
-                using (var connection = new SqlConnection(_connectionString))
+                using (var connection = new NpgsqlConnection(_connectionString))
                 {
-                    var sql = "SELECT * FROM dbo.usr_users ORDER BY created_at DESC";
+                    var sql = "SELECT * FROM usr_users ORDER BY created_at DESC";
                     var users = await connection.QueryAsync(sql);
                     return Ok(users);
                 }
@@ -104,12 +104,12 @@ namespace FlexiFit.Api.Controllers
         {
             try
             {
-                using (var connection = new SqlConnection(_connectionString))
+                using (var connection = new NpgsqlConnection(_connectionString))
                 {
                     var sql = @"SELECT user_id, firebase_uid, name, username, email, 
                                role, status, is_verified, auth_provider, 
                                created_at, updated_at 
-                        FROM dbo.usr_users 
+                        FROM usr_users 
                         WHERE user_id = @id";
                     var user = await connection.QueryFirstOrDefaultAsync(sql, new { id });
                     if (user == null)
@@ -136,20 +136,20 @@ namespace FlexiFit.Api.Controllers
 
             try
             {
-                using (var connection = new SqlConnection(_connectionString))
+                using (var connection = new NpgsqlConnection(_connectionString))
                 {
                     // Check if user exists
                     var exists = await connection.ExecuteScalarAsync<bool>(
-                        "SELECT COUNT(1) FROM dbo.usr_users WHERE user_id = @id", new { id });
+                        "SELECT COUNT(1) FROM usr_users WHERE user_id = @id", new { id });
                     if (!exists)
                         return NotFound(new { message = "User not found." });
 
-                    var sql = @"UPDATE dbo.usr_users 
+                    var sql = @"UPDATE usr_users 
                         SET name = @name,
                             username = @username,
                             email = @email,
                             role = @role,
-                            updated_at = GETDATE()
+                            updated_at = CURRENT_TIMESTAMP
                         WHERE user_id = @user_id";
 
                     int rows = await connection.ExecuteAsync(sql, request);
@@ -162,10 +162,10 @@ namespace FlexiFit.Api.Controllers
                     return BadRequest("Update failed.");
                 }
             }
-            catch (SqlException ex)
+            catch (NpgsqlException ex)
             {
-                _logger.LogError("SQL Error updating user {Id}: {Message}", id, ex.Message);
-                if (ex.Number == 2627 || ex.Number == 2601)
+                _logger.LogError("PostgreSQL Error updating user {Id}: {Message}", id, ex.Message);
+                if (ex.SqlState == "23505")
                     return Conflict("Duplicate Entry: Email or Username already exists.");
                 return StatusCode(500, "Database error.");
             }
@@ -183,10 +183,10 @@ namespace FlexiFit.Api.Controllers
 
             try
             {
-                using (var connection = new SqlConnection(_connectionString))
+                using (var connection = new NpgsqlConnection(_connectionString))
                 {
                     // 1. I-check muna kung existing ang user
-                    var checkSql = "SELECT COUNT(1) FROM dbo.usr_users WHERE user_id = @id";
+                    var checkSql = "SELECT COUNT(1) FROM usr_users WHERE user_id = @id";
                     var exists = await connection.ExecuteScalarAsync<bool>(checkSql, new { id });
 
                     if (!exists)
@@ -196,7 +196,7 @@ namespace FlexiFit.Api.Controllers
                     }
 
                     // 2. Execute Delete
-                    var deleteSql = "DELETE FROM dbo.usr_users WHERE user_id = @id";
+                    var deleteSql = "DELETE FROM usr_users WHERE user_id = @id";
                     int affectedRows = await connection.ExecuteAsync(deleteSql, new { id });
 
                     if (affectedRows > 0)
@@ -208,12 +208,12 @@ namespace FlexiFit.Api.Controllers
                     return BadRequest("Failed to delete user.");
                 }
             }
-            catch (SqlException ex)
+            catch (NpgsqlException ex)
             {
-                _logger.LogError("SQL Error during delete: {Message}", ex.Message);
+                _logger.LogError("PostgreSQL Error during delete: {Message}", ex.Message);
 
                 // Error Number 547 ay Foreign Key violation (halimbawa: may workout logs na ang user)
-                if (ex.Number == 547)
+                if (ex.SqlState == "23503")
                 {
                     return BadRequest("Hindi mabura ang user dahil mayroon itong kaugnay na data sa ibang table.");
                 }

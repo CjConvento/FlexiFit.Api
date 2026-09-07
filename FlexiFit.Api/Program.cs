@@ -8,7 +8,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
 using System.Text.Json;
-using Microsoft.Data.SqlClient;
+using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -97,8 +97,9 @@ builder.Services.AddAuthorization();
 // =======================================================
 // DbContext
 builder.Services.AddDbContextFactory<FlexiFitDbContext>(options =>
-    options.UseSqlServer(
-        builder.Configuration.GetConnectionString("FlexifitDb")
+    options.UseNpgsql(
+        builder.Configuration.GetConnectionString("FlexifitDb"),
+        npgsqlOptions => npgsqlOptions.EnableRetryOnFailure() // Optional: para sa retry on failure
     )
 ); 
 

@@ -2,6 +2,7 @@
 using FlexiFit.Api.Dtos;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Npgsql;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 

@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.SqlClient;
+using Npgsql;
 using Dapper;
 
 namespace FlexiFit.Api.Controllers;
@@ -24,11 +24,11 @@ public class AdminController : ControllerBase
     {
         try
         {
-            using (var connection = new SqlConnection(_connectionString))
+            using (var connection = new NpgsqlConnection(_connectionString))
             {
-                var totalUsers = await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM dbo.usr_users");
-                var totalWorkouts = await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM dbo.wrk_workouts");
-                var totalFoods = await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM dbo.ntr_food_items");
+                var totalUsers = await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM usr_users");
+                var totalWorkouts = await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM wrk_workouts");
+                var totalFoods = await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM ntr_food_items");
 
                 return Ok(new
                 {
