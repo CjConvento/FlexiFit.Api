@@ -120,20 +120,44 @@ if (FirebaseApp.DefaultInstance == null)
 {
     try
     {
-        // ✅ 1. UNAHIN ANG ENVIRONMENT VARIABLE (Para sa Azure)
-        string? firebaseJson = Environment.GetEnvironmentVariable("FIREBASE_SERVICE_ACCOUNT");
+        // ✅ 1. UNAHIN: RENDER SECRET FILE (Production)
+        var secretPath = "/etc/secrets/firebase-service-account.json";
 
-        if (!string.IsNullOrEmpty(firebaseJson))
+        if (File.Exists(secretPath))
         {
+            var credential = GoogleCredential.FromFile(secretPath);
+            FirebaseApp.Create(new AppOptions()
+            {
+                Credential = credential
+            });
+            Console.WriteLine("✅ Firebase initialized using Render Secret File.");
+        }
+        // ✅ 2. ENVIRONMENT VARIABLE (Azure or Backup) — with Base64 support
+        else if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("FIREBASE_SERVICE_ACCOUNT")))
+        {
+            string? firebaseJson = Environment.GetEnvironmentVariable("FIREBASE_SERVICE_ACCOUNT");
+
+            // Try to decode as Base64 first
+            try
+            {
+                byte[] data = Convert.FromBase64String(firebaseJson!);
+                firebaseJson = System.Text.Encoding.UTF8.GetString(data);
+                Console.WriteLine("✅ Firebase JSON decoded from Base64.");
+            }
+            catch
+            {
+                Console.WriteLine("⚠️ FIREBASE_SERVICE_ACCOUNT is not Base64. Using as-is.");
+            }
+
             FirebaseApp.Create(new AppOptions()
             {
                 Credential = GoogleCredential.FromJson(firebaseJson)
             });
             Console.WriteLine("✅ Firebase initialized using environment variable.");
         }
+        // ✅ 3. FALLBACK: LOCAL FILE (Development)
         else
         {
-            // ✅ 2. FALLBACK: BASAHIN MULA SA FILE (Para sa Local Development)
             var serviceAccountPath = Path.Combine(
                 builder.Environment.ContentRootPath,
                 "Credentials",
@@ -148,13 +172,12 @@ if (FirebaseApp.DefaultInstance == null)
                 {
                     Credential = credential
                 });
-                Console.WriteLine("✅ Firebase initialized using file: {serviceAccountPath}");
+                Console.WriteLine($"✅ Firebase initialized using local file: {serviceAccountPath}");
             }
             else
             {
-                // ⚠️ 3. KUNG WALA, MAG-LOG NG WARNING AT HUWAG I-INITIALIZE
                 Console.WriteLine("⚠️ Firebase credentials not found. Skipping Firebase initialization.");
-                Console.WriteLine("   Set FIREBASE_SERVICE_ACCOUNT environment variable or add Credentials/firebase-service-account.json file.");
+                Console.WriteLine("   Set FIREBASE_SERVICE_ACCOUNT env var or add Credentials/firebase-service-account.json");
             }
         }
     }
