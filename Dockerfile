@@ -7,9 +7,10 @@ EXPOSE 443
 # Build stage
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
-COPY ["FlexiFit.Api.csproj", "."]
-RUN dotnet restore "./FlexiFit.Api.csproj"
+COPY ["FlexiFit.Api/FlexiFit.Api.csproj", "FlexiFit.Api/"]
+RUN dotnet restore "FlexiFit.Api/FlexiFit.Api.csproj"
 COPY . .
+WORKDIR "/src/FlexiFit.Api"
 RUN dotnet build "FlexiFit.Api.csproj" -c Release -o /app/build
 
 # Publish stage
