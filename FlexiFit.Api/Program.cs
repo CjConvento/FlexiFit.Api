@@ -33,7 +33,9 @@ builder.Services.AddCors(options =>
                 "http://localhost:5000",           // Admin Panel (dotnet run)
                 "http://localhost:5100",           // Default
                 "https://flexifitadmin.shares.zrok.io", // zrok (if exposed)
-                "https://flexifitapinet.shares.zrok.io"  // API itself
+                "https://flexifitapinet.shares.zrok.io",
+                "https://flexifitadminpanel.onrender.com",   // ← ADMIN PANEL
+                "https://flexifit-api-ylop.onrender.com"   // API itself
             )
             .AllowAnyMethod()
             .AllowAnyHeader()
