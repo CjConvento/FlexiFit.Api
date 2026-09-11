@@ -9,6 +9,13 @@ namespace FlexiFit.API.Controllers
     [Route("api/dev")]
     public class DebugController : ControllerBase
     {
+        private readonly IConfiguration _config;
+
+        public DebugController(IConfiguration config)
+        {
+            _config = config;
+        }
+
         [HttpGet("scrape-token")]
         public IActionResult GetDevToken()
         {
@@ -28,6 +35,26 @@ namespace FlexiFit.API.Controllers
             }
 
             return Ok(new { token  = token });
+        }
+
+        [HttpGet("appwrite-check")]
+        public IActionResult CheckAppwrite()
+        {
+            var endpoint  = _config["StorageSettings:Appwrite:Endpoint"];
+            var projectId = _config["StorageSettings:Appwrite:ProjectId"];
+            var apiKey    = _config["StorageSettings:Appwrite:ApiKey"];
+
+            return Ok(new
+            {
+                endpoint  = endpoint ?? "(MISSING)",
+                projectId = projectId ?? "(MISSING)",
+                hasApiKey = !string.IsNullOrEmpty(apiKey),
+                apiKeyLength = apiKey?.Length ?? 0,
+                allConfigKeys = _config.AsEnumerable()
+                    .Where(kv => kv.Key.Contains("Appwrite", StringComparison.OrdinalIgnoreCase))
+                    .Select(kv => kv.Key)
+                    .ToList()
+            });
         }
     }
 }

@@ -112,9 +112,9 @@ builder.Services.AddScoped<JwtService>();
 builder.Services.AddScoped<FirebaseTokenVerifier>();
 builder.Services.AddScoped<DeviceTokenService>();
 builder.Services.AddScoped<IUserService, UserService>();
-builder.Services.AddScoped<IBlobService, AppwriteStorageService>();
 // Added Appwrite Storage
-builder.Services.AddScoped<IBlobService, BlobService>();
+builder.Services.AddScoped<IBlobService, AppwriteStorageService>();
+// builder.Services.AddScoped<IBlobService, BlobService>();
 
 // =======================================================
 // 🔥 5. FIREBASE ADMIN INITIALIZATION

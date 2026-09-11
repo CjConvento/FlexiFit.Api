@@ -14,9 +14,9 @@ public class AppwriteStorageService : IBlobService
 
     public AppwriteStorageService(IConfiguration config, ILogger<AppwriteStorageService> logger)
     {
-        _endpoint = config["Appwrite:Endpoint"] ?? "https://sgp.cloud.appwrite.io/v1";
-        _projectId = config["Appwrite:ProjectId"] ?? "";
-        var apiKey = config["Appwrite:ApiKey"] ?? "";
+        _endpoint = config["StorageSettings:Appwrite:Endpoint"] ?? "https://sgp.cloud.appwrite.io/v1";
+        _projectId = config["StorageSettings:Appwrite:ProjectId"] ?? "";
+        var apiKey = config["StorageSettings:Appwrite:ApiKey"] ?? "";
 
         _logger = logger;
 
