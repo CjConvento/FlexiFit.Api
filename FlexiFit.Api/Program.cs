@@ -109,8 +109,8 @@ Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true; // <---
 builder.Services.AddScoped<JwtService>();
 builder.Services.AddScoped<FirebaseTokenVerifier>();
 builder.Services.AddScoped<DeviceTokenService>();
-builder.Services.AddScoped<IUserService, UserService>(); // <-- idagdag ito
-// Added Azure Blob Storage
+builder.Services.AddScoped<IBlobService, AppwriteStorageService>();
+// Added Appwrite Storage
 builder.Services.AddScoped<IBlobService, BlobService>();
 
 // =======================================================

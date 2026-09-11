@@ -1,8 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using FlexiFit.Api.Services;
-using Npgsql;
-
 
 namespace FlexiFit.Api.Controllers;
 
@@ -34,20 +32,21 @@ public class BlobController : ControllerBase
         try
         {
             using var stream = file.OpenReadStream();
-            var blobUrl = await _blobService.UploadFileAsync(stream, uniqueFileName, container);
 
-            _logger.LogInformation("File uploaded successfully to {Container}: {FileName}", container, uniqueFileName);
+            var fileId = await _blobService.UploadFileAsync(stream, uniqueFileName, container);
+            _logger.LogInformation("File uploaded successfully to {Container}.", container);
 
             return Ok(new 
             { 
-                url = blobUrl, 
+                fileId  = fileId, 
                 fileName = uniqueFileName,
                 container = container
             });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error uploading file to {Container}", container);
+            _logger.LogError("Upload failed for container {Container}", container);
+            _logger.LogDebug(ex, "Upload error details");
             return StatusCode(500, new { message = "Upload failed. Please try again." });
         }
     }
@@ -61,12 +60,13 @@ public class BlobController : ControllerBase
             if (!deleted)
                 return NotFound(new { message = "File not found in blob storage." });
 
-            _logger.LogInformation("File deleted from {Container}: {FileName}", container, fileName);
+            _logger.LogInformation("File deleted successfully from {Container}.", container);
             return NoContent();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error deleting file from {Container}", container);
+            _logger.LogError("Delete failed for container {Container}", container);
+            _logger.LogDebug(ex, "Delete error details");
             return StatusCode(500, new { message = "Delete failed. Please try again." });
         }
     }
