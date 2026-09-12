@@ -147,6 +147,7 @@ namespace FlexiFit.Api.Controllers
             var updated = 0; var skipped = 0; var notFound = 0;
             var invalidName = 0; var totalScanned = 0;
             var samples = new List<object>();
+            var invalidFiles = new List<string>(); 
             var limit = 100; var offset = 0;
             var stop = false;
 
@@ -169,6 +170,7 @@ namespace FlexiFit.Api.Controllers
                         if (!match.Success)
                         {
                             invalidName++;
+                            invalidFiles.Add(file.Name);
                         }
                         else
                         {
@@ -223,6 +225,7 @@ namespace FlexiFit.Api.Controllers
                     skipped,
                     notFound,
                     invalidName,
+                    invalidFiles,
                     sampleChanges = samples
                 });
             }
