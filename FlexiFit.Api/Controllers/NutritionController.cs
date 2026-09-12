@@ -670,16 +670,58 @@ public class NutritionController : ControllerBase
     /// </summary>
     [Authorize(Roles = "ADMIN")]
     [HttpGet("admin/foods")]
-    public async Task<ActionResult<IEnumerable<NtrFoodItem>>> AdminGetAllFoods()
+    public async Task<ActionResult<object>> AdminGetAllFoods(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10,
+        [FromQuery] string? search = null)
     {
         try
         {
-            _logger.LogInformation("📡 ADMIN: Fetching all foods");
-            var foods = await _db.NtrFoodItems
+            // ✅ Validate inputs
+            if (page < 1) page = 1;
+            if (pageSize < 1) pageSize = 10;
+            if (pageSize > 100) pageSize = 100; // Max limit para iwas abuse
+
+            _logger.LogInformation("📡 ADMIN: Fetching foods — Page {Page}, Size {PageSize}, Search: {Search}", page, pageSize, search);
+            
+            // ✅ Base query
+            var query = _db.NtrFoodItems.AsNoTracking().AsQueryable();
+
+            // ✅ Optional search filter
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var lowerSearch = search.ToLower();
+                query = query.Where(f =>
+                    f.FoodName.ToLower().Contains(lowerSearch) ||
+                    f.MealType!.ToLower().Contains(lowerSearch) ||
+                    f.DietaryType!.ToLower().Contains(lowerSearch) ||
+                    f.Category!.ToLower().Contains(lowerSearch));
+            }
+
+            // ✅ Get total count BEFORE pagination
+            var totalCount = await query.CountAsync();
+
+            // ✅ Apply pagination + sorting
+            var foods = await query
                 .OrderBy(f => f.FoodName)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
                 .ToListAsync();
-            _logger.LogInformation("✅ ADMIN: Retrieved {Count} foods", foods.Count);
-            return Ok(foods);
+
+            var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
+
+            _logger.LogInformation("✅ ADMIN: Retrieved {Count} foods (Page {Page}/{TotalPages}, Total: {Total})",
+            foods.Count, page, totalPages, totalCount);
+
+            // ✅ Return paginated response
+            return Ok(new
+            {
+                data = foods,
+                total = totalCount,
+                page = page,
+                pageSize = pageSize,
+                totalPages = totalPages
+            });
         }
         catch (Exception ex)
         {
