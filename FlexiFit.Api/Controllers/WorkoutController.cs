@@ -702,18 +702,57 @@ public class WorkoutController : ControllerBase
     /// </summary>
     [Authorize(Roles = "ADMIN")]  // 🔐 ADMIN only
     [HttpGet("admin/all")]
-    public async Task<ActionResult<IEnumerable<WrkWorkout>>> AdminGetAllWorkouts()
+    public async Task<ActionResult<object>> AdminGetAllWorkouts(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10,
+        [FromQuery] string? search = null)
     {
         try
         {
-            _logger.LogInformation("📡 ADMIN: Fetching all workouts");
+            // ✅ Validate inputs
+            if (page < 1) page = 1;
+            if (pageSize < 1) pageSize = 10;
+            if (pageSize > 100) pageSize = 100; // Max limit para iwas abuse
 
-            var workouts = await _context.WrkWorkouts
-                .OrderBy(w => w.WorkoutName)
+            _logger.LogInformation("📡 ADMIN: Fetching workouts — Page {Page}, Size {PageSize}",page, pageSize);
+
+            // ✅ Base query
+            var query = _context.WrkWorkouts.AsNoTracking().AsQueryable();
+
+            // ✅ Optional search filter
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var lowerSearch = search.ToLower();
+                query = query.Where(w =>
+                    w.WorkoutName.ToLower().Contains(lowerSearch) ||
+                    w.MuscleGroup!.ToLower().Contains(lowerSearch) ||
+                    w.Equipment!.ToLower().Contains(lowerSearch));
+            }
+
+            // ✅ Get total count BEFORE pagination
+            var totalCount = await query.CountAsync();
+
+            // ✅ Apply pagination
+            var workouts = await query
+                .OrderBy(w => w.WorkoutId)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
                 .ToListAsync();
 
-            _logger.LogInformation("✅ ADMIN: Retrieved {Count} workouts", workouts.Count);
-            return Ok(workouts);
+            var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
+
+             _logger.LogInformation("✅ ADMIN: Retrieved {Count} workouts (Page {Page}/{TotalPages}, Total: {Total})",
+            workouts.Count, page, totalPages, totalCount);
+
+            // ✅ Return paginated response
+            return Ok(new
+            {
+                data = workouts,
+                total = totalCount,
+                page = page,
+                pageSize = pageSize,
+                totalPages = totalPages
+            });
         }
         catch (Exception ex)
         {
