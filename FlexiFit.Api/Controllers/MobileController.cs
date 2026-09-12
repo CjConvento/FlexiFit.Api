@@ -945,58 +945,200 @@ namespace FlexiFit.Api.Controllers
             var currentUserId = GetUserId();
             if (currentUserId != userId) return Forbid();
 
-            // ✅ Gamitin ang execution strategy para suportahan ang retry
             var strategy = _context.Database.CreateExecutionStrategy();
 
-            return await strategy.ExecuteAsync(async () =>
+            return await strategy.ExecuteAsync<IActionResult>(async () =>
             {
                 using var tx = await _context.Database.BeginTransactionAsync();
                 try
                 {
-                    // --- 1. WORKOUTS ---
-                    var sessions = _context.UsrUserWorkoutSessions.Where(x => x.UserId == userId);
-                    var sessionIds = await sessions.Select(s => s.SessionId).ToListAsync();
+                    // ============================================================
+                    // STEP 1: WORKOUT SESSION WORKOUTS (deepest child)
+                    // ============================================================
+                    var workoutSessionIds = await _context.UsrUserWorkoutSessions
+                        .Where(x => x.UserId == userId)
+                        .Select(x => x.SessionId)
+                        .ToListAsync();
 
-                    await _context.UsrUserSessionWorkouts.Where(x => sessionIds.Contains(x.SessionId)).ExecuteDeleteAsync();
-                    await _context.UsrUserSessionInstances.Where(x => sessionIds.Contains(x.SessionId)).ExecuteDeleteAsync();
-                    await _context.UsrUserWorkoutProgresses.Where(x => x.UserId == userId).ExecuteDeleteAsync();
-                    await _context.UsrUserWorkoutSessions.Where(x => x.UserId == userId).ExecuteDeleteAsync();
+                    if (workoutSessionIds.Any())
+                    {
+                        await _context.UsrUserSessionWorkouts
+                            .Where(x => workoutSessionIds.Contains(x.SessionId))
+                            .ExecuteDeleteAsync();
+                    }
 
-                    // --- 1.5 WORKOUT CALENDARS ---
-                    await _context.WktWorkoutCalendars.Where(x => x.UserId == userId).ExecuteDeleteAsync();
+                    // ============================================================
+                    // STEP 2: PROGRAM INSTANCE CHILDREN
+                    // ============================================================
+                    var programInstanceIds = await _context.UsrUserProgramInstances
+                        .Where(x => x.UserId == userId)
+                        .Select(x => x.InstanceId)
+                        .ToListAsync();
 
-                    await _context.UsrUserProgramInstances.Where(x => x.UserId == userId).ExecuteDeleteAsync();
+                    if (programInstanceIds.Any())
+                    {
+                        // 2a. SessionInstances (FK = InstanceId)
+                        await _context.UsrUserSessionInstances
+                            .Where(x => programInstanceIds.Contains(x.InstanceId))
+                            .ExecuteDeleteAsync();
 
-                    // --- 2. NUTRITION ---
-                    await _context.NtrDailyMealItemLogs.Where(x => x.DailyLog.UserId == userId).ExecuteDeleteAsync();
-                    await _context.NtrDailyMealLogs.Where(x => x.DailyLog.UserId == userId).ExecuteDeleteAsync();
-                    await _context.NtrDailyLogs.Where(x => x.UserId == userId).ExecuteDeleteAsync();
-                    await _context.NtrWaterLogs.Where(x => x.UserId == userId).ExecuteDeleteAsync();
+                        // 2b. DailyProgressLogs (FK = InstanceId)
+                        await _context.DailyProgressLogs
+                            .Where(x => programInstanceIds.Contains(x.InstanceId))
+                            .ExecuteDeleteAsync();
+                    }
 
-                    var cycles = _context.NtrUserCycleTargets.Where(x => x.UserId == userId);
-                    _context.NtrUserCycleTargets.RemoveRange(cycles);
+                    // ============================================================
+                    // STEP 3: WORKOUT SESSIONS & PROGRESS
+                    // ============================================================
+                    await _context.UsrUserWorkoutSessions
+                        .Where(x => x.UserId == userId)
+                        .ExecuteDeleteAsync();
 
-                    await _context.NtrUserNutritionProfiles.Where(x => x.UserId == userId).ExecuteDeleteAsync();
-                    await _context.NtrUserAllergies.Where(x => x.UserId == userId).ExecuteDeleteAsync();
+                    await _context.UsrUserWorkoutProgresses
+                        .Where(x => x.UserId == userId)
+                        .ExecuteDeleteAsync();
 
-                    // --- 3. ACTIVITY SUMMARY ---
-                    await _context.ActActivitySummaries.Where(x => x.UserId == userId).ExecuteDeleteAsync();
+                    // ============================================================
+                    // STEP 4: WORKOUT CALENDARS
+                    // ============================================================
+                    await _context.WktWorkoutCalendars
+                        .Where(x => x.UserId == userId)
+                        .ExecuteDeleteAsync();
 
-                    // --- 4. PROFILE & METRICS ---
-                    await _context.UsrUserMetrics.Where(x => x.UserId == userId).ExecuteDeleteAsync();
-                    await _context.UsrUserOnboardingDetails.Where(x => x.UserId == userId).ExecuteDeleteAsync();
-                    await _context.UsrUserProfileVersions.Where(x => x.UserId == userId).ExecuteDeleteAsync();
-                    await _context.UsrUserProfiles.Where(x => x.UserId == userId).ExecuteDeleteAsync();
+                    // ============================================================
+                    // STEP 5: PROGRAM INSTANCES (safe na ngayon)
+                    // ============================================================
+                    await _context.UsrUserProgramInstances
+                        .Where(x => x.UserId == userId)
+                        .ExecuteDeleteAsync();
 
-                    // --- 5. NOTIFICATION SETTINGS ---
-                    await _context.UsrUserNotificationSettings.Where(x => x.UserId == userId).ExecuteDeleteAsync();
+                    // ============================================================
+                    // STEP 6: NUTRITION — MEAL ITEM/MEAL LOGS (deepest)
+                    // ============================================================
+                    var dailyLogIds = await _context.NtrDailyLogs
+                        .Where(x => x.UserId == userId)
+                        .Select(x => x.DailyLogId)
+                        .ToListAsync();
 
-                    await _context.SaveChangesAsync();
+                    if (dailyLogIds.Any())
+                    {
+                        await _context.NtrDailyMealItemLogs
+                            .Where(x => dailyLogIds.Contains(x.DailyLogId))
+                            .ExecuteDeleteAsync();
 
-                    // --- 6. RESET USER STATUS ---
+                        await _context.NtrDailyMealLogs
+                            .Where(x => dailyLogIds.Contains(x.DailyLogId))
+                            .ExecuteDeleteAsync();
+                    }
+
+                    // ============================================================
+                    // STEP 7: NUTRITION — DAILY LOGS
+                    // ============================================================
+                    await _context.NtrDailyLogs
+                        .Where(x => x.UserId == userId)
+                        .ExecuteDeleteAsync();
+
+                    // ============================================================
+                    // STEP 8: NUTRITION — CYCLE TARGETS & MEAL PLAN CALENDARS
+                    // ============================================================
+                    var cycleIds = await _context.NtrUserCycleTargets
+                        .Where(x => x.UserId == userId)
+                        .Select(x => x.CycleId)
+                        .ToListAsync();
+
+                    if (cycleIds.Any())
+                    {
+                        await _context.NtrMealPlanCalendars
+                            .Where(x => cycleIds.Contains(x.CycleId))
+                            .ExecuteDeleteAsync();
+                    }
+
+                    await _context.NtrUserCycleTargets
+                        .Where(x => x.UserId == userId)
+                        .ExecuteDeleteAsync();
+
+                    // ============================================================
+                    // STEP 9: NUTRITION — OTHER
+                    // ============================================================
+                    await _context.NtrWaterLogs
+                        .Where(x => x.UserId == userId)
+                        .ExecuteDeleteAsync();
+
+                    await _context.NtrUserNutritionProfiles
+                        .Where(x => x.UserId == userId)
+                        .ExecuteDeleteAsync();
+
+                    await _context.NtrUserAllergies
+                        .Where(x => x.UserId == userId)
+                        .ExecuteDeleteAsync();
+
+                    // ============================================================
+                    // STEP 10: ACTIVITY
+                    // ============================================================
+                    await _context.ActActivitySummaries
+                        .Where(x => x.UserId == userId)
+                        .ExecuteDeleteAsync();
+
+                    // ============================================================
+                    // STEP 11: USER GENERAL ACHIEVEMENTS (FK → UsrUserProfile.UserId)
+                    // ============================================================
+                    await _context.UsrUserGeneralAchievements
+                        .Where(x => x.UserId == userId)
+                        .ExecuteDeleteAsync();
+
+                    // ============================================================
+                    // STEP 12: PROGRAM ACHIEVEMENTS (child of ProfileVersion)
+                    // ============================================================
+                    await _context.UsrUserProgramAchievements
+                        .Where(x => x.UserId == userId)
+                        .ExecuteDeleteAsync();
+
+                    // ============================================================
+                    // STEP 13: PROFILE & PROFILE VERSION
+                    // ============================================================
+                    await _context.UsrUserProfiles
+                        .Where(x => x.UserId == userId)
+                        .ExecuteDeleteAsync();
+
+                    await _context.UsrUserProfileVersions
+                        .Where(x => x.UserId == userId)
+                        .ExecuteDeleteAsync();
+
+                    // ============================================================
+                    // STEP 14: METRICS, ONBOARDING, NOTIFICATION SETTINGS
+                    // ============================================================
+                    await _context.UsrUserMetrics
+                        .Where(x => x.UserId == userId)
+                        .ExecuteDeleteAsync();
+
+                    await _context.UsrUserOnboardingDetails
+                        .Where(x => x.UserId == userId)
+                        .ExecuteDeleteAsync();
+
+                    await _context.UsrUserNotificationSettings
+                        .Where(x => x.UserId == userId)
+                        .ExecuteDeleteAsync();
+
+                    // ============================================================
+                    // STEP 15: DEVICE TOKENS & NOTIFICATION HISTORY
+                    // ============================================================
+                    await _context.UsrDeviceTokens
+                        .Where(x => x.UserId == userId)
+                        .ExecuteDeleteAsync();
+
+                    await _context.UsrNotificationHistories
+                        .Where(x => x.UserId == userId)
+                        .ExecuteDeleteAsync();
+
+                    // ============================================================
+                    // STEP 16: RESET USER STATUS
+                    // ============================================================
                     _context.ChangeTracker.Clear();
 
-                    var userToReset = await _context.UsrUsers.FirstOrDefaultAsync(u => u.UserId == userId);
+                    var userToReset = await _context.UsrUsers
+                        .FirstOrDefaultAsync(u => u.UserId == userId);
+
                     if (userToReset != null)
                     {
                         userToReset.Status = "PENDING_ONBOARDING";
@@ -1007,7 +1149,7 @@ namespace FlexiFit.Api.Controllers
                     await _context.SaveChangesAsync();
                     await tx.CommitAsync();
 
-                    return Ok(new { message = "Complete user data reset successfully." }) as IActionResult;
+                    return Ok(new { message = "Complete user data reset successfully." });
                 }
                 catch (Exception ex)
                 {
@@ -1017,7 +1159,7 @@ namespace FlexiFit.Api.Controllers
                         message = "Error during reset. Rollback completed.",
                         error = ex.Message,
                         inner = ex.InnerException?.Message
-                    }) as IActionResult;
+                    });
                 }
             });
         }
