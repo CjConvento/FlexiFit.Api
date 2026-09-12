@@ -119,7 +119,7 @@ namespace FlexiFit.Api.Controllers
                     UserName = !string.IsNullOrWhiteSpace(profile?.Username) ? profile.Username : (user?.Username ?? "user"),
                     UserAvatar = (profile != null && !string.IsNullOrWhiteSpace(profile.AvatarUrl))
                         ? (profile.AvatarUrl.StartsWith("http") ? profile.AvatarUrl : $"{baseUrl}/{profile.AvatarUrl.TrimStart('/')}")
-                        : $"{baseUrl}/uploads/avatars/default.jpg",
+                        : $"{baseUrl}/uploads/avatars/default.png",
                     FitnessLevel = activeProgram?.FitnessLevelAtStart ?? (latestVersion?.FitnessLevelSelected ?? "Beginner"),
                     Goal = latestVersion?.GoalSelected ?? "LOSE"
                 };
@@ -397,7 +397,7 @@ namespace FlexiFit.Api.Controllers
                 // Siguradong may default avatar link kung wala pang upload
                 if (string.IsNullOrWhiteSpace(profile.AvatarUrl))
                 {
-                    profile.AvatarUrl = "uploads/avatars/default.jpg";
+                    profile.AvatarUrl = "uploads/avatars/default.png";
                 }
 
                 // D. BIRTHDATE LOGIC
