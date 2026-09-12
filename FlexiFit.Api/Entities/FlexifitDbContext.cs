@@ -640,6 +640,11 @@ public partial class FlexiFitDbContext : DbContext
                 .HasColumnType("decimal(10, 2)")
                 .HasColumnName("weight_kg");
 
+            // ✅ IDAGDAG ITO — para sa IsProfileComplete
+            entity.Property(e => e.IsProfileComplete)
+                .HasDefaultValue(false)
+                .HasColumnName("is_profile_complete");
+
             entity.HasOne(d => d.User).WithOne(p => p.NtrUserNutritionProfile)
                 .HasForeignKey<NtrUserNutritionProfile>(d => d.UserId)
                 .HasConstraintName("FK_ntr_profile_user");
