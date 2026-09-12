@@ -316,6 +316,24 @@ public class NutritionController : ControllerBase
             if (food == null)
                 return NotFound(new { message = "Food not found" });
 
+            var baseUrl = $"{Request.Scheme}://{Request.Host}";
+
+            // ✅ Resolve image URL: Appwrite full URL passthrough, else placeholder
+            string imgUrl;
+            if (string.IsNullOrEmpty(food.ImgFilename))
+            {
+                imgUrl = $"{baseUrl}/images/foods/default.png";
+            }
+            else if (food.ImgFilename.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            {
+                imgUrl = food.ImgFilename;
+            }
+            else
+            {
+                // Legacy bare filename → fallback to placeholder
+                imgUrl = $"{baseUrl}/images/foods/default.png";
+            }
+
             return Ok(new FoodDetailsResponse
             {
                 FoodId = food.FoodId,
@@ -326,7 +344,7 @@ public class NutritionController : ControllerBase
                 CarbsG = (double)food.CarbsG,
                 FatsG = (double)food.FatsG,
                 ServingUnit = food.ServingUnit,
-                ImgFilename = food.ImgFilename
+                ImgFilename = imgUrl
             });
         }
         catch (Exception ex)
@@ -1227,16 +1245,12 @@ public class NutritionController : ControllerBase
         if (string.IsNullOrEmpty(fileName))
             return $"{baseUrl}/images/foods/default.png";
 
-        string typeFolder = mealType.ToUpper() switch
-        {
-            "B" => "breakfast",
-            "L" => "lunch",
-            "S" => "snacks",
-            "D" => "dinner",
-            _ => "general"
-        };
+        // ✅ If DB has full URL (Appwrite), pass through
+        if (fileName.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            return fileName;
 
-        return $"{baseUrl}/images/foods/{typeFolder}/{fileName}";
+        // Legacy bare filename → fallback to placeholder
+        return $"{baseUrl}/images/foods/default.png";
     }
 
     private string GetVariationCode(int weekNo)

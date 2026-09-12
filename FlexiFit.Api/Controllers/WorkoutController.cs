@@ -1342,8 +1342,16 @@ public class WorkoutController : ControllerBase
         }
         else if (!string.IsNullOrEmpty(sw.Workout.ImgFilename))
         {
-            // Use specific image if available
-            imageUrl = $"{baseUrl}/images/workouts/{GetCategoryFolder(sw.Workout.Category)}/{sw.Workout.ImgFilename}";
+            // ✅ If DB has full URL (Appwrite), pass through
+            if (sw.Workout.ImgFilename.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            {
+                imageUrl = sw.Workout.ImgFilename;
+            }
+            else
+            {
+                // Legacy bare filename → fallback to placeholder
+                imageUrl = $"{baseUrl}/images/workouts/default.png";
+            }
         }
         else
         {

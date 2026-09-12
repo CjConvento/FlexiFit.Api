@@ -324,16 +324,12 @@ namespace FlexiFit.Api.Controllers
             if (string.IsNullOrEmpty(fileName))
                 return $"{baseUrl}/images/workouts/default.png";
 
-            string folder = category?.ToLower() switch
-            {
-                "muscle_gain" => "muscle_gain",
-                "cardio" => "cardio",
-                "rehab" => "rehab",
-                "warmup" => "warmup",          // if you have warmup folder
-                _ => "muscle_gain"             // fallback – adjust as needed
-            };
+            // ✅ If DB has full URL (Appwrite), pass through
+            if (fileName.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                return fileName;
 
-            return $"{baseUrl}/images/workouts/{folder}/{fileName}";
+            // Legacy bare filename → fallback to placeholder
+            return $"{baseUrl}/images/workouts/default.png";
         }
 
         private static string GetCategoryFolder(string? category)
@@ -1038,8 +1034,13 @@ namespace FlexiFit.Api.Controllers
         private string BuildFoodImageUrl(string baseUrl, string category, string mealType, string? fileName)
         {
             if (string.IsNullOrEmpty(fileName)) return $"{baseUrl}/images/foods/default.png";
-            string typeFolder = mealType.ToUpper() switch { "B" => "breakfast", "L" => "lunch", "S" => "snacks", "D" => "dinner", _ => "general" };
-            return $"{baseUrl}/images/foods/{typeFolder}/{fileName}";
+            
+            // ✅ If DB has full URL (Appwrite), pass through
+            if (fileName.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                return fileName;
+
+            // Legacy bare filename → fallback to placeholder
+            return $"{baseUrl}/images/foods/default.png";
         }
 
         private static string MapNutritionGoal(string bodyGoal)
