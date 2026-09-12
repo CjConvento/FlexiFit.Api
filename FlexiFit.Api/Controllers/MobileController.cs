@@ -945,83 +945,82 @@ namespace FlexiFit.Api.Controllers
             var currentUserId = GetUserId();
             if (currentUserId != userId) return Forbid();
 
-            using var tx = await _context.Database.BeginTransactionAsync();
-            try
+            // ✅ Gamitin ang execution strategy para suportahan ang retry
+            var strategy = _context.Database.CreateExecutionStrategy();
+
+            return await strategy.ExecuteAsync(async () =>
             {
-                // --- 1. WORKOUTS ---
-                var sessions = _context.UsrUserWorkoutSessions.Where(x => x.UserId == userId);
-                var sessionIds = await sessions.Select(s => s.SessionId).ToListAsync();
-
-                await _context.UsrUserSessionWorkouts.Where(x => sessionIds.Contains(x.SessionId)).ExecuteDeleteAsync();
-                await _context.UsrUserSessionInstances.Where(x => sessionIds.Contains(x.SessionId)).ExecuteDeleteAsync();
-                await _context.UsrUserWorkoutProgresses.Where(x => x.UserId == userId).ExecuteDeleteAsync();
-                await _context.UsrUserWorkoutSessions.Where(x => x.UserId == userId).ExecuteDeleteAsync();
-
-                // --- 1.5 WORKOUT CALENDARS ---
-                await _context.WktWorkoutCalendars.Where(x => x.UserId == userId).ExecuteDeleteAsync();
-
-                await _context.UsrUserProgramInstances.Where(x => x.UserId == userId).ExecuteDeleteAsync();
-
-                // --- 2. NUTRITION ---
-                // Delete meal item logs, meal logs, daily logs, water logs
-                await _context.NtrDailyMealItemLogs.Where(x => x.DailyLog.UserId == userId).ExecuteDeleteAsync();
-                await _context.NtrDailyMealLogs.Where(x => x.DailyLog.UserId == userId).ExecuteDeleteAsync();
-                await _context.NtrDailyLogs.Where(x => x.UserId == userId).ExecuteDeleteAsync();
-                await _context.NtrWaterLogs.Where(x => x.UserId == userId).ExecuteDeleteAsync();
-
-                // Delete cycle targets (cascade will delete meal plan calendars)
-                var cycles = _context.NtrUserCycleTargets.Where(x => x.UserId == userId);
-                _context.NtrUserCycleTargets.RemoveRange(cycles);
-
-                // Delete nutrition profile (dietary preferences)
-                await _context.NtrUserNutritionProfiles.Where(x => x.UserId == userId).ExecuteDeleteAsync();
-
-                // ✅ ITO ANG NAWALANG LINYA – DELETE USER ALLERGIES
-                await _context.NtrUserAllergies.Where(x => x.UserId == userId).ExecuteDeleteAsync();
-
-                // --- 3. ACTIVITY SUMMARY (calories burned, minutes) ---
-                await _context.ActActivitySummaries.Where(x => x.UserId == userId).ExecuteDeleteAsync();
-
-                // --- 4. PROFILE & METRICS ---
-                await _context.UsrUserMetrics.Where(x => x.UserId == userId).ExecuteDeleteAsync();
-                await _context.UsrUserOnboardingDetails.Where(x => x.UserId == userId).ExecuteDeleteAsync();
-                await _context.UsrUserProfileVersions.Where(x => x.UserId == userId).ExecuteDeleteAsync();
-                await _context.UsrUserProfiles.Where(x => x.UserId == userId).ExecuteDeleteAsync();
-
-                // --- 5. NOTIFICATION SETTINGS ---
-                await _context.UsrUserNotificationSettings.Where(x => x.UserId == userId).ExecuteDeleteAsync();
-
-                // Save tracked deletions (e.g., cycles)
-                await _context.SaveChangesAsync();
-
-                // --- 6. RESET USER STATUS ---
-                _context.ChangeTracker.Clear();
-
-                var userToReset = await _context.UsrUsers.FirstOrDefaultAsync(u => u.UserId == userId);
-                if (userToReset != null)
+                using var tx = await _context.Database.BeginTransactionAsync();
+                try
                 {
-                    userToReset.Status = "PENDING_ONBOARDING";
-                    userToReset.UpdatedAt = DateTime.UtcNow;
-                    _context.UsrUsers.Update(userToReset);
+                    // --- 1. WORKOUTS ---
+                    var sessions = _context.UsrUserWorkoutSessions.Where(x => x.UserId == userId);
+                    var sessionIds = await sessions.Select(s => s.SessionId).ToListAsync();
+
+                    await _context.UsrUserSessionWorkouts.Where(x => sessionIds.Contains(x.SessionId)).ExecuteDeleteAsync();
+                    await _context.UsrUserSessionInstances.Where(x => sessionIds.Contains(x.SessionId)).ExecuteDeleteAsync();
+                    await _context.UsrUserWorkoutProgresses.Where(x => x.UserId == userId).ExecuteDeleteAsync();
+                    await _context.UsrUserWorkoutSessions.Where(x => x.UserId == userId).ExecuteDeleteAsync();
+
+                    // --- 1.5 WORKOUT CALENDARS ---
+                    await _context.WktWorkoutCalendars.Where(x => x.UserId == userId).ExecuteDeleteAsync();
+
+                    await _context.UsrUserProgramInstances.Where(x => x.UserId == userId).ExecuteDeleteAsync();
+
+                    // --- 2. NUTRITION ---
+                    await _context.NtrDailyMealItemLogs.Where(x => x.DailyLog.UserId == userId).ExecuteDeleteAsync();
+                    await _context.NtrDailyMealLogs.Where(x => x.DailyLog.UserId == userId).ExecuteDeleteAsync();
+                    await _context.NtrDailyLogs.Where(x => x.UserId == userId).ExecuteDeleteAsync();
+                    await _context.NtrWaterLogs.Where(x => x.UserId == userId).ExecuteDeleteAsync();
+
+                    var cycles = _context.NtrUserCycleTargets.Where(x => x.UserId == userId);
+                    _context.NtrUserCycleTargets.RemoveRange(cycles);
+
+                    await _context.NtrUserNutritionProfiles.Where(x => x.UserId == userId).ExecuteDeleteAsync();
+                    await _context.NtrUserAllergies.Where(x => x.UserId == userId).ExecuteDeleteAsync();
+
+                    // --- 3. ACTIVITY SUMMARY ---
+                    await _context.ActActivitySummaries.Where(x => x.UserId == userId).ExecuteDeleteAsync();
+
+                    // --- 4. PROFILE & METRICS ---
+                    await _context.UsrUserMetrics.Where(x => x.UserId == userId).ExecuteDeleteAsync();
+                    await _context.UsrUserOnboardingDetails.Where(x => x.UserId == userId).ExecuteDeleteAsync();
+                    await _context.UsrUserProfileVersions.Where(x => x.UserId == userId).ExecuteDeleteAsync();
+                    await _context.UsrUserProfiles.Where(x => x.UserId == userId).ExecuteDeleteAsync();
+
+                    // --- 5. NOTIFICATION SETTINGS ---
+                    await _context.UsrUserNotificationSettings.Where(x => x.UserId == userId).ExecuteDeleteAsync();
+
+                    await _context.SaveChangesAsync();
+
+                    // --- 6. RESET USER STATUS ---
+                    _context.ChangeTracker.Clear();
+
+                    var userToReset = await _context.UsrUsers.FirstOrDefaultAsync(u => u.UserId == userId);
+                    if (userToReset != null)
+                    {
+                        userToReset.Status = "PENDING_ONBOARDING";
+                        userToReset.UpdatedAt = DateTime.UtcNow;
+                        _context.UsrUsers.Update(userToReset);
+                    }
+
+                    await _context.SaveChangesAsync();
+                    await tx.CommitAsync();
+
+                    return Ok(new { message = "Complete user data reset successfully." }) as IActionResult;
                 }
-
-                await _context.SaveChangesAsync();
-                await tx.CommitAsync();
-
-                return Ok(new { message = "Complete user data reset successfully." });
-            }
-            catch (Exception ex)
-            {
-                await tx.RollbackAsync();
-                return StatusCode(500, new
+                catch (Exception ex)
                 {
-                    message = "Error during reset. Rollback completed.",
-                    error = ex.Message,
-                    inner = ex.InnerException?.Message
-                });
-            }
+                    await tx.RollbackAsync();
+                    return StatusCode(500, new
+                    {
+                        message = "Error during reset. Rollback completed.",
+                        error = ex.Message,
+                        inner = ex.InnerException?.Message
+                    }) as IActionResult;
+                }
+            });
         }
-
 
         #region Helpers
         private int? GetUserId()
