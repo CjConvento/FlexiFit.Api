@@ -58,7 +58,8 @@ namespace FlexiFit.Api.Controllers
             var activeSession = await _context.UsrUserWorkoutSessions
                 .Where(s => s.UserId == userId && s.Status == "PENDING")
                 .OrderByDescending(s => s.CreatedAt)
-                .Select(s => new {
+                .Select(s => new
+                {
                     s.SessionId,
                     s.WorkoutDay,
                     s.Status,
@@ -354,588 +355,595 @@ namespace FlexiFit.Api.Controllers
 
         [Authorize]
         [HttpPost("onboarding/profile")]
-        public async Task<IActionResult> SubmitOnboardingProfile([FromBody] OnboardingProfileRequest request)   
+        public async Task<IActionResult> SubmitOnboardingProfile([FromBody] OnboardingProfileRequest request)
         {
             var userId = GetUserId();
             if (userId == null) return Unauthorized();
 
-            using var tx = await _context.Database.BeginTransactionAsync();
-            try
+            var strategy = _context.Database.CreateExecutionStrategy();
+
+            return await strategy.ExecuteAsync<IActionResult>(async () =>
             {
 
-                // --- 1. BASE PROFILE & USER SYNC (SMART FALLBACK) ---
-                var user = await _context.UsrUsers.FindAsync(userId.Value);
-                var profile = await _context.UsrUserProfiles.FirstOrDefaultAsync(p => p.UserId == userId.Value)
-                              ?? new UsrUserProfile { UserId = userId.Value, CreatedAt = DateTime.UtcNow };
-
-                if (user != null)
+                using var tx = await _context.Database.BeginTransactionAsync();
+                try
                 {
-                    // A. UPDATE MAIN USER TABLE (KUNG MAY LAMAN ANG REQUEST)
-                    // Kung empty string ("") ang pinasa ng mobile, HINDI natin o-overwrite si "cj" sa SQL.
-                    if (!string.IsNullOrWhiteSpace(request.Name))
+
+                    // --- 1. BASE PROFILE & USER SYNC (SMART FALLBACK) ---
+                    var user = await _context.UsrUsers.FindAsync(userId.Value);
+                    var profile = await _context.UsrUserProfiles.FirstOrDefaultAsync(p => p.UserId == userId.Value)
+                                ?? new UsrUserProfile { UserId = userId.Value, CreatedAt = DateTime.UtcNow };
+
+                    if (user != null)
                     {
-                        user.Name = request.Name;
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(request.Username))
-                    {
-                        user.Username = request.Username;
-                    }
-
-                    user.Status = "ACTIVE";
-                    _context.Entry(user).State = EntityState.Modified;
-
-                    // B. UPDATE PROFILE TABLE (PARA SA DASHBOARD DISPLAY)
-                    // DITO ANG MAGIC: Kung walang input sa onboarding, hiramin si "cj" at "cy" sa User table.
-                    profile.Name = !string.IsNullOrWhiteSpace(request.Name) ? request.Name : user.Name;
-                    profile.Username = !string.IsNullOrWhiteSpace(request.Username) ? request.Username : user.Username;
-                }
-
-                // C. GENDER & AVATAR
-                profile.Gender = request.Gender;
-
-                // Siguradong may default avatar link kung wala pang upload
-                if (string.IsNullOrWhiteSpace(profile.AvatarUrl))
-                {
-                    profile.AvatarUrl = "uploads/avatars/default.png";
-                }
-
-                // D. BIRTHDATE LOGIC
-                if (request.Age > 0)
-                {
-                    profile.BirthDate = DateOnly.FromDateTime(DateTime.UtcNow.AddYears(-request.Age));
-                }
-
-                profile.UpdatedAt = DateTime.UtcNow;
-
-                // I-save ang profile kung bago (Detached)
-                if (_context.Entry(profile).State == EntityState.Detached)
-                    _context.UsrUserProfiles.Add(profile);
-
-                // --- DITO NA PAPASOK YUNG STEP 2 (PROFILE VERSION) MO BABE ---
-
-
-                // maayos na nagana
-                // 2. PROFILE VERSION
-                var oldVersions = await _context.UsrUserProfileVersions.Where(v => v.UserId == userId.Value).ToListAsync();
-                foreach (var v in oldVersions) v.IsCurrent = false;
-
-                var profileVersion = new UsrUserProfileVersion
-                {
-                    UserId = userId.Value,
-                    FitnessLevelSelected = request.FitnessLevel ?? "Beginner",
-                    GoalSelected = request.BodyGoal ?? "Strength",
-                    IsCurrent = true,
-                    CreatedAt = DateTime.UtcNow
-                };
-                _context.UsrUserProfileVersions.Add(profileVersion);
-
-                await _context.SaveChangesAsync();
-
-
-                // nagana na ng maayos
-                // 3. ONBOARDING DETAILS
-                var details = await _context.UsrUserOnboardingDetails.FirstOrDefaultAsync(d => d.UserId == userId.Value)
-                             ?? new UsrUserOnboardingDetail { UserId = userId.Value, CreatedAt = DateTime.UtcNow };
-
-                details.ActivityLevel = request.ActivityLevel;
-                details.FitnessLevel = request.FitnessLevel;
-                details.BodyGoal = request.BodyGoal;
-                details.DietType = request.DietType;
-                details.UpperBodyInjury = request.UpperBodyInjury;
-                details.LowerBodyInjury = request.LowerBodyInjury;
-                details.JointProblems = request.JointProblems;
-                details.ShortBreath = request.ShortBreath;
-                details.HealthNone = request.HealthNone;
-                details.Environment = request.Environment != null ? string.Join(", ", request.Environment) : "GYM";
-                details.FitnessGoals = request.FitnessGoals != null ? string.Join(", ", request.FitnessGoals) : "";
-                details.UpdatedAt = DateTime.UtcNow;
-
-                if (request.SelectedPrograms != null)
-                {
-                    details.SelectedPrograms = string.Join(", ", request.SelectedPrograms.Select(p => p.Name));
-                }
-
-                if (_context.Entry(details).State == EntityState.Detached) _context.UsrUserOnboardingDetails.Add(details);
-
-                // --- 3.5 ALLERGIES (NEW) ---
-                // Remove existing user allergies
-                var existingAllergies = _context.NtrUserAllergies.Where(ua => ua.UserId == userId.Value);
-                _context.NtrUserAllergies.RemoveRange(existingAllergies);
-
-                // Add new allergies from request
-                if (request.Allergies != null && request.Allergies.Any())
-                {
-                    foreach (var allergyName in request.Allergies)
-                    {
-                        var allergy = await _context.NtrAllergies.FirstOrDefaultAsync(a => a.AllergyName == allergyName);
-                        if (allergy == null)
+                        // A. UPDATE MAIN USER TABLE (KUNG MAY LAMAN ANG REQUEST)
+                        // Kung empty string ("") ang pinasa ng mobile, HINDI natin o-overwrite si "cj" sa SQL.
+                        if (!string.IsNullOrWhiteSpace(request.Name))
                         {
-                            allergy = new NtrAllergies { AllergyName = allergyName };
-                            _context.NtrAllergies.Add(allergy);
+                            user.Name = request.Name;
                         }
-                        _context.NtrUserAllergies.Add(new NtrUserAllergies { UserId = userId.Value, AllergyId = allergy.AllergyId });
+
+                        if (!string.IsNullOrWhiteSpace(request.Username))
+                        {
+                            user.Username = request.Username;
+                        }
+
+                        user.Status = "ACTIVE";
+                        _context.Entry(user).State = EntityState.Modified;
+
+                        // B. UPDATE PROFILE TABLE (PARA SA DASHBOARD DISPLAY)
+                        // DITO ANG MAGIC: Kung walang input sa onboarding, hiramin si "cj" at "cy" sa User table.
+                        profile.Name = !string.IsNullOrWhiteSpace(request.Name) ? request.Name : user.Name;
+                        profile.Username = !string.IsNullOrWhiteSpace(request.Username) ? request.Username : user.Username;
                     }
-                    await _context.SaveChangesAsync();
-                }
 
-                // --- 4. NUTRITION ENGINE (SEEDING INITIAL MEALS) ---
-                double w = (double)request.WeightKg;
-                double h = (double)request.HeightCm;
-                int age = request.Age > 0 ? request.Age : 25;
+                    // C. GENDER & AVATAR
+                    profile.Gender = request.Gender;
 
-                // BMR Calculation
-                double bmr = (request.Gender?.ToUpper() == "MALE")
-                    ? (10 * w) + (6.25 * h) - (5 * age) + 5
-                    : (10 * w) + (6.25 * h) - (5 * age) - 161;
+                    // Siguradong may default avatar link kung wala pang upload
+                    if (string.IsNullOrWhiteSpace(profile.AvatarUrl))
+                    {
+                        profile.AvatarUrl = "uploads/avatars/default.png";
+                    }
 
-                // 1. DYNAMIC MULTIPLIER (All Caps para consistent)
-                string nutactLevel = (request.ActivityLevel ?? "SEDENTARY").ToUpper().Replace(" ", "").Replace("_", "");
-                double multiplier = nutactLevel switch
-                {
-                    "SEDENTARY" => 1.2,
-                    "LIGHTLYACTIVE" => 1.375,
-                    "ACTIVE" => 1.55,
-                    "VERYACTIVE" => 1.725,
-                    _ => 1.375
-                };
+                    // D. BIRTHDATE LOGIC
+                    if (request.Age > 0)
+                    {
+                        profile.BirthDate = DateOnly.FromDateTime(DateTime.UtcNow.AddYears(-request.Age));
+                    }
 
-                double tdee = bmr * multiplier;
-                double calorieTarget = tdee;
+                    profile.UpdatedAt = DateTime.UtcNow;
 
-                // 2. GOAL ADJUSTMENT
-                string goal = (request.BodyGoal ?? "").ToUpper();
-                if (goal.Contains("LOSE")) calorieTarget -= 500;
-                else if (goal.Contains("GAIN")) calorieTarget += 300;
+                    // I-save ang profile kung bago (Detached)
+                    if (_context.Entry(profile).State == EntityState.Detached)
+                        _context.UsrUserProfiles.Add(profile);
 
-                // 3. MACRO CALCULATION
-                decimal proteinTarget = (decimal)(w * 2.0);
-                decimal fatsTarget = (decimal)((calorieTarget * 0.25) / 9);
-                decimal carbsTarget = (decimal)((calorieTarget - ((double)proteinTarget * 4) - ((double)fatsTarget * 9)) / 4);
+                    // --- DITO NA PAPASOK YUNG STEP 2 (PROFILE VERSION) MO BABE ---
 
-                // A. Add Metrics
-                var metrics = new UsrUserMetric
-                {
-                    UserId = userId.Value,
-                    CurrentWeightKg = request.WeightKg,
-                    CurrentHeightCm = request.HeightCm,
-                    FitnessGoal = goal,
-                    NutritionGoal = (request.DietType ?? "BALANCED").ToUpper(),
-                    CalorieTarget = (int)calorieTarget,
-                    ProteinTargetG = (int)proteinTarget,
-                    CarbsTargetG = (int)carbsTarget,
-                    FatsTargetG = (int)fatsTarget,
-                    RecordedAt = DateTime.UtcNow
-                };
-                _context.UsrUserMetrics.Add(metrics);
 
-                // B. Add Cycle Target
-                var cycleTarget = new NtrUserCycleTarget
-                {
-                    UserId = userId.Value,
-                    DailyTargetNetCalories = (int)calorieTarget,
-                    GoalType = goal,
-                    ProteinTargetG = proteinTarget,
-                    CarbsTargetG = carbsTarget,
-                    FatsTargetG = fatsTarget,
-                    WeeksInCycle = 4,
-                    StartDate = DateOnly.FromDateTime(DateTime.UtcNow),
-                    CreatedAt = DateTime.UtcNow
-                };
-                _context.NtrUserCycleTargets.Add(cycleTarget);
-                await _context.SaveChangesAsync();
+                    // maayos na nagana
+                    // 2. PROFILE VERSION
+                    var oldVersions = await _context.UsrUserProfileVersions.Where(v => v.UserId == userId.Value).ToListAsync();
+                    foreach (var v in oldVersions) v.IsCurrent = false;
 
-                // --- ADD/UPDATE NUTRITION PROFILE ---
-                var nutProfile = await _context.NtrUserNutritionProfiles
-                    .FirstOrDefaultAsync(p => p.UserId == userId.Value);
-                if (nutProfile == null)
-                {
-                    nutProfile = new NtrUserNutritionProfile
+                    var profileVersion = new UsrUserProfileVersion
                     {
                         UserId = userId.Value,
-                        UpdatedAt = DateTime.UtcNow
-                    };
-                    _context.NtrUserNutritionProfiles.Add(nutProfile);
-                }
-
-                nutProfile.Age = request.Age;
-                nutProfile.HeightCm = (decimal)request.HeightCm;
-                nutProfile.WeightKg = (decimal)request.WeightKg;
-                nutProfile.TargetWeightKg = (decimal)request.TargetWeightKg;
-
-                // 🔁 Map activity level to allowed database values
-                string rawActivity = request.ActivityLevel?.ToUpper() ?? "SEDENTARY";
-                string mappedActivity = rawActivity switch
-                {
-                    "SEDENTARY" => "SEDENTARY",
-                    "LIGHTLY ACTIVE" => "LIGHTLY_ACTIVE",
-                    "MODERATELY ACTIVE" => "ACTIVE",
-                    "ACTIVE" => "ACTIVE",
-                    "VERY ACTIVE" => "VERY_ACTIVE",
-                    _ => "SEDENTARY"
-                };
-                nutProfile.ActivityLevel = mappedActivity;
-
-                nutProfile.DietaryType = request.DietType?.ToUpper() ?? "BALANCED";
-                nutProfile.NutritionGoal = request.BodyGoal?.ToUpper() ?? "MAINTAIN";
-                nutProfile.IsProfileComplete = true;
-                nutProfile.UpdatedAt = DateTime.UtcNow;
-
-                // --- 5. CREATE DAILY LOG (Para sa Dashboard Today) ---
-                var dailyLog = new NtrDailyLog
-                {
-                    UserId = userId.Value,
-                    CycleId = cycleTarget.CycleId,
-                    PlanDate = DateOnly.FromDateTime(DateTime.UtcNow),
-                    TargetNetCalories = (int)calorieTarget,
-                    CaloriesConsumed = 0,
-                    CaloriesBurned = 0,
-                    GoalMet = false
-                };
-                _context.NtrDailyLogs.Add(dailyLog);
-                await _context.SaveChangesAsync();
-
-                // --- 6. SEED MEAL PLAN CALENDAR ---
-                var dietTypeUpper = (request.DietType ?? "BALANCED").ToUpper();
-                var matchedTemplate = await _context.NtrMealTemplates
-                    .FirstOrDefaultAsync(t => t.DietaryType == dietTypeUpper)
-                    ?? await _context.NtrMealTemplates.OrderBy(t => t.TemplateId).FirstOrDefaultAsync();
-
-                int safeTemplateId = matchedTemplate?.TemplateId ?? 1;
-
-                // Day 1 Entry
-                var calendarEntry = new NtrMealPlanCalendar
-                {
-                    CycleId = cycleTarget.CycleId,
-                    PlanDate = DateOnly.FromDateTime(DateTime.UtcNow),
-                    WeekNo = 1,
-                    DayNo = 1,
-                    TemplateId = safeTemplateId,
-                    VariationCode = "STD",
-                    Status = "PENDING",
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                };
-                _context.NtrMealPlanCalendars.Add(calendarEntry);
-
-                // Future Days (2-28) - FIXED: Nilagyan na ng TemplateId babe para hindi mag-error
-                for (int d = 2; d <= 28; d++)
-                {
-                    var templateDayRecord = await _context.WrkProgramTemplateDays
-                        .FirstOrDefaultAsync(t => t.ProgramId == 95 && t.DayNo == ((d - 1) % 7) + 1);
-
-                    bool isWorkout = templateDayRecord != null && !templateDayRecord.DayType.Contains("REST");
-
-                    _context.NtrMealPlanCalendars.Add(new NtrMealPlanCalendar
-                    {
-                        CycleId = cycleTarget.CycleId,
-                        PlanDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(d - 1)),
-                        WeekNo = ((d - 1) / 7) + 1,
-                        DayNo = d,
-                        TemplateId = safeTemplateId, // 🔥 Importante 'to para sa Foreign Key!
-                        IsWorkoutDay = isWorkout,
-                        Status = "PENDING",
+                        FitnessLevelSelected = request.FitnessLevel ?? "Beginner",
+                        GoalSelected = request.BodyGoal ?? "Strength",
+                        IsCurrent = true,
                         CreatedAt = DateTime.UtcNow
-                    });
-                }
-                await _context.SaveChangesAsync();
+                    };
+                    _context.UsrUserProfileVersions.Add(profileVersion);
+
+                    await _context.SaveChangesAsync();
 
 
-                // --- 7. ALLERGY‑AWARE MEAL SEEDING (CALORIE‑BASED) ---
-                // Helper to map full meal type to single character
-                string GetMealCode(string mt) => mt switch
-                {
-                    "Breakfast" => "B",
-                    "Lunch" => "L",
-                    "Dinner" => "D",
-                    "Snack" => "S",
-                    _ => mt.Substring(0, 1)
-                };
+                    // nagana na ng maayos
+                    // 3. ONBOARDING DETAILS
+                    var details = await _context.UsrUserOnboardingDetails.FirstOrDefaultAsync(d => d.UserId == userId.Value)
+                                ?? new UsrUserOnboardingDetail { UserId = userId.Value, CreatedAt = DateTime.UtcNow };
 
-                // 1. Get user allergy IDs once (before the loop)
-                var userAllergyIds = await _context.NtrUserAllergies
-                    .Where(ua => ua.UserId == userId.Value)
-                    .Select(ua => ua.AllergyId)
-                    .ToListAsync();
+                    details.ActivityLevel = request.ActivityLevel;
+                    details.FitnessLevel = request.FitnessLevel;
+                    details.BodyGoal = request.BodyGoal;
+                    details.DietType = request.DietType;
+                    details.UpperBodyInjury = request.UpperBodyInjury;
+                    details.LowerBodyInjury = request.LowerBodyInjury;
+                    details.JointProblems = request.JointProblems;
+                    details.ShortBreath = request.ShortBreath;
+                    details.HealthNone = request.HealthNone;
+                    details.Environment = request.Environment != null ? string.Join(", ", request.Environment) : "GYM";
+                    details.FitnessGoals = request.FitnessGoals != null ? string.Join(", ", request.FitnessGoals) : "";
+                    details.UpdatedAt = DateTime.UtcNow;
 
-                // 2. Define meal types and their calorie percentages
-                var mealTypes = new[] { "Breakfast", "Lunch", "Dinner", "Snack" };
-                var mealPercentages = new Dictionary<string, double>
-{
-    { "Breakfast", 0.25 },
-    { "Lunch", 0.35 },
-    { "Dinner", 0.30 },
-    { "Snack", 0.10 }
-};
-
-                string dietaryType = (request.DietType ?? "BALANCED").ToUpper();
-
-                // 3. Seed each meal type
-                foreach (var mealType in mealTypes)
-                {
-                    string mealCode = GetMealCode(mealType);   // ✅ idagdag ito
-                    double targetCalories = calorieTarget * mealPercentages[mealType];
-                    double currentCalories = 0;
-                    var selectedItems = new List<(NtrFoodItem food, decimal qty)>();
-                    int maxAttempts = 20;
-
-
-                    while (currentCalories < targetCalories && maxAttempts-- > 0)
+                    if (request.SelectedPrograms != null)
                     {
-                        // Get safe foods for this meal type (filtered by allergies)
-                        var safeFoods = await _context.NtrFoodItems
-                            .Where(f => f.MealType == mealType &&
-                                        f.DietaryType == dietaryType &&
-                                        !f.FoodAllergies.Any(fa => userAllergyIds.Contains(fa.AllergyId)))
-                            .ToListAsync();
-
-                        if (!safeFoods.Any()) break;
-
-                        // Randomly pick a food
-                        var random = new Random();
-                        var food = safeFoods[random.Next(safeFoods.Count)];
-
-                        // Determine quantity
-                        decimal qty = 1;
-                        if (food.Calories > 0)
-                        {
-                            double remaining = targetCalories - currentCalories;
-                            if (remaining < (double)food.Calories)
-                                qty = (decimal)(remaining / (double)food.Calories);
-                            else
-                                qty = Math.Min(2, (decimal)Math.Ceiling(remaining / (double)food.Calories));
-                            qty = Math.Clamp(qty, 0.5m, 2.0m);
-                        }
-
-                        var calContribution = food.Calories * qty;
-                        currentCalories += (double)calContribution;
-                        selectedItems.Add((food: food, qty: qty)); // explicit tuple naming to avoid ambiguity
+                        details.SelectedPrograms = string.Join(", ", request.SelectedPrograms.Select(p => p.Name));
                     }
 
-                    // Create meal logs from selected items
-                    if (selectedItems.Any())
+                    if (_context.Entry(details).State == EntityState.Detached) _context.UsrUserOnboardingDetails.Add(details);
+
+                    // --- 3.5 ALLERGIES (NEW) ---
+                    // Remove existing user allergies
+                    var existingAllergies = _context.NtrUserAllergies.Where(ua => ua.UserId == userId.Value);
+                    _context.NtrUserAllergies.RemoveRange(existingAllergies);
+
+                    // Add new allergies from request
+                    if (request.Allergies != null && request.Allergies.Any())
                     {
-                        decimal totalCal = 0, totalProt = 0, totalCarbs = 0, totalFats = 0;
-                        var itemsToLog = new List<NtrDailyMealItemLog>();
-                        int sortOrder = 1;
-
-                        foreach (var (food, qty) in selectedItems)
+                        foreach (var allergyName in request.Allergies)
                         {
-                            var cal = food.Calories * qty;
-                            var prot = food.ProteinG * qty;
-                            var carb = food.CarbsG * qty;
-                            var fat = food.FatsG * qty;
+                            var allergy = await _context.NtrAllergies.FirstOrDefaultAsync(a => a.AllergyName == allergyName);
+                            if (allergy == null)
+                            {
+                                allergy = new NtrAllergies { AllergyName = allergyName };
+                                _context.NtrAllergies.Add(allergy);
+                            }
+                            _context.NtrUserAllergies.Add(new NtrUserAllergies { UserId = userId.Value, AllergyId = allergy.AllergyId });
+                        }
+                        await _context.SaveChangesAsync();
+                    }
 
-                            itemsToLog.Add(new NtrDailyMealItemLog
+                    // --- 4. NUTRITION ENGINE (SEEDING INITIAL MEALS) ---
+                    double w = (double)request.WeightKg;
+                    double h = (double)request.HeightCm;
+                    int age = request.Age > 0 ? request.Age : 25;
+
+                    // BMR Calculation
+                    double bmr = (request.Gender?.ToUpper() == "MALE")
+                        ? (10 * w) + (6.25 * h) - (5 * age) + 5
+                        : (10 * w) + (6.25 * h) - (5 * age) - 161;
+
+                    // 1. DYNAMIC MULTIPLIER (All Caps para consistent)
+                    string nutactLevel = (request.ActivityLevel ?? "SEDENTARY").ToUpper().Replace(" ", "").Replace("_", "");
+                    double multiplier = nutactLevel switch
+                    {
+                        "SEDENTARY" => 1.2,
+                        "LIGHTLYACTIVE" => 1.375,
+                        "ACTIVE" => 1.55,
+                        "VERYACTIVE" => 1.725,
+                        _ => 1.375
+                    };
+
+                    double tdee = bmr * multiplier;
+                    double calorieTarget = tdee;
+
+                    // 2. GOAL ADJUSTMENT
+                    string goal = (request.BodyGoal ?? "").ToUpper();
+                    if (goal.Contains("LOSE")) calorieTarget -= 500;
+                    else if (goal.Contains("GAIN")) calorieTarget += 300;
+
+                    // 3. MACRO CALCULATION
+                    decimal proteinTarget = (decimal)(w * 2.0);
+                    decimal fatsTarget = (decimal)((calorieTarget * 0.25) / 9);
+                    decimal carbsTarget = (decimal)((calorieTarget - ((double)proteinTarget * 4) - ((double)fatsTarget * 9)) / 4);
+
+                    // A. Add Metrics
+                    var metrics = new UsrUserMetric
+                    {
+                        UserId = userId.Value,
+                        CurrentWeightKg = request.WeightKg,
+                        CurrentHeightCm = request.HeightCm,
+                        FitnessGoal = goal,
+                        NutritionGoal = (request.DietType ?? "BALANCED").ToUpper(),
+                        CalorieTarget = (int)calorieTarget,
+                        ProteinTargetG = (int)proteinTarget,
+                        CarbsTargetG = (int)carbsTarget,
+                        FatsTargetG = (int)fatsTarget,
+                        RecordedAt = DateTime.UtcNow
+                    };
+                    _context.UsrUserMetrics.Add(metrics);
+
+                    // B. Add Cycle Target
+                    var cycleTarget = new NtrUserCycleTarget
+                    {
+                        UserId = userId.Value,
+                        DailyTargetNetCalories = (int)calorieTarget,
+                        GoalType = goal,
+                        ProteinTargetG = proteinTarget,
+                        CarbsTargetG = carbsTarget,
+                        FatsTargetG = fatsTarget,
+                        WeeksInCycle = 4,
+                        StartDate = DateOnly.FromDateTime(DateTime.UtcNow),
+                        CreatedAt = DateTime.UtcNow
+                    };
+                    _context.NtrUserCycleTargets.Add(cycleTarget);
+                    await _context.SaveChangesAsync();
+
+                    // --- ADD/UPDATE NUTRITION PROFILE ---
+                    var nutProfile = await _context.NtrUserNutritionProfiles
+                        .FirstOrDefaultAsync(p => p.UserId == userId.Value);
+                    if (nutProfile == null)
+                    {
+                        nutProfile = new NtrUserNutritionProfile
+                        {
+                            UserId = userId.Value,
+                            UpdatedAt = DateTime.UtcNow
+                        };
+                        _context.NtrUserNutritionProfiles.Add(nutProfile);
+                    }
+
+                    nutProfile.Age = request.Age;
+                    nutProfile.HeightCm = (decimal)request.HeightCm;
+                    nutProfile.WeightKg = (decimal)request.WeightKg;
+                    nutProfile.TargetWeightKg = (decimal)request.TargetWeightKg;
+
+                    // 🔁 Map activity level to allowed database values
+                    string rawActivity = request.ActivityLevel?.ToUpper() ?? "SEDENTARY";
+                    string mappedActivity = rawActivity switch
+                    {
+                        "SEDENTARY" => "SEDENTARY",
+                        "LIGHTLY ACTIVE" => "LIGHTLY_ACTIVE",
+                        "MODERATELY ACTIVE" => "ACTIVE",
+                        "ACTIVE" => "ACTIVE",
+                        "VERY ACTIVE" => "VERY_ACTIVE",
+                        _ => "SEDENTARY"
+                    };
+                    nutProfile.ActivityLevel = mappedActivity;
+
+                    nutProfile.DietaryType = request.DietType?.ToUpper() ?? "BALANCED";
+                    nutProfile.NutritionGoal = request.BodyGoal?.ToUpper() ?? "MAINTAIN";
+                    nutProfile.IsProfileComplete = true;
+                    nutProfile.UpdatedAt = DateTime.UtcNow;
+
+                    // --- 5. CREATE DAILY LOG (Para sa Dashboard Today) ---
+                    var dailyLog = new NtrDailyLog
+                    {
+                        UserId = userId.Value,
+                        CycleId = cycleTarget.CycleId,
+                        PlanDate = DateOnly.FromDateTime(DateTime.UtcNow),
+                        TargetNetCalories = (int)calorieTarget,
+                        CaloriesConsumed = 0,
+                        CaloriesBurned = 0,
+                        GoalMet = false
+                    };
+                    _context.NtrDailyLogs.Add(dailyLog);
+                    await _context.SaveChangesAsync();
+
+                    // --- 6. SEED MEAL PLAN CALENDAR ---
+                    var dietTypeUpper = (request.DietType ?? "BALANCED").ToUpper();
+                    var matchedTemplate = await _context.NtrMealTemplates
+                        .FirstOrDefaultAsync(t => t.DietaryType == dietTypeUpper)
+                        ?? await _context.NtrMealTemplates.OrderBy(t => t.TemplateId).FirstOrDefaultAsync();
+
+                    int safeTemplateId = matchedTemplate?.TemplateId ?? 1;
+
+                    // Day 1 Entry
+                    var calendarEntry = new NtrMealPlanCalendar
+                    {
+                        CycleId = cycleTarget.CycleId,
+                        PlanDate = DateOnly.FromDateTime(DateTime.UtcNow),
+                        WeekNo = 1,
+                        DayNo = 1,
+                        TemplateId = safeTemplateId,
+                        VariationCode = "STD",
+                        Status = "PENDING",
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    };
+                    _context.NtrMealPlanCalendars.Add(calendarEntry);
+
+                    // Future Days (2-28) - FIXED: Nilagyan na ng TemplateId babe para hindi mag-error
+                    for (int d = 2; d <= 28; d++)
+                    {
+                        var templateDayRecord = await _context.WrkProgramTemplateDays
+                            .FirstOrDefaultAsync(t => t.ProgramId == 95 && t.DayNo == ((d - 1) % 7) + 1);
+
+                        bool isWorkout = templateDayRecord != null && !templateDayRecord.DayType.Contains("REST");
+
+                        _context.NtrMealPlanCalendars.Add(new NtrMealPlanCalendar
+                        {
+                            CycleId = cycleTarget.CycleId,
+                            PlanDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(d - 1)),
+                            WeekNo = ((d - 1) / 7) + 1,
+                            DayNo = d,
+                            TemplateId = safeTemplateId, // 🔥 Importante 'to para sa Foreign Key!
+                            IsWorkoutDay = isWorkout,
+                            Status = "PENDING",
+                            CreatedAt = DateTime.UtcNow
+                        });
+                    }
+                    await _context.SaveChangesAsync();
+
+
+                    // --- 7. ALLERGY‑AWARE MEAL SEEDING (CALORIE‑BASED) ---
+                    // Helper to map full meal type to single character
+                    string GetMealCode(string mt) => mt switch
+                    {
+                        "Breakfast" => "B",
+                        "Lunch" => "L",
+                        "Dinner" => "D",
+                        "Snack" => "S",
+                        _ => mt.Substring(0, 1)
+                    };
+
+                    // 1. Get user allergy IDs once (before the loop)
+                    var userAllergyIds = await _context.NtrUserAllergies
+                        .Where(ua => ua.UserId == userId.Value)
+                        .Select(ua => ua.AllergyId)
+                        .ToListAsync();
+
+                    // 2. Define meal types and their calorie percentages
+                    var mealTypes = new[] { "Breakfast", "Lunch", "Dinner", "Snack" };
+                    var mealPercentages = new Dictionary<string, double>
+                    {
+                            { "Breakfast", 0.25 },
+                            { "Lunch", 0.35 },
+                            { "Dinner", 0.30 },
+                            { "Snack", 0.10 }
+                    };
+
+                    string dietaryType = (request.DietType ?? "BALANCED").ToUpper();
+
+                    // 3. Seed each meal type
+                    foreach (var mealType in mealTypes)
+                    {
+                        string mealCode = GetMealCode(mealType);   // ✅ idagdag ito
+                        double targetCalories = calorieTarget * mealPercentages[mealType];
+                        double currentCalories = 0;
+                        var selectedItems = new List<(NtrFoodItem food, decimal qty)>();
+                        int maxAttempts = 20;
+
+
+                        while (currentCalories < targetCalories && maxAttempts-- > 0)
+                        {
+                            // Get safe foods for this meal type (filtered by allergies)
+                            var safeFoods = await _context.NtrFoodItems
+                                .Where(f => f.MealType == mealType &&
+                                            f.DietaryType == dietaryType &&
+                                            !f.FoodAllergies.Any(fa => userAllergyIds.Contains(fa.AllergyId)))
+                                .ToListAsync();
+
+                            if (!safeFoods.Any()) break;
+
+                            // Randomly pick a food
+                            var random = new Random();
+                            var food = safeFoods[random.Next(safeFoods.Count)];
+
+                            // Determine quantity
+                            decimal qty = 1;
+                            if (food.Calories > 0)
+                            {
+                                double remaining = targetCalories - currentCalories;
+                                if (remaining < (double)food.Calories)
+                                    qty = (decimal)(remaining / (double)food.Calories);
+                                else
+                                    qty = Math.Min(2, (decimal)Math.Ceiling(remaining / (double)food.Calories));
+                                qty = Math.Clamp(qty, 0.5m, 2.0m);
+                            }
+
+                            var calContribution = food.Calories * qty;
+                            currentCalories += (double)calContribution;
+                            selectedItems.Add((food: food, qty: qty)); // explicit tuple naming to avoid ambiguity
+                        }
+
+                        // Create meal logs from selected items
+                        if (selectedItems.Any())
+                        {
+                            decimal totalCal = 0, totalProt = 0, totalCarbs = 0, totalFats = 0;
+                            var itemsToLog = new List<NtrDailyMealItemLog>();
+                            int sortOrder = 1;
+
+                            foreach (var (food, qty) in selectedItems)
+                            {
+                                var cal = food.Calories * qty;
+                                var prot = food.ProteinG * qty;
+                                var carb = food.CarbsG * qty;
+                                var fat = food.FatsG * qty;
+
+                                itemsToLog.Add(new NtrDailyMealItemLog
+                                {
+                                    DailyLogId = dailyLog.DailyLogId,
+                                    MealType = mealCode,
+                                    FoodId = food.FoodId,
+                                    Qty = qty,
+                                    IsAddon = false,
+                                    Calories = cal,
+                                    ProteinG = prot,
+                                    CarbsG = carb,
+                                    FatsG = fat,
+                                    SortOrder = sortOrder++
+                                });
+
+                                totalCal += cal;
+                                totalProt += prot;
+                                totalCarbs += carb;
+                                totalFats += fat;
+                            }
+
+                            var mealLog = new NtrDailyMealLog
                             {
                                 DailyLogId = dailyLog.DailyLogId,
                                 MealType = mealCode,
-                                FoodId = food.FoodId,
-                                Qty = qty,
-                                IsAddon = false,
-                                Calories = cal,
-                                ProteinG = prot,
-                                CarbsG = carb,
-                                FatsG = fat,
-                                SortOrder = sortOrder++
-                            });
-
-                            totalCal += cal;
-                            totalProt += prot;
-                            totalCarbs += carb;
-                            totalFats += fat;
+                                Calories = (int)totalCal,
+                                ProteinG = totalProt,
+                                CarbsG = totalCarbs,
+                                FatsG = totalFats
+                            };
+                            _context.NtrDailyMealLogs.Add(mealLog);
+                            _context.NtrDailyMealItemLogs.AddRange(itemsToLog);
                         }
-
-                        var mealLog = new NtrDailyMealLog
-                        {
-                            DailyLogId = dailyLog.DailyLogId,
-                            MealType = mealCode,
-                            Calories = (int)totalCal,
-                            ProteinG = totalProt,
-                            CarbsG = totalCarbs,
-                            FatsG = totalFats
-                        };
-                        _context.NtrDailyMealLogs.Add(mealLog);
-                        _context.NtrDailyMealItemLogs.AddRange(itemsToLog);
                     }
-                }
-                await _context.SaveChangesAsync();
+                    await _context.SaveChangesAsync();
 
 
 
-                // --- 5. WORKOUT ACTIVATION (SEEDING SESSIONS) ---
-                if (request.SelectedPrograms != null && request.SelectedPrograms.Any())
-                {
-                    // 1. Kunin ang Data mula sa Onboarding Details ni User
-                    var onboarding = await _context.UsrUserOnboardingDetails
-                        .FirstOrDefaultAsync(o => o.UserId == userId.Value);
-
-                    // 2. Kunin ang Calorie Target mula sa Metrics (na-save na natin kanina sa Nutrition side)
-                    var userMetrics = await _context.UsrUserMetrics
-                        .OrderByDescending(m => m.RecordedAt)
-                        .FirstOrDefaultAsync(m => m.UserId == userId.Value);
-
-                    double dailyTarget = userMetrics?.CalorieTarget ?? 2000;
-
-                    // Gamitin ang Activity Level galing sa Onboarding table
-                    string actLevel = (onboarding?.ActivityLevel ?? "Sedentary").ToLower().Replace(" ", "").Replace("_", "");
-
-                    // 3. DYNAMIC MULTIPLIER (4 Levels Only)
-                    double burnMultiplier = actLevel switch
+                    // --- 5. WORKOUT ACTIVATION (SEEDING SESSIONS) ---
+                    if (request.SelectedPrograms != null && request.SelectedPrograms.Any())
                     {
-                        "sedentary" => 0.12,
-                        "lightlyactive" => 0.18,
-                        "active" => 0.22,
-                        "veryactive" => 0.28,
-                        _ => 0.15
-                    };
+                        // 1. Kunin ang Data mula sa Onboarding Details ni User
+                        var onboarding = await _context.UsrUserOnboardingDetails
+                            .FirstOrDefaultAsync(o => o.UserId == userId.Value);
 
-                    double targetBurnForSession = dailyTarget * burnMultiplier;
+                        // 2. Kunin ang Calorie Target mula sa Metrics (na-save na natin kanina sa Nutrition side)
+                        var userMetrics = await _context.UsrUserMetrics
+                            .OrderByDescending(m => m.RecordedAt)
+                            .FirstOrDefaultAsync(m => m.UserId == userId.Value);
 
-                    foreach (var progDto in request.SelectedPrograms)
-                    {
-                        var inputName = (progDto.Name ?? "").Trim();
+                        double dailyTarget = userMetrics?.CalorieTarget ?? 2000;
 
-                        // Primary attempt: exact match by name and fitness level
-                        var template = await _context.WrkProgramTemplates
-                            .FirstOrDefaultAsync(t =>
-                                t.ProgramName.Replace(" ", "").ToLower() == inputName.Replace(" ", "").ToLower() &&
-                                t.FitnessLevel.ToLower() == request.FitnessLevel.ToLower());
+                        // Gamitin ang Activity Level galing sa Onboarding table
+                        string actLevel = (onboarding?.ActivityLevel ?? "Sedentary").ToLower().Replace(" ", "").Replace("_", "");
 
-                        // FALLBACK 1: Rehab user with "REHAB LEVEL"
-                        if (template == null && request.IsRehab)
+                        // 3. DYNAMIC MULTIPLIER (4 Levels Only)
+                        double burnMultiplier = actLevel switch
                         {
-                            template = await _context.WrkProgramTemplates
+                            "sedentary" => 0.12,
+                            "lightlyactive" => 0.18,
+                            "active" => 0.22,
+                            "veryactive" => 0.28,
+                            _ => 0.15
+                        };
+
+                        double targetBurnForSession = dailyTarget * burnMultiplier;
+
+                        foreach (var progDto in request.SelectedPrograms)
+                        {
+                            var inputName = (progDto.Name ?? "").Trim();
+
+                            // Primary attempt: exact match by name and fitness level
+                            var template = await _context.WrkProgramTemplates
                                 .FirstOrDefaultAsync(t =>
                                     t.ProgramName.Replace(" ", "").ToLower() == inputName.Replace(" ", "").ToLower() &&
-                                    t.FitnessLevel.ToLower() == "rehab level");
-                        }
+                                    t.FitnessLevel.ToLower() == request.FitnessLevel.ToLower());
 
-                        // FALLBACK 2: Last resort – any rehab program
-                        if (template == null && request.IsRehab)
-                        {
-                            template = await _context.WrkProgramTemplates
-                                .FirstOrDefaultAsync(t => t.ProgramName.Contains("Rehab", StringComparison.OrdinalIgnoreCase));
-                        }
-
-
-                        if (template != null)
-                        {
-
-                            // 5a. Create Instance
-                            var instance = new UsrUserProgramInstance
+                            // FALLBACK 1: Rehab user with "REHAB LEVEL"
+                            if (template == null && request.IsRehab)
                             {
-                                UserId = userId.Value,
-                                ProgramId = template.ProgramId,
-                                ProfileVersionId = profileVersion.ProfileVersionId,
-                                CycleNo = cycleTarget.CycleId,
-                                Status = "ACTIVE",
-                                CurrentDayNo = 1,
-                                FitnessLevelAtStart = request.FitnessLevel,
-                                CreatedAt = DateTime.UtcNow
-                            };
-                            _context.UsrUserProgramInstances.Add(instance);
-                            await _context.SaveChangesAsync(); // Save to get instance ID
+                                template = await _context.WrkProgramTemplates
+                                    .FirstOrDefaultAsync(t =>
+                                        t.ProgramName.Replace(" ", "").ToLower() == inputName.Replace(" ", "").ToLower() &&
+                                        t.FitnessLevel.ToLower() == "rehab level");
+                            }
 
-                            // 5b. Get Day Structure (Para malaman kung Workout o Rest ang Day 1)
-                            var dayStructure = await _context.WrkProgramTemplateDays
-                                .FirstOrDefaultAsync(d => d.ProgramId == template.ProgramId && d.DayNo == 1);
-
-                            if (dayStructure != null)
+                            // FALLBACK 2: Last resort – any rehab program
+                            if (template == null && request.IsRehab)
                             {
-                                // --- 5c. SEED WORKOUT CALENDAR (Para sa Unified Calendar UI mo) ---
-                                // Binago natin ang pangalan mula 'calendarEntry' -> 'workoutCalendarEntry'
-                                var workoutCalendarEntry = new NtrMealPlanCalendar
-                                {
-                                    CycleId = cycleTarget.CycleId,
-                                    PlanDate = DateOnly.FromDateTime(DateTime.UtcNow),
-                                    WeekNo = 1,
-                                    DayNo = 1,
-                                    TemplateId = matchedTemplate?.TemplateId ?? 1,
-                                    // IsWorkoutDay = dayStructure.DayType == "WORKOUT", 
-                                    Status = "PENDING"
-                                };
+                                template = await _context.WrkProgramTemplates
+                                    .FirstOrDefaultAsync(t => t.ProgramName.Contains("Rehab", StringComparison.OrdinalIgnoreCase));
+                            }
 
-                                // 5d. INITIALIZE WORKOUT SESSION (Base sa UsrUserWorkoutSession modelBuilder mo)
-                                var session = new UsrUserWorkoutSession
+
+                            if (template != null)
+                            {
+
+                                // 5a. Create Instance
+                                var instance = new UsrUserProgramInstance
                                 {
                                     UserId = userId.Value,
-                                    ProgramInstanceId = instance.InstanceId, // Eto yung "tali" sa instance
-                                    WorkoutDay = 1,
-                                    Status = "PENDING",
-                                    CreatedAt = DateTime.UtcNow
-                                    // TANGGALIN ANG CALORIESBURNED DITO KASI WALA SA TABLE MO!
-                                };
-                                _context.UsrUserWorkoutSessions.Add(session);
-                                await _context.SaveChangesAsync();
-
-                                var sessionInstanceLink = new UsrUserSessionInstance
-                                {
-                                    InstanceId = instance.InstanceId,
-                                    MonthNo = 1, // Default values para lumusot
-                                    WeekNo = 1,
-                                    DayNo = 1,
-                                    DayType = dayStructure.DayType ?? "WORKOUT",
-                                    Status = "PENDING",
+                                    ProgramId = template.ProgramId,
+                                    ProfileVersionId = profileVersion.ProfileVersionId,
+                                    CycleNo = cycleTarget.CycleId,
+                                    Status = "ACTIVE",
+                                    CurrentDayNo = 1,
+                                    FitnessLevelAtStart = request.FitnessLevel,
                                     CreatedAt = DateTime.UtcNow
                                 };
-                                _context.UsrUserSessionInstances.Add(sessionInstanceLink);
-                                await _context.SaveChangesAsync();
+                                _context.UsrUserProgramInstances.Add(instance);
+                                await _context.SaveChangesAsync(); // Save to get instance ID
 
-                                // 5e. SMART SEEDING
-                                // 5e. SMART SEEDING (With Strict Level Filter)
-                                var dayWorkoutsPool = await _context.WrkProgramTemplateDaytypeWorkouts
-                                    .Include(dw => dw.Workout)
-                                    .Where(dw => dw.ProgramId == template.ProgramId
-                                              && dw.DayType == dayStructure.DayType
-                                              // 🔥 DAGDAG NATIN 'TO: Siguraduhin na ang workout difficulty ay match sa request!
-                                              && dw.Workout.DifficultyLevel == request.FitnessLevel)
-                                    .ToListAsync();
+                                // 5b. Get Day Structure (Para malaman kung Workout o Rest ang Day 1)
+                                var dayStructure = await _context.WrkProgramTemplateDays
+                                    .FirstOrDefaultAsync(d => d.ProgramId == template.ProgramId && d.DayNo == 1);
 
-                                var shuffledPool = dayWorkoutsPool.OrderBy(x => Guid.NewGuid()).ToList();
-
-                                double currentTotalBurn = 0;
-                                int workoutCount = 0;
-
-                                foreach (var dw in shuffledPool)
+                                if (dayStructure != null)
                                 {
-                                    // DAPAT GANITO, BABE:
-                                    if (workoutCount >= 8 && currentTotalBurn >= targetBurnForSession)
-                                        break;
-
-                                    _context.UsrUserSessionWorkouts.Add(new UsrUserSessionWorkout
+                                    // --- 5c. SEED WORKOUT CALENDAR (Para sa Unified Calendar UI mo) ---
+                                    // Binago natin ang pangalan mula 'calendarEntry' -> 'workoutCalendarEntry'
+                                    var workoutCalendarEntry = new NtrMealPlanCalendar
                                     {
-                                        SessionId = session.SessionId,
-                                        WorkoutId = dw.WorkoutId,
-                                        Sets = dw.SetsDefault,
-                                        Reps = dw.RepsDefault,
-                                        OrderNo = workoutCount + 1,
-                                        LoadKg = 0
-                                    });
+                                        CycleId = cycleTarget.CycleId,
+                                        PlanDate = DateOnly.FromDateTime(DateTime.UtcNow),
+                                        WeekNo = 1,
+                                        DayNo = 1,
+                                        TemplateId = matchedTemplate?.TemplateId ?? 1,
+                                        // IsWorkoutDay = dayStructure.DayType == "WORKOUT", 
+                                        Status = "PENDING"
+                                    };
 
-                                    currentTotalBurn += dw.Workout?.CaloriesBurned ?? 0;
-                                    workoutCount++;
+                                    // 5d. INITIALIZE WORKOUT SESSION (Base sa UsrUserWorkoutSession modelBuilder mo)
+                                    var session = new UsrUserWorkoutSession
+                                    {
+                                        UserId = userId.Value,
+                                        ProgramInstanceId = instance.InstanceId, // Eto yung "tali" sa instance
+                                        WorkoutDay = 1,
+                                        Status = "PENDING",
+                                        CreatedAt = DateTime.UtcNow
+                                        // TANGGALIN ANG CALORIESBURNED DITO KASI WALA SA TABLE MO!
+                                    };
+                                    _context.UsrUserWorkoutSessions.Add(session);
+                                    await _context.SaveChangesAsync();
+
+                                    var sessionInstanceLink = new UsrUserSessionInstance
+                                    {
+                                        InstanceId = instance.InstanceId,
+                                        MonthNo = 1, // Default values para lumusot
+                                        WeekNo = 1,
+                                        DayNo = 1,
+                                        DayType = dayStructure.DayType ?? "WORKOUT",
+                                        Status = "PENDING",
+                                        CreatedAt = DateTime.UtcNow
+                                    };
+                                    _context.UsrUserSessionInstances.Add(sessionInstanceLink);
+                                    await _context.SaveChangesAsync();
+
+                                    // 5e. SMART SEEDING
+                                    // 5e. SMART SEEDING (With Strict Level Filter)
+                                    var dayWorkoutsPool = await _context.WrkProgramTemplateDaytypeWorkouts
+                                        .Include(dw => dw.Workout)
+                                        .Where(dw => dw.ProgramId == template.ProgramId
+                                                && dw.DayType == dayStructure.DayType
+                                                // 🔥 DAGDAG NATIN 'TO: Siguraduhin na ang workout difficulty ay match sa request!
+                                                && dw.Workout.DifficultyLevel == request.FitnessLevel)
+                                        .ToListAsync();
+
+                                    var shuffledPool = dayWorkoutsPool.OrderBy(x => Guid.NewGuid()).ToList();
+
+                                    double currentTotalBurn = 0;
+                                    int workoutCount = 0;
+
+                                    foreach (var dw in shuffledPool)
+                                    {
+                                        // DAPAT GANITO, BABE:
+                                        if (workoutCount >= 8 && currentTotalBurn >= targetBurnForSession)
+                                            break;
+
+                                        _context.UsrUserSessionWorkouts.Add(new UsrUserSessionWorkout
+                                        {
+                                            SessionId = session.SessionId,
+                                            WorkoutId = dw.WorkoutId,
+                                            Sets = dw.SetsDefault,
+                                            Reps = dw.RepsDefault,
+                                            OrderNo = workoutCount + 1,
+                                            LoadKg = 0
+                                        });
+
+                                        currentTotalBurn += dw.Workout?.CaloriesBurned ?? 0;
+                                        workoutCount++;
+                                    }
+                                    await _context.SaveChangesAsync();
                                 }
-                                await _context.SaveChangesAsync();
                             }
                         }
                     }
+
+                    // --- 6. FINALIZE ---
+
+                    if (user != null) user.Status = "ACTIVE";
+                    await _context.SaveChangesAsync();
+                    await tx.CommitAsync();
+
+                    return Ok(new { message = "Onboarding complete! Dashboard initialized.", status = "ACTIVE" });
                 }
-
-                // --- 6. FINALIZE ---
-
-                if (user != null) user.Status = "ACTIVE";
-                await _context.SaveChangesAsync();
-                await tx.CommitAsync();
-
-                return Ok(new { message = "Onboarding complete! Dashboard initialized.", status = "ACTIVE" });
-            }
-            catch (Exception ex)
-            {
-                // ETO ANG SIKRETO, BABE!
-                var innerMessage = ex.InnerException?.Message ?? ex.Message;
-                return StatusCode(500, $"Onboarding failed: {innerMessage}");
-            }
+                catch (Exception ex)
+                {
+                    await tx.RollbackAsync();
+                    // ETO ANG SIKRETO, BABE!
+                    var innerMessage = ex.InnerException?.Message ?? ex.Message;
+                    return StatusCode(500, $"Onboarding failed: {innerMessage}");
+                }
+            });
         }
 
         [Authorize]
@@ -1147,7 +1155,7 @@ namespace FlexiFit.Api.Controllers
                 }
                 catch (Exception ex)
                 {
-                    await tx.RollbackAsync();
+                    await tx.RollbackAsync(); //
                     return StatusCode(500, new
                     {
                         message = "Error during reset. Rollback completed.",
@@ -1169,7 +1177,7 @@ namespace FlexiFit.Api.Controllers
         private string BuildFoodImageUrl(string baseUrl, string category, string mealType, string? fileName)
         {
             if (string.IsNullOrEmpty(fileName)) return $"{baseUrl}/images/foods/default.png";
-            
+
             // ✅ If DB has full URL (Appwrite), pass through
             if (fileName.StartsWith("http", StringComparison.OrdinalIgnoreCase))
                 return fileName;
