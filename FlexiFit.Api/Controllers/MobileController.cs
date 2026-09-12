@@ -1134,20 +1134,14 @@ namespace FlexiFit.Api.Controllers
                     // ============================================================
                     // STEP 16: RESET USER STATUS
                     // ============================================================
-                    _context.ChangeTracker.Clear();
+                    await _context.UsrUsers
+                        .Where(u => u.UserId == userId)
+                        .ExecuteUpdateAsync(setters => setters
+                            .SetProperty(u => u.Status, "PENDING_ONBOARDING")
+                            .SetProperty(u => u.UpdatedAt, DateTime.UtcNow));
 
-                    var userToReset = await _context.UsrUsers
-                        .FirstOrDefaultAsync(u => u.UserId == userId);
-
-                    if (userToReset != null)
-                    {
-                        userToReset.Status = "PENDING_ONBOARDING";
-                        userToReset.UpdatedAt = DateTime.UtcNow;
-                        _context.UsrUsers.Update(userToReset);
-                    }
-
-                    await _context.SaveChangesAsync();
                     await tx.CommitAsync();
+
 
                     return Ok(new { message = "Complete user data reset successfully." });
                 }
