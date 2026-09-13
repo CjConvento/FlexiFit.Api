@@ -389,6 +389,7 @@ namespace FlexiFit.Api.Controllers
                         }
 
                         user.Status = "ACTIVE";
+                        user.UpdatedAt = DateTime.UtcNow; 
                         _context.Entry(user).State = EntityState.Modified;
 
                         // B. UPDATE PROFILE TABLE (PARA SA DASHBOARD DISPLAY)
