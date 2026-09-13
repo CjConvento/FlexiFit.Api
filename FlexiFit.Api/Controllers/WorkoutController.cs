@@ -187,6 +187,9 @@ public class WorkoutController : ControllerBase
                 // Create workout exercises (includes warmups)
                 await CreateSessionWorkouts(newSession.SessionId, activeProgram.ProgramId, dayDef.DayType, weekNo, fitnessLevel, isRehab);
 
+                // ✅ REORDER: Warmups muna, tapos main workouts
+                await ReorderWorkouts(newSession.SessionId);
+
                 // Ensure calendar entry exists
                 await EnsureCalendarEntryExists(activeProgram.CycleNo, currentDay, activeProgram.CurrentDayNo, false);
 
@@ -209,6 +212,10 @@ public class WorkoutController : ControllerBase
             if (!isCompleted && !isSkipped)
             {
                 await EnsureWarmupsExist(session.SessionId, activeProgram.ProgramId, dayDef.DayType, weekNo, fitnessLevel, isRehab);
+
+                // ✅ REORDER: Warmups muna, tapos main workouts
+                await ReorderWorkouts(session.SessionId);
+
                 // Reload to include the newly added warmups
                 allWorkouts = await _context.UsrUserSessionWorkouts
                     .Include(sw => sw.Workout)
