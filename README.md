@@ -14,9 +14,11 @@ An inclusive, high-performance, and microservices-ready **REST Web API** enginee
 |---|---|
 | **Backend Engine** | C# / .NET 8.0 (Modern Cross-Platform Enterprise Framework) |
 | **Data Access / ORM** | Hybrid Data Layer utilizing Entity Framework Core (EF Core 8.0) and Dapper for high-performance direct SQL querying |
+| **Database Engine** | **PostgreSQL** (hosted on Supabase Cloud — 38 relational tables) |
 | **Authentication Infrastructure** | JSON Web Tokens (JWT Bearer Tokenization) & Firebase Admin SDK |
+| **Object Storage** | **Appwrite Storage** (workouts, foods, avatars buckets) |
 | **API Blueprint Layer** | Interactive Swagger UI Framework via Swashbuckle OpenAPI Specification |
-| **Development Sandbox** | Local IIS Hosting with zrok tunneling for public access |
+| **Deployment Platform** | **Render** (Docker containerized, auto-deploy from GitHub) |
 | **Version Management** | Git Distributed Version Control System with GitHub Workflows |
 
 ---
@@ -111,7 +113,6 @@ FlexiFit.Api/
 │   ├── UsrUserSessionWorkout.cs         # Real-time continuous monitoring logs
 │   ├── UsrUserWorkoutProgress.cs        # Dynamic workload growth calculations
 │   ├── UsrUserWorkoutSession.cs         # Complete workout tracking history
-│   ├── VwNtrUserDailySummary.cs         # Consolidated SQL Server evaluation viewport
 │   ├── WktWorkoutCalendar.cs            # System routine schedule charts
 │   ├── WrkProgramTemplate.cs            # Algorithmic exercise template bounds
 │   ├── WrkProgramTemplateDay.cs         # Split day schedule configurations
@@ -145,7 +146,7 @@ FlexiFit.Api/
 1. **Hybrid Identity Federation Validation:** Implements token payload verification passed directly from the client layer utilizing the Firebase Admin SDK, validating matched records inside our core database storage for maximum identity safety.
 2. **Decoupled Security Padlocks:** Protects exposed REST routes using granular JWT authorization decorators, mapping strict execution barriers bounded to authentic `USER` or `ADMIN` enterprise security definitions.
 3. **Advanced Memory-Cache Strategy:** Leverages localized memory-caching abstractions (`IMemoryCache`) to bypass repetitive operational checks against the relational database engine, significantly mitigating database request congestion for high-frequency settings queries.
-4. **Isolated Development Pipeline:** Maintained via local IIS hosting with automated redeployment scripts (`redeploy-flexifit.bat` and `.ps1`) for quick and consistent updates during development.
+4. **Isolated Development Pipeline:** Maintained via free cloud hosting (Render) with Docker for automated redeployment during development.
 
 ---
 
@@ -154,7 +155,7 @@ FlexiFit.Api/
 ### Environment Prerequisites
 Ensure your local terminal contains the following runtime libraries prior to local setup:
 - [.NET Core 8.0 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
-- [Microsoft SQL Server / SQL Server Express Edition](https://www.microsoft.com/en-us/sql-server/sql-server-downloads)
+- PostgreSQL
 - Integrated Development Environment (Visual Studio 2022 / VS Code)
 
 ### Installation Instructions
@@ -171,7 +172,7 @@ Ensure your local terminal contains the following runtime libraries prior to loc
    - **Firebase Credentials:** Download your secure administration workspace profile configuration private key (`.json`) straight from the Firebase Console (**Project Settings > Service Accounts**) and link the exact filepath into your application runtime configs.
 
 3. **Establish Core Connection Metrics:**
-   Map your target database configuration strings pointing to your local SQL Server instance inside the designated properties of `ConnectionStrings:DefaultConnection`.
+   Map your target database configuration strings pointing to your PostgreSQL instance inside the designated properties of `ConnectionStrings:DefaultConnection`.
 
 ---
 
@@ -195,13 +196,14 @@ Initialize compilation workflows by firing these commands inside your terminal w
 
 ## Current Hosting Status
 
-> **⚠️ Under Development:** The API is currently hosted on a **local IIS server** and exposed via **zrok tunneling** for development and testing purposes. This setup provides HTTPS public access while keeping the infrastructure cost-free and flexible.
+> **⚠️ Under Development:** The API is hosted on **Render** as a Docker container, connected to **Supabase PostgreSQL** (database) and **Appwrite Storage** (file assets).
 
 | Component | URL | Status |
 | :--- | :--- | :--- |
-| **API (Public Swagger U)** | `https://flexifitapinet.shares.zrok.io/swagger/index.html` | ✅ Accessible |
-| **API (Local)** | `http://localhost:8090` | ✅ Running on IIS |
-| **Admin Panel** | `http://localhost:8070` | ✅ Running on IIS |
+| **API (Public Swagger U)** | `https://flexifit-api-ylop.onrender.com/swagger/index.html` | ✅ Live |
+| **Admin Panel** | `https://flexifitadminpanel.onrender.com` | ✅ Live |
+| **Database** | Supabase PostgreSQL (IPv4 Connection Pooler) | ✅ 38 tables |
+| **Storage** | Appwrite Cloud (`sgp.cloud.appwrite.io`) | ✅ 3 buckets |
 
 ---
 
@@ -212,7 +214,6 @@ To view how this backend services cluster connects with consumer-facing environm
 | Subsystem Component | Target Access Gateway Link | Operational Context & Framework |
 | :--- | :--- | :--- |
 | **Mobile Client App** | [Explore Frontend App Source](https://github.com/CjConvento/FlexiFitApp_Initial) | **Native Android Application Architecture** built using Kotlin to integrate seamlessly with our C# Web API endpoints, handling user data sessions via secure JWT bearer tokens. |
-| **API Blueprint Layer** | [Interact with the Live Swagger UI](https://flexifitapinet.shares.zrok.io/swagger/index.html) | **Development Sandbox.** Interactive API documentation hosted locally via IIS and exposed through zrok tunneling for secure public access. |
 
 ---
 
@@ -220,7 +221,8 @@ To view how this backend services cluster connects with consumer-facing environm
 
 - [ ] **Distributed Caching Migration:** Migrating the existing localized memory caching framework (`IMemoryCache`) into a high-performance **Redis Distributed Cache** registry. This architectural refactoring track isolates application runtime memory, preserves cache state across web host restarts, and prepares the backend architecture for distributed load balancing.
 - [ ] **Cross-Platform Mobile Interface Migration:** Shifting the native Kotlin frontend implementation layer to a cross-platform **Flutter (Dart)** infrastructure to uniformly expand application deployment reach across both iOS and Android stores from a single code base.
-- [ ] Implement robust horizontal table data pagination frameworks and localized text fuzzy searching modules across all large entity endpoints.
+- [ ] **Real-Time Notifications:** Firebase Cloud Messaging (FCM) push notification integration.
+- [ ] **Horizontal Scaling:** Transitioning from Render free tier to production tier with auto-scaling.
 - [ ] Introduce real-time automated workout compliance notifications and telemetry alert loops.
 
 ---
