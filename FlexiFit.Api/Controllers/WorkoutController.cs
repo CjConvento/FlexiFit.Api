@@ -1059,6 +1059,19 @@ public class WorkoutController : ControllerBase
             return;
         }
 
+        // ✅ RACE CONDITION FIX #1: Check kung na-advance na ang araw na 'to
+        int currentDay = activeProgram.CurrentDayNo;
+        var alreadyAdvanced = await _context.DailyProgressLogs
+            .AnyAsync(p => p.UserId == userId
+                        && p.InstanceId == activeProgram.InstanceId
+                        && p.DayNo == currentDay);
+
+        if (alreadyAdvanced)
+        {
+            _logger.LogWarning($"Day {currentDay} already advanced for user {userId}. Skipping to prevent double-advance.");
+            return;
+        }
+
         var cycleTarget = await _context.NtrUserCycleTargets
             .Where(t => t.UserId == userId && t.CycleId == activeProgram.CycleNo)
             .OrderByDescending(t => t.CreatedAt)
@@ -1067,14 +1080,24 @@ public class WorkoutController : ControllerBase
         int totalDays = (cycleTarget?.WeeksInCycle ?? 4) * 7;
 
         _logger.LogInformation($"Current day before advance: {activeProgram.CurrentDayNo}");
-        activeProgram.CurrentDayNo++;
-        if (activeProgram.CurrentDayNo > totalDays)
-        {
-            activeProgram.Status = "COMPLETED";
-            activeProgram.CompletedAt = DateTime.UtcNow;
-        }
-        await _context.SaveChangesAsync();
 
+        using var tx = await _context.Database.BeginTransactionAsync();
+        try
+        {
+            activeProgram.CurrentDayNo++;
+            if (activeProgram.CurrentDayNo > totalDays)
+            {
+                activeProgram.Status = "COMPLETED";
+                activeProgram.CompletedAt = DateTime.UtcNow;
+            }
+            await _context.SaveChangesAsync();
+            await tx.CommitAsync();
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
 
 
         // ========== POPULATE DAILY_PROGRESS_LOG ==========
@@ -1110,14 +1133,23 @@ public class WorkoutController : ControllerBase
             CaloriesIntake = dailyLog.CaloriesConsumed,
             WaterMl = waterLog,
             MealPlanCompleted = true,
-            FitnessLevelSnapshot = activeProgram.FitnessLevelAtStart,
+            FitnessLevelSnapshot = activeProgram.FitnessLevelAtStart ?? "Beginner",
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
 
-        _context.DailyProgressLogs.Add(progressLog);
-        await _context.SaveChangesAsync();
-        // ========== END POPULATE DAILY_PROGRESS_LOG ==========    
+        // ✅ RACE CONDITION FIX #3: Handle unique constraint violation
+        try
+        {
+            _context.DailyProgressLogs.Add(progressLog);
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException pgEx && pgEx.SqlState == "23505")
+        {
+            _logger.LogWarning($"Duplicate DailyProgressLog detected for Day {completedDayNo}. Another thread already advanced.");
+            return;  // ✅ Hindi mag-throw — graceful exit
+        }
+        // ========== END POPULATE DAILY_PROGRESS_LOG ==========  
 
 
 
