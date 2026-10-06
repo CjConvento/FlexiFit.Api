@@ -6,5 +6,6 @@
     "**/wwwroot/uploads/**",
     "wwwroot/vids/**",
     "**/wwwroot/vids/**"
-  ]
+  ],
+  "dotnet.defaultSolution": "FlexiFit.Api.sln"
 }

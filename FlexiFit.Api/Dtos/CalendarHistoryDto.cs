@@ -14,5 +14,9 @@
 
         public string? Summary { get; set; } // e.g., "Leg Day | 1800 kcal"
         public string DayType { get; set; }  // "WORKOUT" o "REST"
+
+        // BAGONG FIELDS PARA SA MOBILE LOGIC (Item 11)
+        public bool IsCurrentDay { get; set; }
+        public bool IsFuture { get; set; }
     }
 }

@@ -95,6 +95,9 @@ public class CalendarController : ControllerBase
 
                 bool isRestDay = dayType.Contains("REST", StringComparison.OrdinalIgnoreCase);
 
+                // Kunin muna ang normalized nutrition status
+                var nutritionStatus = GetNutritionStatus(nutritionDay, day, activeProgram.CurrentDayNo);
+
                 var dto = new CalendarHistoryDto
                 {
                     Day = day,
@@ -102,8 +105,16 @@ public class CalendarController : ControllerBase
                     DayType = dayType,
                     Summary = GetDaySummary(dayType, weekNo),
                     WorkoutStatus = GetWorkoutStatus(workoutSession, day, activeProgram.CurrentDayNo, isRestDay),
-                    NutritionStatus = GetNutritionStatus(nutritionDay, day, activeProgram.CurrentDayNo),
-                    Status = GetOverallStatus(workoutSession, day, activeProgram.CurrentDayNo, isRestDay)
+
+                    // Ipinasa ang normalized nutrition status
+                    NutritionStatus = nutritionStatus,
+
+                    // Ipinasa ang nutritionStatus sa GetOverallStatus para mag-match ang 5 parameters
+                    Status = GetOverallStatus(workoutSession, nutritionStatus, day, activeProgram.CurrentDayNo, isRestDay),
+
+                    // Idinagdag ang bagong properties para sa mobile logic
+                    IsCurrentDay = day == activeProgram.CurrentDayNo,
+                    IsFuture = day > activeProgram.CurrentDayNo
                 };
 
                 historyList.Add(dto);
@@ -140,7 +151,7 @@ public class CalendarController : ControllerBase
 
         // Get template pattern (Week 1)
         var templateDays = await _context.WrkProgramTemplateDays
-            .Where(d => d.ProgramId == activeProgram.ProgramId)
+            .Where(d => d.ProgramId == activeProgram.ProgramId && d.WeekNo == 1)
             .OrderBy(d => d.DayNo)
             .Select(d => new { d.DayNo, d.DayType })
             .ToListAsync();
@@ -150,7 +161,10 @@ public class CalendarController : ControllerBase
 
         for (int i = 0; i < 7; i++)
         {
-            var template = templateDays[i % 7];
+            var template = i < templateDays.Count
+            ? templateDays[i]
+            : new { DayNo = i + 1, DayType = "WORKOUT" }; // Default fallback
+
             int actualDay = startDay + i;
 
             weekDays.Add(new
@@ -281,8 +295,9 @@ public class CalendarController : ControllerBase
 
         // Get template pattern
         var templateDays = await _context.WrkProgramTemplateDays
-            .Where(d => d.ProgramId == activeProgram.ProgramId)
+            .Where(d => d.ProgramId == activeProgram.ProgramId && d.WeekNo == 1)
             .OrderBy(d => d.DayNo)
+            .Take(7)
             .Select(d => new { d.DayNo, d.DayType })
             .ToListAsync();
 
@@ -295,14 +310,17 @@ public class CalendarController : ControllerBase
 
             for (int i = 0; i < 7; i++)
             {
-                var template = templateDays[i % 7];
+                var template = i < templateDays.Count
+                ? templateDays[i] 
+                : new { DayNo = i + 1, DayType = "WORKOUT" };
+
                 int actualDay = startDay + i;
 
                 weekDays.Add(new
                 {
                     day = actualDay,
                     dayType = template.DayType,
-                    isRestDay = template.DayType.Contains("REST")
+                    isRestDay = template.DayType.Contains("REST", StringComparison.OrdinalIgnoreCase)
                 });
             }
 
@@ -351,8 +369,12 @@ public class CalendarController : ControllerBase
 
     private string GetNutritionStatus(NtrMealPlanCalendar? nutritionDay, int day, int currentDay)
     {
+        // I-normalize ang "DONE" papuntang "COMPLETED" para consistent sa workout
         if (nutritionDay != null)
-            return nutritionDay.Status.ToUpper();
+        {
+            // Kung "DONE" ang galing sa DB, ginawang "COMPLETED" para mag-match sa mobile color mapping
+            return nutritionDay.Status.ToUpper() == "DONE" ? "COMPLETED" : nutritionDay.Status.ToUpper();
+        }
 
         if (day < currentDay)
             return "SKIPPED";
@@ -363,12 +385,18 @@ public class CalendarController : ControllerBase
         return "NOT_STARTED";
     }
 
-    private string GetOverallStatus(UsrUserWorkoutSession? session, int day, int currentDay, bool isRestDay)
+    private string GetOverallStatus(UsrUserWorkoutSession? session, string nutritionStatus, int day, int currentDay, bool isRestDay)
+    // Isama ang nutrition sa overall status. 
+    // Hindi dapat "COMPLETED" ang araw kung tapos na workout pero hindi pa nutrition.
     {
         if (isRestDay)
             return day <= currentDay ? "COMPLETED" : "NOT_STARTED";
 
-        if (session?.Status?.ToUpper() == "COMPLETED")
+        bool workoutDone = session?.Status?.ToUpper() == "COMPLETED";
+        bool nutritionDone = nutritionStatus == "COMPLETED";
+
+        // Pareho dapat natapos para maging COMPLETED ang overall status
+        if (workoutDone && nutritionDone)
             return "COMPLETED";
 
         if (day < currentDay)
