@@ -405,6 +405,19 @@ public class WorkoutController : ControllerBase
 
             await _context.SaveChangesAsync();
 
+            var completedSession = await _context.UsrUserWorkoutSessions
+                .Include(s => s.UsrUserSessionWorkouts)
+                    .ThenInclude(sw => sw.Workout)
+                .FirstOrDefaultAsync(s => s.UserId == userId
+                                       && s.ProgramInstanceId == activeProgram.InstanceId
+                                       && s.WorkoutDay == originalDay);
+
+            int serverCalculatedCalories = isSkipped ? 0 : CalculateSessionCaloriesBurned(completedSession);
+            int totalMinutes = isSkipped ? 0 : Math.Max(req.TotalMinutes, 0);
+
+            await UpsertActivitySummary(userId.Value, todayDateOnly, serverCalculatedCalories, totalMinutes);
+            await _context.SaveChangesAsync();
+
             // Try to advance program day (only if both are done)
             await TryAdvanceProgramDay(userId.Value, todayDateOnly);
 
@@ -432,7 +445,7 @@ public class WorkoutController : ControllerBase
                 Status = isSkipped ? "SKIPPED" : (isRestDay ? "REST_COMPLETED" : "COMPLETED"),
                 WasSkipped = isSkipped,
                 SkipMessage = isSkipped ? "Try not to skip too many days for best results." : null,
-                TotalCalories = req.TotalCalories
+                TotalCalories = serverCalculatedCalories
             };
 
             return Ok(result);
@@ -1120,8 +1133,7 @@ public class WorkoutController : ControllerBase
                                    && s.ProgramInstanceId == activeProgram.InstanceId);
 
         // Calculate total calories burned from all exercises in the session
-        int caloriesBurned = workoutSession?.UsrUserSessionWorkouts
-            .Sum(sw => sw.Workout?.CaloriesBurned ?? 0) ?? 0;
+        int caloriesBurned = CalculateSessionCaloriesBurned(workoutSession);
 
         // Get water intake for the completed day
         var waterLog = await _context.NtrWaterLogs
@@ -1161,6 +1173,38 @@ public class WorkoutController : ControllerBase
 
 
         _logger.LogInformation($"Advanced program day to {activeProgram.CurrentDayNo} for user {userId}");
+    }
+
+    private static int CalculateSessionCaloriesBurned(UsrUserWorkoutSession? workoutSession)
+    {
+        return workoutSession?.UsrUserSessionWorkouts?
+            .Sum(sw => Math.Max(sw.Workout?.CaloriesBurned ?? 0, 0)) ?? 0;
+    }
+
+    private async Task UpsertActivitySummary(int userId, DateOnly logDate, int caloriesBurned, int totalMinutes)
+    {
+        var existingSummary = await _context.ActActivitySummaries
+            .FirstOrDefaultAsync(a => a.UserId == userId && a.LogDate == logDate);
+
+        int safeCalories = Math.Max(caloriesBurned, 0);
+        int safeMinutes = Math.Max(totalMinutes, 0);
+
+        if (existingSummary == null)
+        {
+            _context.ActActivitySummaries.Add(new ActActivitySummary
+            {
+                UserId = userId,
+                LogDate = logDate,
+                CaloriesBurned = safeCalories,
+                TotalMinutes = safeMinutes,
+                UpdatedAt = DateTime.UtcNow
+            });
+            return;
+        }
+
+        existingSummary.CaloriesBurned = safeCalories;
+        existingSummary.TotalMinutes = safeMinutes;
+        existingSummary.UpdatedAt = DateTime.UtcNow;
     }
 
     private async Task EnsureWarmupsExist(int sessionId, int programId, string dayType, int weekNo, string fitnessLevel, bool isRehab)
