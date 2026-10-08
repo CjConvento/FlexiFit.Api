@@ -908,15 +908,29 @@ namespace FlexiFit.Api.Controllers
                                     _context.UsrUserSessionInstances.Add(sessionInstanceLink);
                                     await _context.SaveChangesAsync();
 
-                                    // 5e. SMART SEEDING
                                     // 5e. SMART SEEDING (With Strict Level Filter)
+                                    
+                                    // I-normalize ang requested level (tanggalin ang spaces, gawing lowercase)
+                                    string requestedLevel = (request.FitnessLevel ?? "Beginner").Trim().ToLower();
+
                                     var dayWorkoutsPool = await _context.WrkProgramTemplateDaytypeWorkouts
                                         .Include(dw => dw.Workout)
                                         .Where(dw => dw.ProgramId == template.ProgramId
                                                 && dw.DayType == dayStructure.DayType
-                                                // 🔥 DAGDAG NATIN 'TO: Siguraduhin na ang workout difficulty ay match sa request!
-                                                && dw.Workout.DifficultyLevel == request.FitnessLevel)
+                                                // DAGDAG NATIN 'TO: Siguraduhin na ang workout difficulty ay match sa request!
+                                                && (dw.Workout.DifficultyLevel ?? "Beginner").Trim().ToLower() == requestedLevel)
                                         .ToListAsync();
+
+                                        // SAFETY NET: Kung sakaling may human error sa database (hal. nakalimutan i-tag ang level)
+                                        if (!dayWorkoutsPool.Any())
+                                        {
+                                            _logger.LogWarning($"[SEEDING] Strict filter returned 0. Falling back to all workouts for DayType '{dayStructure.DayType}'.");
+                                            dayWorkoutsPool = await _context.WrkProgramTemplateDaytypeWorkouts
+                                                .Include(dw => dw.Workout)
+                                                .Where(dw => dw.ProgramId == template.ProgramId && dw.DayType == dayStructure.DayType)
+                                                .OrderBy(dw => dw.Workout.DifficultyLevel)
+                                                .ToListAsync();
+                                        }
 
                                     var shuffledPool = dayWorkoutsPool.OrderBy(x => Guid.NewGuid()).ToList();
 
