@@ -32,6 +32,7 @@
     {
         public int ProgramId { get; set; }
         public int ProgramNumber { get; set; }
+        public int TotalPrograms { get; set; }
         public string ProgramName { get; set; } = "";
         public string Environment { get; set; } = "";
         public string Level { get; set; } = "";

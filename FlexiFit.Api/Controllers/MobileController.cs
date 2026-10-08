@@ -773,6 +773,25 @@ namespace FlexiFit.Api.Controllers
                     // --- 5. WORKOUT ACTIVATION (SEEDING SESSIONS) ---
                     if (request.SelectedPrograms != null && request.SelectedPrograms.Any())
                     {
+                                                // ========================================================================
+                        // FIX (Item 12 - Patch 12.2): I-deactivate ang lumang ACTIVE programs bago gumawa ng bago
+                        // ========================================================================
+                        var oldActivePrograms = await _context.UsrUserProgramInstances
+                            .Where(p => p.UserId == userId.Value && p.Status == "ACTIVE")
+                            .ToListAsync();
+
+                        if (oldActivePrograms.Any())
+                        {
+                            foreach (var oldProgram in oldActivePrograms)
+                            {
+                                oldProgram.Status = "REPLACED"; 
+                            }
+                            
+                            // I-save agad para ma-apply bago mag-create ng bago (nasa loob na ng transaction, so safe)
+                            await _context.SaveChangesAsync(); 
+                            _logger.LogInformation($"Deactivated {oldActivePrograms.Count} old active program(s) for user {userId.Value} due to re-onboarding.");
+                        }
+
                         // 1. Kunin ang Data mula sa Onboarding Details ni User
                         var onboarding = await _context.UsrUserOnboardingDetails
                             .FirstOrDefaultAsync(o => o.UserId == userId.Value);

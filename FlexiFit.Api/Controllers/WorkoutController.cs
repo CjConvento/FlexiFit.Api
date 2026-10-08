@@ -23,45 +23,37 @@ public class WorkoutController : ControllerBase
     }
 
     [HttpGet("today")]
-    public async Task<ActionResult<DailyWorkoutPlanDto>> GetTodayWorkout()
+    public async Task<ActionResult<DailyWorkoutPlanDto>> GetTodayWorkout([FromQuery] int programNumber = 1)
     {
         var userId = GetUserId();
         if (userId == null) return Unauthorized();
+
+        int userInt = userId.Value; 
 
         var todayDateOnly = DateOnly.FromDateTime(DateTime.UtcNow);
         var baseUrl = $"{Request.Scheme}://{Request.Host}";
 
         try
         {
-            // 1. Get Active Program Instance (project only needed fields)
-            var activeProgram = await _context.UsrUserProgramInstances
-                .Where(p => p.UserId == userId && p.Status == "ACTIVE")
-                .Select(p => new
-                {
-                    p.InstanceId,
-                    p.ProgramId,
-                    p.CurrentDayNo,
-                    p.CycleNo,
-                    p.FitnessLevelAtStart,
-                    p.Status,
-                    ProgramName = p.Program != null ? p.Program.ProgramName : "My Program",
-                    ProgramDescription = p.Program != null ? p.Program.Description : "",
-                    ProgramEnvironment = p.Program != null ? p.Program.Environment : "Any",
-                    ProgramLevel = p.Program != null ? p.Program.FitnessLevel : "Beginner"
-                })
-                .FirstOrDefaultAsync();
-
-            if (activeProgram == null)
+            // Gamitin ang Helper para kunin ang lahat ng active programs
+            var activePrograms = await GetActiveProgramsAsync(userInt);
+            if (activePrograms.Count == 0)
+            {
                 return NotFound(new { message = "No active program found. Please start a program first." });
+            }
 
-            _logger.LogInformation($"User {userId} - Current Day: {activeProgram.CurrentDayNo}");
+            // 1. Safe clamp para iwas IndexOutOfRangeException
+            int targetIndex = Math.Clamp(programNumber - 1, 0, activePrograms.Count - 1);
+            var activeProgram = activePrograms[targetIndex];
 
-            string fitnessLevel = activeProgram.ProgramLevel;
-            bool isRehab = activeProgram.ProgramName?.Contains("Rehab", StringComparison.OrdinalIgnoreCase) == true;
+            // 2. Kunin ang Total Programs at Current Program Number
+            int currentProgramNo = activePrograms.IndexOf(activeProgram) + 1;
+            int totalPrograms = activePrograms.Count;
 
-            // 2. Program number (position among active programs)
-            int programNumber = await _context.UsrUserProgramInstances
-                .CountAsync(p => p.UserId == userId && p.Status == "ACTIVE" && p.InstanceId <= activeProgram.InstanceId);
+            _logger.LogInformation($"User {userId} - Current Day: {activeProgram.CurrentDayNo}, Program: {currentProgramNo}/{totalPrograms}");
+
+            string fitnessLevel = activeProgram.Program?.FitnessLevel ?? "Beginner";
+            bool isRehab = activeProgram.Program?.ProgramName?.Contains("Rehab", StringComparison.OrdinalIgnoreCase) == true;
 
             // 3. Calculate day indices
             int currentDay = activeProgram.CurrentDayNo;
@@ -85,7 +77,7 @@ public class WorkoutController : ControllerBase
 
             // 5. Get or create session for today (project only needed fields)
             var session = await _context.UsrUserWorkoutSessions
-                .Where(s => s.UserId == userId
+                .Where(s => s.UserId == userInt
                          && s.ProgramInstanceId == activeProgram.InstanceId
                          && s.WorkoutDay == currentDay)
                 .Select(s => new
@@ -97,6 +89,22 @@ public class WorkoutController : ControllerBase
                     s.CreatedAt
                 })
                 .FirstOrDefaultAsync();
+
+            // COMMON PROGRAM DTO MAPPER (Para hindi ulit-ulitin ang code sa Rest at Workout day)
+            var programDto = new WorkoutProgramDto
+            {
+                ProgramId = activeProgram.ProgramId,
+                ProgramName = activeProgram.Program?.ProgramName ?? "My Program",
+                Description = activeProgram.Program?.Description ?? "",
+                Environment = activeProgram.Program?.Environment ?? "Any",
+                Level = activeProgram.Program?.FitnessLevel ?? "Beginner",
+                Status = activeProgram.Status,  
+                Month = monthNo,
+                Week = weekNo,
+                Day = currentDay,
+                ProgramNumber = currentProgramNo,   // for numbering
+                TotalPrograms = totalPrograms       // Para sa Mobile arrow visibility
+            };
 
             // -------------------- REST DAY HANDLING (unchanged logic, but efficient) --------------------
             if (isRestDay)
@@ -143,23 +151,11 @@ public class WorkoutController : ControllerBase
                     DayNo = currentDay,
                     DayType = "REST DAY",
                     Status = "REST",
-                    Level = activeProgram.ProgramLevel,
+                    Level = activeProgram.Program?.FitnessLevel,
                     FocusArea = "Recovery",
                     Message = "Today is a rest day! Time to recover and recharge. 🧘",
                     CanSkip = false,
-                    Program = new WorkoutProgramDto
-                    {
-                        ProgramId = activeProgram.ProgramId,
-                        ProgramName = activeProgram.ProgramName!,
-                        Description = activeProgram.ProgramDescription!,
-                        Environment = activeProgram.ProgramEnvironment,
-                        Level = activeProgram.ProgramLevel,
-                        Status = activeProgram.Status,
-                        Month = monthNo,
-                        Week = weekNo,
-                        Day = currentDay,
-                        ProgramNumber = programNumber
-                    },
+                    Program = programDto, // Gamitin ang common mapper
                     Warmups = new List<WorkoutExerciseDto>(),
                     Workouts = new List<WorkoutExerciseDto>(),
                     TotalCalories = 0,
@@ -174,7 +170,7 @@ public class WorkoutController : ControllerBase
 
                 var newSession = new UsrUserWorkoutSession
                 {
-                    UserId = userId.Value,
+                    UserId = userInt,
                     ProgramInstanceId = activeProgram.InstanceId,
                     WorkoutDay = currentDay,
                     Status = "PENDING",
@@ -224,7 +220,6 @@ public class WorkoutController : ControllerBase
                     .ToListAsync();
             }
 
-
             // Separate warmups from regular workouts
             var warmups = allWorkouts
                 .Where(w => w.Workout != null && w.Workout.Category?.ToUpper() == "WARMUP")
@@ -242,25 +237,13 @@ public class WorkoutController : ControllerBase
                 DayNo = currentDay,
                 DayType = dayDef.DayType,
                 Status = session.Status ?? "PENDING",
-                Level = activeProgram.ProgramLevel,
+                Level = activeProgram.Program?.FitnessLevel,
                 FocusArea = dayDef.DayType,
                 Message = GetStatusMessage(session.Status),
                 CanSkip = canSkip,
                 SkipMessage = canSkip ? "Skipping will mark this day as skipped and move you to tomorrow's workout." : null,
                 SessionId = session.SessionId,
-                Program = new WorkoutProgramDto
-                {
-                    ProgramId = activeProgram.ProgramId,
-                    ProgramName = activeProgram.ProgramName!,
-                    Description = activeProgram.ProgramDescription!,
-                    Environment = activeProgram.ProgramEnvironment,
-                    Level = activeProgram.ProgramLevel,
-                    Status = activeProgram.Status,
-                    Month = monthNo,
-                    Week = weekNo,
-                    Day = currentDay,
-                    ProgramNumber = programNumber
-                },
+                Program = programDto,
                 Warmups = warmups,
                 Workouts = workouts,
                 TotalCalories = warmups.Sum(x => x.Calories) + workouts.Sum(x => x.Calories),
@@ -282,7 +265,6 @@ public class WorkoutController : ControllerBase
             return StatusCode(500, new { message = ex.Message });
         }
     }
-
 
     [HttpPost("complete")]
     public async Task<ActionResult<WorkoutSessionResultDto>> CompleteSession([FromBody] WorkoutSessionCompleteDto req)
@@ -491,28 +473,31 @@ public class WorkoutController : ControllerBase
     }
 
     [HttpGet("history-detail")]
-    public async Task<ActionResult<DailyWorkoutPlanDto>> GetWorkoutByDate([FromQuery] int day, [FromQuery] int month)
+    public async Task<ActionResult<DailyWorkoutPlanDto>> GetWorkoutByDate([FromQuery] int day, [FromQuery] int month, [FromQuery] int programNumber = 1)
     {
         var userId = GetUserId();
         if (userId == null) return Unauthorized();
 
+        int userInt = userId.Value;
         var baseUrl = $"{Request.Scheme}://{Request.Host}";
 
         try
         {
-            var activeProgram = await _context.UsrUserProgramInstances
-                .FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
+            // Gamitin ang helper para kunin ang lahat ng active programs (consistent sa GetTodayWorkout)
+            var activePrograms = await GetActiveProgramsAsync(userInt);
 
-            if (activeProgram == null)
+            if (activePrograms.Count == 0)
+            {
                 return NotFound(new { message = "No active program found." });
+            }
 
-            // Get all active program instances for this user, ordered by ProgramId (or CreatedAt)
-            var allActivePrograms = await _context.UsrUserProgramInstances
-                .Where(p => p.UserId == userId && p.Status == "ACTIVE")
-                .OrderBy(p => p.ProgramId)   // or p.CreatedAt
-                .ToListAsync();
+            // Safe clamp para iwas IndexOutOfRangeException
+            int targetIndex = Math.Clamp(programNumber -1, 0, activePrograms.Count -1);
+            var activeProgram = activePrograms[targetIndex];
 
-            int programNumber = allActivePrograms.FindIndex(p => p.InstanceId == activeProgram.InstanceId) + 1;
+            // Kunin ang Total Programs at Current Program Number gamit ang helpers
+            int totalPrograms = activePrograms.Count;
+            int currentProgramNo = await GetProgramNumberAsync(userInt, activeProgram.InstanceId);
 
             // Validate day (1-28)
             if (day < 1 || day > 28)
@@ -532,7 +517,7 @@ public class WorkoutController : ControllerBase
 
             // Try to retrieve the session if it exists
             var session = await _context.UsrUserWorkoutSessions
-                .FirstOrDefaultAsync(s => s.UserId == userId
+                .FirstOrDefaultAsync(s => s.UserId == userInt
                                        && s.ProgramInstanceId == activeProgram.InstanceId
                                        && s.WorkoutDay == day);
 
@@ -579,6 +564,22 @@ public class WorkoutController : ControllerBase
                 status = "PENDING";
             else
                 status = "NOT_STARTED";
+            
+            // Common DTO Mapper para consistent ang data structure
+            var programDto = new WorkoutProgramDto
+            {
+                ProgramId = activeProgram.ProgramId,
+                ProgramName = activeProgram.Program?.ProgramName ?? "My Program",
+                Description = activeProgram.Program?.Description ?? "",
+                Environment = activeProgram.Program?.Environment ?? "Any",
+                Level = activeProgram.Program?.FitnessLevel ?? "Beginner",
+                Status = activeProgram.Status,
+                Month = monthNo,
+                Week = weekNo,
+                Day = day,
+                ProgramNumber = currentProgramNo,   // for numbering
+                TotalPrograms = totalPrograms       // Para sa Mobile arrow visibility
+            };
 
             var response = new DailyWorkoutPlanDto
             {
@@ -591,19 +592,7 @@ public class WorkoutController : ControllerBase
                 CanSkip = false, // historical days cannot be skipped
                 SkipMessage = null,
                 SessionId = session?.SessionId ?? 0,
-                Program = new WorkoutProgramDto
-                {
-                    ProgramId = activeProgram.ProgramId,
-                    ProgramName = template?.ProgramName ?? "My Program",
-                    Description = template?.Description ?? "",
-                    Environment = template?.Environment ?? "Any",
-                    Level = template?.FitnessLevel ?? "Beginner",
-                    Status = activeProgram.Status,
-                    Month = monthNo,
-                    Week = weekNo,
-                    Day = day,
-                    ProgramNumber = programNumber   // ✅ ADD THIS
-                },
+                Program = programDto,
                 Warmups = warmups,
                 Workouts = workouts,
                 TotalCalories = warmups.Sum(x => x.Calories) + workouts.Sum(x => x.Calories),
@@ -614,7 +603,7 @@ public class WorkoutController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Error getting workout for user {userId}, day {day}, month {month}");
+            _logger.LogError(ex, $"Error getting workout for user {userInt}, day {day}, month {month}");
             return StatusCode(500, new { message = "An error occurred while fetching workout data." });
         }
     }
@@ -1496,6 +1485,42 @@ public class WorkoutController : ControllerBase
             return userId;
 
         return null;
+    }
+
+    // ========================================================================
+    // TODO (Item 17): Migrate these helpers to IProgramService / ProgramService
+    // ========================================================================
+
+    /// <summary>
+    /// Gets all ACTIVE program instances for a user, ordered by creation date.
+    /// </summary>
+    private async Task<List<UsrUserProgramInstance>> GetActiveProgramsAsync(int userId)
+    {
+        return await _context.UsrUserProgramInstances
+            .Where(p => p.UserId == userId && p.Status == "ACTIVE")
+            .OrderBy(p => p.CreatedAt)
+            .ThenBy(p => p.InstanceId)
+            .Include(p => p.Program) // Include para makuha ang ProgramName, etc.
+            .ToListAsync();
+    }
+
+    /// <summary>
+    /// Calculates the 1-based ordinal number of a specific program instance.
+    /// </summary>
+    private async Task<int> GetProgramNumberAsync(int userId, int instanceId)
+    {
+        var activePrograms = await GetActiveProgramsAsync(userId);
+        int index = activePrograms.FindIndex(p => p.InstanceId == instanceId);
+        return index >= 0 ? index + 1 : 1; // Fallback to 1 if not found
+    }
+
+    /// <summary>
+    /// Gets the total count of ACTIVE programs for a user.
+    /// </summary>
+    private async Task<int> GetTotalActiveProgramsAsync(int userId)
+    {
+        return await _context.UsrUserProgramInstances
+            .CountAsync(p => p.UserId == userId && p.Status == "ACTIVE");
     }
 
     #endregion
