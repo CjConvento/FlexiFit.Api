@@ -1,10 +1,10 @@
 ﻿using FlexiFit.Api.Dtos;
 using FlexiFit.Api.Entities;
+using FlexiFit.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
-using Npgsql;
 
 namespace FlexiFit.Api.Controllers;
 
@@ -15,11 +15,19 @@ public class NutritionController : ControllerBase
 {
     private readonly FlexiFitDbContext _db;
     private readonly ILogger<NutritionController> _logger;
+    private readonly NutritionCalculator _nutritionCalculator;
+    private readonly MealPlanGenerator _mealPlanGenerator;
 
-    public NutritionController(FlexiFitDbContext db, ILogger<NutritionController> logger)
+    public NutritionController(
+        FlexiFitDbContext db, 
+        ILogger<NutritionController> logger,
+        NutritionCalculator nutritionCalculator,
+        MealPlanGenerator mealPlanGenerator)
     {
         _db = db;
         _logger = logger;
+        _nutritionCalculator = nutritionCalculator;
+        _mealPlanGenerator = mealPlanGenerator;
     }
 
     // ✅ GET TODAY'S NUTRITION PLAN
@@ -117,7 +125,7 @@ public class NutritionController : ControllerBase
                 await _db.SaveChangesAsync();
 
                 // Seed meals with the intake target
-                await SeedDailyMeals(userId.Value, dailyLog.DailyLogId, calendarDay.TemplateId, dayInWeek, variationCode, intakeTarget);
+                await SeedDailyMeals(userId.Value, dailyLog.DailyLogId, dailyLog.TargetNetCalories);
 
                 // Reload the daily log to include the seeded meals
                 dailyLog = await _db.NtrDailyLogs
@@ -158,8 +166,7 @@ public class NutritionController : ControllerBase
 
                 if (existingItemCount == 0)
                 {
-                    await SeedDailyMeals(userId.Value, dailyLog.DailyLogId, calendarDay.TemplateId,
-                                         dayInWeek, variationCode, intakeTarget);
+                    await SeedDailyMeals(userId.Value, dailyLog.DailyLogId, intakeTarget);
 
                     // Reload to get meal logs
                     dailyLog = await _db.NtrDailyLogs
@@ -248,8 +255,7 @@ public class NutritionController : ControllerBase
 
             if (existingItemCount == 0)
             {
-                await SeedDailyMeals(userId.Value, dailyLog.DailyLogId, calendarDay.TemplateId,
-                                     calendarDay.DayNo, calendarDay.VariationCode,
+                await SeedDailyMeals(userId.Value, dailyLog.DailyLogId,
                                      dailyLog.TargetNetCalories);
             }
 
@@ -890,219 +896,63 @@ public class NutritionController : ControllerBase
 
     #region Helper Methods
 
-    private async Task SeedDailyMeals(int userId, int dailyLogId, int templateId, int dayNo, string variationCode, decimal targetIntakeCalories)
+    private async Task SeedDailyMeals(int userId, int dailyLogId, decimal targetIntakeCalories)
     {
-        _logger.LogInformation("Seeding meals: UserId={UserId}, TemplateId={TemplateId}, DayNo={DayNo}, Variation={Variation}, Target={Target}",
-            userId, templateId, dayNo, variationCode, targetIntakeCalories);
+        _logger.LogInformation("Seeding meals via MealPlanGenerator: UserId={UserId}, DailyLogId={DailyLogId}, Target={Target}", userId, dailyLogId, targetIntakeCalories);
 
-        // Ensure dayNo is within 1-7
-        if (dayNo < 1 || dayNo > 7)
-        {
-            _logger.LogWarning("DayNo {DayNo} out of range. Adjusting to 1.", dayNo);
-            dayNo = 1;
-        }
+        // 1. Get user profile to calculate accurate macros
+        var nutProfile = await _db.NtrUserNutritionProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
+        var userProfile = await _db.UsrUserProfiles.FirstOrDefaultAsync(p => p.UserId == userId); // ✅ Dito ang Gender
+        var latestMetric = await _db.UsrUserMetrics
+            .Where(m => m.UserId == userId)
+            .OrderByDescending(m => m.RecordedAt)
+            .FirstOrDefaultAsync();
+        var user = await _db.UsrUsers.FirstOrDefaultAsync(u => u.UserId == userId);
 
-        // 1. Get user's allergy IDs
-        var userAllergyIds = await _db.NtrUserAllergies
-            .Where(ua => ua.UserId == userId)
-            .Select(ua => ua.AllergyId)
-            .ToListAsync();
-
-        // 2. Load template day (exact match, then fallbacks)
-        var templateDay = await _db.NtrTemplateDays
-            .Include(td => td.NtrTemplateDayMeals)
-                .ThenInclude(tdm => tdm.NtrTemplateMealItems)
-                    .ThenInclude(tmi => tmi.Food)
-            .FirstOrDefaultAsync(td => td.TemplateId == templateId
-                                       && td.DayNo == dayNo
-                                       && td.VariationCode == variationCode);
-
-        if (templateDay == null)
-        {
-            _logger.LogWarning("Exact template day not found for Variation={Variation}. Falling back to first available variation for Day={DayNo}, Template={TemplateId}.",
-                variationCode, dayNo, templateId);
-            templateDay = await _db.NtrTemplateDays
-                .Include(td => td.NtrTemplateDayMeals)
-                    .ThenInclude(tdm => tdm.NtrTemplateMealItems)
-                        .ThenInclude(tmi => tmi.Food)
-                .FirstOrDefaultAsync(td => td.TemplateId == templateId && td.DayNo == dayNo);
-        }
-
-        if (templateDay == null)
-        {
-            _logger.LogWarning("No template day found for Day={DayNo}. Falling back to Day=1.", dayNo);
-            templateDay = await _db.NtrTemplateDays
-                .Include(td => td.NtrTemplateDayMeals)
-                    .ThenInclude(tdm => tdm.NtrTemplateMealItems)
-                        .ThenInclude(tmi => tmi.Food)
-                .FirstOrDefaultAsync(td => td.TemplateId == templateId && td.DayNo == 1);
-        }
-
-        if (templateDay == null)
-        {
-            _logger.LogError("No template day found for TemplateId={TemplateId}, DayNo={DayNo}. Cannot seed meals.", templateId, dayNo);
-            return;
-        }
-
-        _logger.LogInformation("Using template day {TemplateDayId} with Variation={Variation}, DayNo={DayNo}.",
-            templateDay.TemplateDayId, templateDay.VariationCode, templateDay.DayNo);
-
-        // 3. Get user's dietary type for fallback safe foods
-        var nutProfile = await _db.NtrUserNutritionProfiles
-            .FirstOrDefaultAsync(p => p.UserId == userId);
+        // Fallbacks if profile/metric is missing
+        double weight = (double)(latestMetric?.CurrentWeightKg ?? nutProfile?.WeightKg ?? 70m);
+        double height = (double)(nutProfile?.HeightCm ?? 170m);
+        int age = (int)(nutProfile?.Age ?? 25);
+        string gender = userProfile?.Gender ?? "MALE";
+        string activityLevel = nutProfile?.ActivityLevel ?? "SEDENTARY";
+        string goal = nutProfile?.NutritionGoal ?? "MAINTAIN";
         string dietaryType = nutProfile?.DietaryType ?? "BALANCED";
 
-        // 4. Process each meal type
-        var mealTypes = new[] { "Breakfast", "Lunch", "Dinner", "Snack" };
-        var mealPercentages = new Dictionary<string, double>
-    {
-        { "Breakfast", 0.25 },
-        { "Lunch", 0.35 },
-        { "Dinner", 0.30 },
-        { "Snack", 0.10 }
-    };
+        // 2. Calculate Macro Targets (workoutCaloriesBurned = 0 for baseline seeding)
+        var targets = _nutritionCalculator.Calculate(
+            weightKg: weight,
+            heightCm: height,
+            age: age,
+            gender: gender,
+            activityLevel: activityLevel,
+            goal: goal,
+            dietaryType: dietaryType,
+            workoutCaloriesBurned: 0
+        );
 
-        string GetMealTypeCode(string mealType) => mealType switch
+        // 3. Generate Meals using the new Macro-Aware Generator
+        var seedResult = await _mealPlanGenerator.GenerateForDayAsync(userId, dailyLogId, targets);
+
+        if (seedResult.ItemLogs.Any())
         {
-            "Breakfast" => "B",
-            "Lunch" => "L",
-            "Dinner" => "D",
-            "Snack" => "S",
-            _ => mealType.Substring(0, 1)
-        };
-
-        // We'll accumulate items and meal summaries
-        var allItemLogs = new List<NtrDailyMealItemLog>();
-        var mealSummaries = new Dictionary<string, (decimal calories, decimal protein, decimal carbs, decimal fats)>();
-
-        foreach (var mealType in mealTypes)
-        {
-            decimal targetCalories = (decimal)((double)targetIntakeCalories * mealPercentages[mealType]);
-            decimal currentCalories = 0;
-            var itemsForMeal = new List<(NtrFoodItem food, decimal qty, int sortOrder)>();
-            var usedFoodIds = new HashSet<int>();
-            string mealCode = GetMealTypeCode(mealType);
-
-            // First, add all safe items from the template for this meal type
-            var templateMealsForType = templateDay.NtrTemplateDayMeals
-                .Where(tdm => tdm.MealType == mealType)
-                .SelectMany(tdm => tdm.NtrTemplateMealItems)
-                .ToList();
-
-            decimal templateTotalDefaultCalories = templateMealsForType.Sum(i => i.Food.Calories * (decimal)i.DefaultQty);
-            decimal scalingFactor = templateTotalDefaultCalories > 0 ? targetCalories / templateTotalDefaultCalories : 1;
-
-            foreach (var item in templateMealsForType)
-            {
-                if (item.Food == null) continue;
-
-                // Check if food is safe
-                bool isSafe = !item.Food.FoodAllergies.Any(fa => userAllergyIds.Contains(fa.AllergyId));
-                if (!isSafe)
-                {
-                    _logger.LogInformation("Skipping unsafe template food: {FoodName} (FoodId={FoodId}) for user {UserId}", item.Food.FoodName, item.FoodId, userId);
-                    continue;
-                }
-
-                decimal qty = (decimal)item.DefaultQty * scalingFactor;
-                qty = Math.Clamp(qty, 0.5m, 2.0m); // keep quantity reasonable
-                itemsForMeal.Add((item.Food, qty, item.SortOrder));
-                usedFoodIds.Add(item.FoodId);
-                currentCalories += item.Food.Calories * qty;
-            }
-
-            // If after filtering we still have a deficit, add random safe foods (excluding already used)
-            if (currentCalories < targetCalories)
-            {
-                int maxAttempts = 20;
-                while (currentCalories < targetCalories && maxAttempts-- > 0)
-                {
-                    var safeFoods = await _db.NtrFoodItems
-                        .Where(f => f.MealType == mealType &&
-                                    f.DietaryType == dietaryType &&
-                                    !f.FoodAllergies.Any(fa => userAllergyIds.Contains(fa.AllergyId)) &&
-                                    !usedFoodIds.Contains(f.FoodId))
-                        .ToListAsync();
-
-                    if (!safeFoods.Any()) break;
-
-                    var random = new Random();
-                    var food = safeFoods[random.Next(safeFoods.Count)];
-
-                    decimal remaining = targetCalories - currentCalories;
-                    decimal qty = 1;
-                    if (food.Calories > 0)
-                    {
-                        if (remaining < food.Calories)
-                            qty = remaining / food.Calories;
-                        else
-                            qty = Math.Min(2, (decimal)Math.Ceiling((double)(remaining / food.Calories)));
-                        qty = Math.Clamp(qty, 0.5m, 2.0m);
-                    }
-
-                    var calContribution = food.Calories * qty;
-                    currentCalories += calContribution;
-                    itemsForMeal.Add((food, qty, itemsForMeal.Count + 1)); // sort order at end
-                    usedFoodIds.Add(food.FoodId);
-                }
-            }
-
-            // Create item logs and meal summary
-            if (itemsForMeal.Any())
-            {
-                decimal totalCal = 0, totalProt = 0, totalCarbs = 0, totalFats = 0;
-                int sortOrder = 1;
-                foreach (var (food, qty, _) in itemsForMeal.OrderBy(x => x.sortOrder))
-                {
-                    var cal = food.Calories * qty;
-                    var prot = food.ProteinG * qty;
-                    var carb = food.CarbsG * qty;
-                    var fat = food.FatsG * qty;
-
-                    allItemLogs.Add(new NtrDailyMealItemLog
-                    {
-                        DailyLogId = dailyLogId,
-                        MealType = mealCode,
-                        FoodId = food.FoodId,
-                        Qty = qty,
-                        IsAddon = false,
-                        Calories = cal,
-                        ProteinG = prot,
-                        CarbsG = carb,
-                        FatsG = fat,
-                        SortOrder = sortOrder++
-                    });
-
-                    totalCal += cal;
-                    totalProt += prot;
-                    totalCarbs += carb;
-                    totalFats += fat;
-                }
-
-                mealSummaries[mealCode] = (totalCal, totalProt, totalCarbs, totalFats);
-            }
+            _db.NtrDailyMealItemLogs.AddRange(seedResult.ItemLogs);
         }
 
-        // Insert meal summaries
-        foreach (var (mealCode, totals) in mealSummaries)
+        foreach (var (mealCode, totals) in seedResult.MealSummaries)
         {
-            var mealLog = new NtrDailyMealLog
+            _db.NtrDailyMealLogs.Add(new NtrDailyMealLog
             {
                 DailyLogId = dailyLogId,
                 MealType = mealCode,
-                Calories = (int)totals.calories,
-                ProteinG = totals.protein,
-                CarbsG = totals.carbs,
+                Calories = totals.cal,
+                ProteinG = totals.prot,
+                CarbsG = totals.carb,
                 FatsG = totals.fats
-            };
-            _db.NtrDailyMealLogs.Add(mealLog);
+            });
         }
 
-        _db.NtrDailyMealItemLogs.AddRange(allItemLogs);
         await _db.SaveChangesAsync();
-
-        _logger.LogInformation("Seeded {ItemCount} meal items and {MealCount} meal summaries (allergy‑filtered, with safe fallbacks).",
-            allItemLogs.Count, mealSummaries.Count);
+        _logger.LogInformation("Successfully seeded {ItemCount} meal items for DailyLog {DailyLogId}", seedResult.ItemLogs.Count, dailyLogId);
     }
 
     private async Task TryAdvanceProgramDay(int userId, DateOnly date)
