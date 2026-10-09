@@ -124,33 +124,93 @@ public class MealPlanGenerator
         List<int> userAllergyIds,
         decimal targetProt, decimal targetCarb, decimal targetFat)
     {
-        var safeFoods = await _db.NtrFoodItems
+        // 1. Load REGULAR foods for this meal (meal_type = Breakfast/Lunch/Dinner/Snack)
+        var regularFoods = await _db.NtrFoodItems
             .Where(f => EF.Functions.ILike(f.MealType, mealType)
                     && EF.Functions.ILike(f.DietaryType, dietaryType)
                     && f.IsActive
                     && !f.FoodAllergies.Any(fa => userAllergyIds.Contains(fa.AllergyId)))
             .ToListAsync();
 
-        if (safeFoods.Count == 0) return new();
+        if (regularFoods.Count == 0) return new();
+
+        // 2. Load CARB_ADDON pool (meal_type = 'Add-on')
+        var carbAddons = await _db.NtrFoodItems
+            .Where(f => EF.Functions.ILike(f.MealType, "Add-on")
+                    && EF.Functions.ILike(f.DietaryType, "CARB_ADDON")
+                    && f.IsActive
+                    && !f.FoodAllergies.Any(fa => userAllergyIds.Contains(fa.AllergyId)))
+            .ToListAsync();
+
+        // 3. Load FRUIT_ADDON pool (meal_type = 'Add-on')
+        var fruitAddons = await _db.NtrFoodItems
+            .Where(f => EF.Functions.ILike(f.MealType, "Add-on")
+                    && EF.Functions.ILike(f.DietaryType, "FRUIT_ADDON")
+                    && f.IsActive
+                    && !f.FoodAllergies.Any(fa => userAllergyIds.Contains(fa.AllergyId)))
+            .ToListAsync();
 
         var selected = new List<(NtrFoodItem food, decimal qty)>();
         var usedIds = new HashSet<int>();
 
         decimal curProt = 0, curCarb = 0, curFat = 0;
-        int slots = mealType == "Snack" ? 2 : 3;
+
+        // ═══════════════════════════════════════════════════════════
+        // ✅ STEP 1: Force CARB_ADDON (rice) slot for BALANCED Lunch/Dinner
+        // ═══════════════════════════════════════════════════════════
+        bool isBalanced = dietaryType.Equals("BALANCED", StringComparison.OrdinalIgnoreCase);
+        bool needsRice = isBalanced && (mealType == "Lunch" || mealType == "Dinner");
+
+        if (needsRice && carbAddons.Any())
+        {
+            // Prefer white rice, else highest carb/cal ratio
+            var bestRice = carbAddons
+                .OrderByDescending(f => f.FoodName.Contains("Rice", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+                .ThenByDescending(f => f.CarbsG / Math.Max(f.Calories, 1m))
+                .First();
+
+            // Fill ~50% of target carbs from rice
+            decimal riceQty = 1.0m;
+            if (bestRice.CarbsG > 0 && targetCarb > 0)
+            {
+                riceQty = (targetCarb * 0.5m) / bestRice.CarbsG;
+                riceQty = Math.Clamp(riceQty, 0.5m, 2.0m);
+            }
+
+            selected.Add((bestRice, riceQty));
+            usedIds.Add(bestRice.FoodId);
+            curProt += bestRice.ProteinG * riceQty;
+            curCarb += bestRice.CarbsG   * riceQty;
+            curFat  += bestRice.FatsG    * riceQty;
+
+            _logger.LogDebug("Rice slot for {Meal}: {Food} x{Qty}",
+                mealType, bestRice.FoodName, riceQty);
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // ✅ STEP 2: Greedy loop for regular foods (with overshoot prevention)
+        // ═══════════════════════════════════════════════════════════
+        int maxSlots = mealType == "Snack" ? 2 : 3;
+        int minSlots = mealType == "Snack" ? 1 : 2;
         const int maxIterations = 8;
 
-        for (int iter = 0; iter < maxIterations && slots > 0; iter++)
+        for (int iter = 0; iter < maxIterations; iter++)
         {
-            // Check kung sobra na sa target (weighted gap < 0.05 = 5%)
-            if (CalcWeightedGap(curProt, curCarb, curFat, targetProt, targetCarb, targetFat) < 0.05)
-                break;
+            int itemsPicked = selected.Count;
+            if (itemsPicked >= maxSlots) break;
+
+            double currentScore = CalcWeightedGap(curProt, curCarb, curFat,
+                                                   targetProt, targetCarb, targetFat);
+
+            // Early exit if good enough AND minimum items picked
+            if (currentScore < 0.05) break;
+            if (currentScore < 0.08 && itemsPicked >= minSlots) break;
 
             NtrFoodItem bestFood = null!;
             decimal bestQty = 1m;
             double bestScore = double.MaxValue;
 
-            foreach (var food in safeFoods)
+            foreach (var food in regularFoods)
             {
                 if (usedIds.Contains(food.FoodId)) continue;
 
@@ -174,13 +234,64 @@ public class MealPlanGenerator
 
             if (bestFood == null) break;
 
+            // ✅ OVERSHOOT PREVENTION: Don't add if it worsens score
+            if (bestScore >= currentScore)
+            {
+                _logger.LogDebug("{Meal}: stop — best candidate worsens score ({Best:F2} >= {Cur:F2})",
+                    mealType, bestScore, currentScore);
+                break;
+            }
+
             curProt += bestFood.ProteinG * bestQty;
             curCarb += bestFood.CarbsG   * bestQty;
             curFat  += bestFood.FatsG    * bestQty;
 
             selected.Add((bestFood, bestQty));
             usedIds.Add(bestFood.FoodId);
-            slots--;
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // ✅ STEP 3: Optional FRUIT_ADDON top-up (if carbs still short)
+        // ═══════════════════════════════════════════════════════════
+        if (fruitAddons.Any() && selected.Count < maxSlots)
+        {
+            double gapAfter = CalcWeightedGap(curProt, curCarb, curFat,
+                                               targetProt, targetCarb, targetFat);
+
+            // Add fruit only if we're meaningfully short on carbs (not keto)
+            bool isKeto = dietaryType.Equals("KETO", StringComparison.OrdinalIgnoreCase);
+            if (!isKeto && gapAfter > 0.10 && curCarb < targetCarb * 0.9m)
+            {
+                var bestFruit = fruitAddons
+                    .Where(f => !usedIds.Contains(f.FoodId))
+                    .OrderByDescending(f => f.CarbsG / Math.Max(f.Calories, 1m))
+                    .FirstOrDefault();
+
+                if (bestFruit != null)
+                {
+                    decimal remaining = targetCarb - curCarb;
+                    decimal fruitQty = 1.0m;
+                    if (bestFruit.CarbsG > 0)
+                    {
+                        fruitQty = remaining / bestFruit.CarbsG;
+                        fruitQty = Math.Clamp(fruitQty, 0.25m, 1.5m);
+                    }
+
+                    decimal pProt = curProt + bestFruit.ProteinG * fruitQty;
+                    decimal pCarb = curCarb + bestFruit.CarbsG   * fruitQty;
+                    decimal pFat  = curFat  + bestFruit.FatsG    * fruitQty;
+
+                    double newScore = CalcWeightedGap(pProt, pCarb, pFat,
+                                                       targetProt, targetCarb, targetFat);
+
+                    if (newScore < gapAfter)
+                    {
+                        selected.Add((bestFruit, fruitQty));
+                        _logger.LogDebug("{Meal}: added fruit {Food} x{Qty}",
+                            mealType, bestFruit.FoodName, fruitQty);
+                    }
+                }
+            }
         }
 
         return selected;
@@ -197,8 +308,15 @@ public class MealPlanGenerator
         double Gap(decimal cur, decimal target)
         {
             if (target <= 0) return cur > 0 ? 1.0 : 0.0;
-            double raw = Math.Abs((double)(cur - target)) / (double)target;
-            return Math.Min(1.0, raw); // cap at 100%
+
+            double diff = (double)(cur - target);
+            double ratio = Math.Abs(diff) / (double)target;
+            
+            // Overshoot × 1.5 penalty (extra calories = bad)
+            // Undershoot × 1.0 (missing nutrients = less bad)
+            if (diff > 0)
+                return Math.Min(1.0, ratio * 1.5);
+            return Math.Min(1.0, ratio);
         }
 
         return Gap(curProt, targetProt) * 4.0
