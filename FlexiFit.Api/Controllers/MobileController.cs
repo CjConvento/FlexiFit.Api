@@ -1,5 +1,6 @@
 ﻿using FlexiFit.Api.Dtos;
 using FlexiFit.Api.Entities;
+using FlexiFit.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -19,17 +20,24 @@ namespace FlexiFit.Api.Controllers
         private readonly FlexiFitDbContext _context;
         private readonly ILogger<MobileController> _logger;  // ✅ ADD THIS
         private readonly IMemoryCache _cache;   // <-- add this field
+        private readonly NutritionCalculator _nutritionCalculator;
+        private readonly MealPlanGenerator _mealPlanGenerator;
 
         public MobileController(
             FlexiFitDbContext context,
             IDbContextFactory<FlexiFitDbContext> contextFactory,
             ILogger<MobileController> logger,
-            IMemoryCache memoryCache)
+            IMemoryCache memoryCache,
+            NutritionCalculator nutritionCalculator,
+            MealPlanGenerator mealPlanGenerator
+            )
         {
             _context = context;
             _contextFactory = contextFactory;
             _logger = logger;
             _cache = memoryCache;
+            _nutritionCalculator = nutritionCalculator;
+            _mealPlanGenerator = mealPlanGenerator;
         }
 
         [Authorize]
@@ -487,38 +495,22 @@ namespace FlexiFit.Api.Controllers
                     }
 
                     // --- 4. NUTRITION ENGINE (SEEDING INITIAL MEALS) ---
-                    double w = (double)request.WeightKg;
-                    double h = (double)request.HeightCm;
-                    int age = request.Age > 0 ? request.Age : 25;
+                    var macros = _nutritionCalculator.Calculate(
+                        weightKg:      (double)request.WeightKg,
+                        heightCm:      (double)request.HeightCm,
+                        age:           request.Age > 0 ? request.Age : 25,
+                        gender:        request.Gender,
+                        activityLevel: request.ActivityLevel,
+                        goal:          request.BodyGoal,
+                        dietaryType:   request.DietType
+                    );
 
-                    // BMR Calculation
-                    double bmr = (request.Gender?.ToUpper() == "MALE")
-                        ? (10 * w) + (6.25 * h) - (5 * age) + 5
-                        : (10 * w) + (6.25 * h) - (5 * age) - 161;
+                    double calorieTarget = macros.Calories;
+                    decimal proteinTarget = macros.ProteinG;
+                    decimal carbsTarget   = macros.CarbsG;
+                    decimal fatsTarget    = macros.FatsG;
 
-                    // 1. DYNAMIC MULTIPLIER (All Caps para consistent)
-                    string nutactLevel = (request.ActivityLevel ?? "SEDENTARY").ToUpper().Replace(" ", "").Replace("_", "");
-                    double multiplier = nutactLevel switch
-                    {
-                        "SEDENTARY" => 1.2,
-                        "LIGHTLYACTIVE" => 1.375,
-                        "ACTIVE" => 1.55,
-                        "VERYACTIVE" => 1.725,
-                        _ => 1.375
-                    };
-
-                    double tdee = bmr * multiplier;
-                    double calorieTarget = tdee;
-
-                    // 2. GOAL ADJUSTMENT
                     string goal = (request.BodyGoal ?? "").ToUpper();
-                    if (goal.Contains("LOSE")) calorieTarget -= 500;
-                    else if (goal.Contains("GAIN")) calorieTarget += 300;
-
-                    // 3. MACRO CALCULATION
-                    decimal proteinTarget = (decimal)(w * 2.0);
-                    decimal fatsTarget = (decimal)((calorieTarget * 0.25) / 9);
-                    decimal carbsTarget = (decimal)((calorieTarget - ((double)proteinTarget * 4) - ((double)fatsTarget * 9)) / 4);
 
                     // A. Add Metrics
                     var metrics = new UsrUserMetric
@@ -647,127 +639,29 @@ namespace FlexiFit.Api.Controllers
                     }
                     await _context.SaveChangesAsync();
 
+                    // --- 7. MACRO-BALANCED MEAL SEEDING ---
+                    var seedResult = await _mealPlanGenerator.GenerateForDayAsync(
+                        userId: userId.Value,
+                        dailyLogId: dailyLog.DailyLogId,
+                        targets: macros);
 
-                    // --- 7. ALLERGY‑AWARE MEAL SEEDING (CALORIE‑BASED) ---
-                    // Helper to map full meal type to single character
-                    string GetMealCode(string mt) => mt switch
+                    if (seedResult.ItemLogs.Any())
+                        _context.NtrDailyMealItemLogs.AddRange(seedResult.ItemLogs);
+
+                    foreach (var (mealCode, totals) in seedResult.MealSummaries)
                     {
-                        "Breakfast" => "B",
-                        "Lunch" => "L",
-                        "Dinner" => "D",
-                        "Snack" => "S",
-                        _ => mt.Substring(0, 1)
-                    };
-
-                    // 1. Get user allergy IDs once (before the loop)
-                    var userAllergyIds = await _context.NtrUserAllergies
-                        .Where(ua => ua.UserId == userId.Value)
-                        .Select(ua => ua.AllergyId)
-                        .ToListAsync();
-
-                    // 2. Define meal types and their calorie percentages
-                    var mealTypes = new[] { "Breakfast", "Lunch", "Dinner", "Snack" };
-                    var mealPercentages = new Dictionary<string, double>
-                    {
-                            { "Breakfast", 0.25 },
-                            { "Lunch", 0.35 },
-                            { "Dinner", 0.30 },
-                            { "Snack", 0.10 }
-                    };
-
-                    string dietaryType = (request.DietType ?? "BALANCED").ToUpper();
-
-                    // 3. Seed each meal type
-                    foreach (var mealType in mealTypes)
-                    {
-                        string mealCode = GetMealCode(mealType);   // ✅ idagdag ito
-                        double targetCalories = calorieTarget * mealPercentages[mealType];
-                        double currentCalories = 0;
-                        var selectedItems = new List<(NtrFoodItem food, decimal qty)>();
-                        int maxAttempts = 20;
-
-
-                        while (currentCalories < targetCalories && maxAttempts-- > 0)
+                        _context.NtrDailyMealLogs.Add(new NtrDailyMealLog
                         {
-                            // Get safe foods for this meal type (filtered by allergies)
-                            var safeFoods = await _context.NtrFoodItems
-                                .Where(f => f.MealType == mealType &&
-                                            f.DietaryType == dietaryType &&
-                                            !f.FoodAllergies.Any(fa => userAllergyIds.Contains(fa.AllergyId)))
-                                .ToListAsync();
-
-                            if (!safeFoods.Any()) break;
-
-                            // Randomly pick a food
-                            var random = new Random();
-                            var food = safeFoods[random.Next(safeFoods.Count)];
-
-                            // Determine quantity
-                            decimal qty = 1;
-                            if (food.Calories > 0)
-                            {
-                                double remaining = targetCalories - currentCalories;
-                                if (remaining < (double)food.Calories)
-                                    qty = (decimal)(remaining / (double)food.Calories);
-                                else
-                                    qty = Math.Min(2, (decimal)Math.Ceiling(remaining / (double)food.Calories));
-                                qty = Math.Clamp(qty, 0.5m, 2.0m);
-                            }
-
-                            var calContribution = food.Calories * qty;
-                            currentCalories += (double)calContribution;
-                            selectedItems.Add((food: food, qty: qty)); // explicit tuple naming to avoid ambiguity
-                        }
-
-                        // Create meal logs from selected items
-                        if (selectedItems.Any())
-                        {
-                            decimal totalCal = 0, totalProt = 0, totalCarbs = 0, totalFats = 0;
-                            var itemsToLog = new List<NtrDailyMealItemLog>();
-                            int sortOrder = 1;
-
-                            foreach (var (food, qty) in selectedItems)
-                            {
-                                var cal = food.Calories * qty;
-                                var prot = food.ProteinG * qty;
-                                var carb = food.CarbsG * qty;
-                                var fat = food.FatsG * qty;
-
-                                itemsToLog.Add(new NtrDailyMealItemLog
-                                {
-                                    DailyLogId = dailyLog.DailyLogId,
-                                    MealType = mealCode,
-                                    FoodId = food.FoodId,
-                                    Qty = qty,
-                                    IsAddon = false,
-                                    Calories = cal,
-                                    ProteinG = prot,
-                                    CarbsG = carb,
-                                    FatsG = fat,
-                                    SortOrder = sortOrder++
-                                });
-
-                                totalCal += cal;
-                                totalProt += prot;
-                                totalCarbs += carb;
-                                totalFats += fat;
-                            }
-
-                            var mealLog = new NtrDailyMealLog
-                            {
-                                DailyLogId = dailyLog.DailyLogId,
-                                MealType = mealCode,
-                                Calories = (int)totalCal,
-                                ProteinG = totalProt,
-                                CarbsG = totalCarbs,
-                                FatsG = totalFats
-                            };
-                            _context.NtrDailyMealLogs.Add(mealLog);
-                            _context.NtrDailyMealItemLogs.AddRange(itemsToLog);
-                        }
+                            DailyLogId = dailyLog.DailyLogId,
+                            MealType   = mealCode,
+                            Calories   = totals.cal,
+                            ProteinG   = totals.prot,
+                            CarbsG     = totals.carb,
+                            FatsG      = totals.fats
+                        });
                     }
-                    await _context.SaveChangesAsync();
 
+                    await _context.SaveChangesAsync();
 
 
                     // --- 5. WORKOUT ACTIVATION (SEEDING SESSIONS) ---

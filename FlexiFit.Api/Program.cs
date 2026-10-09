@@ -116,6 +116,10 @@ builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IBlobService, AppwriteStorageService>();
 // builder.Services.AddScoped<IBlobService, BlobService>();
 
+// Centralized nutrition logic
+builder.Services.AddScoped<NutritionCalculator>();
+builder.Services.AddScoped<MealPlanGenerator>();
+
 // =======================================================
 // 🔥 5. FIREBASE ADMIN INITIALIZATION
 // =======================================================
