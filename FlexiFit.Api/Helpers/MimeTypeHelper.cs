@@ -2,7 +2,7 @@ namespace FlexiFit.Api.Helpers;
 
 public static class MimeTypeHelper
 {
-    // ✅ Common image MIME types
+    //  Common image MIME types
     private static readonly Dictionary<string, string> _mimeTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         // Images

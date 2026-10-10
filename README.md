@@ -200,10 +200,10 @@ Initialize compilation workflows by firing these commands inside your terminal w
 
 | Component | URL | Status |
 | :--- | :--- | :--- |
-| **API (Public Swagger U)** | `https://flexifit-api-ylop.onrender.com/swagger/index.html` | ✅ Live |
-| **Admin Panel** | `https://flexifitadminpanel.onrender.com` | ✅ Live |
-| **Database** | Supabase PostgreSQL (IPv4 Connection Pooler) | ✅ 38 tables |
-| **Storage** | Appwrite Cloud (`sgp.cloud.appwrite.io`) | ✅ 3 buckets |
+| **API (Public Swagger U)** | `https://flexifit-api-ylop.onrender.com/swagger/index.html` |  Live |
+| **Admin Panel** | `https://flexifitadminpanel.onrender.com` |  Live |
+| **Database** | Supabase PostgreSQL (IPv4 Connection Pooler) |  38 tables |
+| **Storage** | Appwrite Cloud (`sgp.cloud.appwrite.io`) |  3 buckets |
 
 ---
 

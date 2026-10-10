@@ -183,7 +183,7 @@ public class WorkoutController : ControllerBase
                 // Create workout exercises (includes warmups)
                 await CreateSessionWorkouts(newSession.SessionId, activeProgram.ProgramId, dayDef.DayType, weekNo, fitnessLevel, isRehab);
 
-                // ✅ REORDER: Warmups muna, tapos main workouts
+                //  REORDER: Warmups muna, tapos main workouts
                 await ReorderWorkouts(newSession.SessionId);
 
                 // Ensure calendar entry exists
@@ -204,12 +204,12 @@ public class WorkoutController : ControllerBase
                 .OrderBy(sw => sw.OrderNo)
                 .ToListAsync();
 
-            // ✅ Repair missing warmups for pending sessions (with rehab support)
+            //  Repair missing warmups for pending sessions (with rehab support)
             if (!isCompleted && !isSkipped)
             {
                 await EnsureWarmupsExist(session.SessionId, activeProgram.ProgramId, dayDef.DayType, weekNo, fitnessLevel, isRehab);
 
-                // ✅ REORDER: Warmups muna, tapos main workouts
+                //  REORDER: Warmups muna, tapos main workouts
                 await ReorderWorkouts(session.SessionId);
 
                 // Reload to include the newly added warmups
@@ -442,7 +442,7 @@ public class WorkoutController : ControllerBase
 
             int templateDayNo = ((activeProgram.CurrentDayNo - 1) % 7) + 1;
             var dayDef = await _context.WrkProgramTemplateDays
-                .FirstOrDefaultAsync(d => d.ProgramId == activeProgram.ProgramId && d.DayNo == templateDayNo && d.WeekNo == 1);   // ✅ ensure we use week 1 pattern);
+                .FirstOrDefaultAsync(d => d.ProgramId == activeProgram.ProgramId && d.DayNo == templateDayNo && d.WeekNo == 1);   //  ensure we use week 1 pattern);
 
             bool isRestDay = dayDef?.DayType?.Contains("REST", StringComparison.OrdinalIgnoreCase) ?? false;
 
@@ -705,17 +705,17 @@ public class WorkoutController : ControllerBase
     {
         try
         {
-            // ✅ Validate inputs
+            //  Validate inputs
             if (page < 1) page = 1;
             if (pageSize < 1) pageSize = 10;
             if (pageSize > 100) pageSize = 100; // Max limit para iwas abuse
 
             _logger.LogInformation("📡 ADMIN: Fetching workouts — Page {Page}, Size {PageSize}",page, pageSize);
 
-            // ✅ Base query
+            //  Base query
             var query = _context.WrkWorkouts.AsNoTracking().AsQueryable();
 
-            // ✅ Optional search filter
+            //  Optional search filter
             if (!string.IsNullOrWhiteSpace(search))
             {
                 var lowerSearch = search.ToLower();
@@ -725,10 +725,10 @@ public class WorkoutController : ControllerBase
                     w.Equipment!.ToLower().Contains(lowerSearch));
             }
 
-            // ✅ Get total count BEFORE pagination
+            //  Get total count BEFORE pagination
             var totalCount = await query.CountAsync();
 
-            // ✅ Apply pagination
+            //  Apply pagination
             var workouts = await query
                 .OrderBy(w => w.WorkoutId)
                 .Skip((page - 1) * pageSize)
@@ -737,10 +737,10 @@ public class WorkoutController : ControllerBase
 
             var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
 
-             _logger.LogInformation("✅ ADMIN: Retrieved {Count} workouts (Page {Page}/{TotalPages}, Total: {Total})",
+             _logger.LogInformation(" ADMIN: Retrieved {Count} workouts (Page {Page}/{TotalPages}, Total: {Total})",
             workouts.Count, page, totalPages, totalCount);
 
-            // ✅ Return paginated response
+            //  Return paginated response
             return Ok(new
             {
                 data = workouts,
@@ -810,7 +810,7 @@ public class WorkoutController : ControllerBase
             _context.WrkWorkouts.Add(workout);
             await _context.SaveChangesAsync();
 
-            _logger.LogInformation("✅ ADMIN: Workout created with ID: {Id}", workout.WorkoutId);
+            _logger.LogInformation(" ADMIN: Workout created with ID: {Id}", workout.WorkoutId);
             return CreatedAtAction(nameof(AdminGetWorkout), new { id = workout.WorkoutId }, workout);
         }
         catch (Exception ex)
@@ -870,7 +870,7 @@ public class WorkoutController : ControllerBase
 
             await _context.SaveChangesAsync();
 
-            _logger.LogInformation("✅ ADMIN: Workout updated: {Id}", id);
+            _logger.LogInformation(" ADMIN: Workout updated: {Id}", id);
             return Ok(new { message = "Workout updated successfully." });
         }
         catch (Exception ex)
@@ -903,7 +903,7 @@ public class WorkoutController : ControllerBase
             _context.WrkWorkouts.Remove(workout);
             await _context.SaveChangesAsync();
 
-            _logger.LogInformation("✅ ADMIN: Workout deleted: {Id}", id);
+            _logger.LogInformation(" ADMIN: Workout deleted: {Id}", id);
             return Ok(new { message = "Workout deleted successfully." });
         }
         catch (Exception ex)
@@ -935,7 +935,7 @@ public class WorkoutController : ControllerBase
                 })
                 .ToListAsync();
 
-            _logger.LogInformation("✅ ADMIN: Retrieved {Count} tutorials", tutorials.Count);
+            _logger.LogInformation(" ADMIN: Retrieved {Count} tutorials", tutorials.Count);
             return Ok(tutorials);
         }
         catch (Exception ex)
@@ -1055,7 +1055,7 @@ public class WorkoutController : ControllerBase
             return;
         }
 
-        // ✅ RACE CONDITION FIX #1: Check kung na-advance na ang araw na 'to
+        //  RACE CONDITION FIX #1: Check kung na-advance na ang araw na 'to
         int currentDay = activeProgram.CurrentDayNo;
         var alreadyAdvanced = await _context.DailyProgressLogs
             .AnyAsync(p => p.UserId == userId
@@ -1134,7 +1134,7 @@ public class WorkoutController : ControllerBase
             UpdatedAt = DateTime.UtcNow
         };
 
-        // ✅ RACE CONDITION FIX #3: Handle unique constraint violation
+        //  RACE CONDITION FIX #3: Handle unique constraint violation
         try
         {
             _context.DailyProgressLogs.Add(progressLog);
@@ -1143,7 +1143,7 @@ public class WorkoutController : ControllerBase
         catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException pgEx && pgEx.SqlState == "23505")
         {
             _logger.LogWarning($"Duplicate DailyProgressLog detected for Day {completedDayNo}. Another thread already advanced.");
-            return;  // ✅ Hindi mag-throw — graceful exit
+            return;  //  Hindi mag-throw — graceful exit
         }
         // ========== END POPULATE DAILY_PROGRESS_LOG ==========  
 
@@ -1409,7 +1409,7 @@ public class WorkoutController : ControllerBase
         }
         else if (!string.IsNullOrEmpty(sw.Workout.ImgFilename))
         {
-            // ✅ If DB has full URL (Appwrite), pass through
+            //  If DB has full URL (Appwrite), pass through
             if (sw.Workout.ImgFilename.StartsWith("http", StringComparison.OrdinalIgnoreCase))
             {
                 imageUrl = sw.Workout.ImgFilename;

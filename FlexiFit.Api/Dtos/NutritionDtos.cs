@@ -27,7 +27,7 @@ namespace FlexiFit.Api.Dtos
         // Today's Meals
         public List<MealGroupDto> Meals { get; set; } = new();
 
-        // ✅ ADD THIS - For session tracking
+        // Sssion tracking
         public int DailyLogId { get; set; }
     }
 

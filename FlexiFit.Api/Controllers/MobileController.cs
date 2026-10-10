@@ -18,7 +18,7 @@ namespace FlexiFit.Api.Controllers
     {
         private readonly IDbContextFactory<FlexiFitDbContext> _contextFactory;
         private readonly FlexiFitDbContext _context;
-        private readonly ILogger<MobileController> _logger;  // ✅ ADD THIS
+        private readonly ILogger<MobileController> _logger;  //  ADD THIS
         private readonly IMemoryCache _cache;   // <-- add this field
         private readonly NutritionCalculator _nutritionCalculator;
         private readonly MealPlanGenerator _mealPlanGenerator;
@@ -333,7 +333,7 @@ namespace FlexiFit.Api.Controllers
             if (string.IsNullOrEmpty(fileName))
                 return $"{baseUrl}/images/workouts/default.png";
 
-            // ✅ If DB has full URL (Appwrite), pass through
+            //  If DB has full URL (Appwrite), pass through
             if (fileName.StartsWith("http", StringComparison.OrdinalIgnoreCase))
                 return fileName;
 
@@ -1106,7 +1106,7 @@ namespace FlexiFit.Api.Controllers
         {
             if (string.IsNullOrEmpty(fileName)) return $"{baseUrl}/images/foods/default.png";
 
-            // ✅ If DB has full URL (Appwrite), pass through
+            //  If DB has full URL (Appwrite), pass through
             if (fileName.StartsWith("http", StringComparison.OrdinalIgnoreCase))
                 return fileName;
 

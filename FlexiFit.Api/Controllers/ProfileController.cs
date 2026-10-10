@@ -74,7 +74,7 @@ namespace FlexiFit.Api.Controllers
 
                 if (cycle != null)
                 {
-                    // ✅ FIX: Gamitin ang centralized calculator imbes na manual BMR math
+                    //  FIX: Gamitin ang centralized calculator imbes na manual BMR math
                     var targets = _nutritionCalculator.Calculate(
                         weightKg: (double)request.WeightKg,
                         heightCm: (double)request.HeightCm,
@@ -217,7 +217,7 @@ namespace FlexiFit.Api.Controllers
                 if (profile.BirthDate.Value > today.AddYears(-age)) age--;
             }
 
-            // ✅ Build avatar URL — passthrough Appwrite full URLs, prefix legacy paths
+            //  Build avatar URL — passthrough Appwrite full URLs, prefix legacy paths
             var baseUrl = $"{Request.Scheme}://{Request.Host}";
             string? finalAvatarUrl = null;
             if (!string.IsNullOrEmpty(profile.AvatarUrl))
@@ -417,7 +417,7 @@ namespace FlexiFit.Api.Controllers
 
             if (profile == null) return NotFound("Profile not found.");
 
-            // ✅ 1. Avatar URL — passthrough Appwrite full URLs, prefix legacy paths
+            //  1. Avatar URL — passthrough Appwrite full URLs, prefix legacy paths
             var baseUrl = $"{Request.Scheme}://{Request.Host}";
             string? finalAvatarUrl = null;
             if (!string.IsNullOrEmpty(profile.AvatarUrl))

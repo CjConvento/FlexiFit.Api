@@ -30,7 +30,7 @@ public partial class UsrUserSessionWorkout
     [Column("order_no")]
     public int OrderNo { get; set; }
 
-    // ✅ ONLY these navigation properties - NO UsrUserSessionInstance!
+    //  ONLY these navigation properties - NO UsrUserSessionInstance!
     [ForeignKey("SessionId")]
     public virtual UsrUserWorkoutSession Session { get; set; } = null!;
 

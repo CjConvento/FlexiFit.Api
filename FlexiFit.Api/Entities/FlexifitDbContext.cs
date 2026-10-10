@@ -640,7 +640,7 @@ public partial class FlexiFitDbContext : DbContext
                 .HasColumnType("decimal(10, 2)")
                 .HasColumnName("weight_kg");
 
-            // ✅ IDAGDAG ITO — para sa IsProfileComplete
+            //  IDAGDAG ITO — para sa IsProfileComplete
             entity.Property(e => e.IsProfileComplete)
                 .HasDefaultValue(false)
                 .HasColumnName("is_profile_complete");
@@ -1084,7 +1084,7 @@ public partial class FlexiFitDbContext : DbContext
             entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("PLANNED").HasColumnName("status");
             entity.Property(e => e.CreatedAt).HasPrecision(0).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnName("created_at");
 
-            // ✅ ONLY relationship to Program Instance
+            //  ONLY relationship to Program Instance
             entity.HasOne(d => d.Instance)
                 .WithMany(p => p.UsrUserSessionInstances)
                 .HasForeignKey(d => d.InstanceId)
@@ -1111,13 +1111,13 @@ public partial class FlexiFitDbContext : DbContext
                 .HasDefaultValue(1)
                 .HasColumnName("order_no");
 
-            // ✅ Relationship to UsrUserWorkoutSession
+            //  Relationship to UsrUserWorkoutSession
             entity.HasOne(e => e.Session)
                 .WithMany(e => e.UsrUserSessionWorkouts)
                 .HasForeignKey(e => e.SessionId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // ✅ Relationship to WrkWorkout
+            //  Relationship to WrkWorkout
             entity.HasOne(e => e.Workout)
                 .WithMany()
                 .HasForeignKey(e => e.WorkoutId)
@@ -1173,7 +1173,7 @@ public partial class FlexiFitDbContext : DbContext
             entity.Property(e => e.UserId).HasColumnName("user_id");
             entity.Property(e => e.WorkoutDay).HasColumnName("workout_day");
 
-            // ✅ ADD THIS - Relationship to UsrUserSessionWorkout
+            //  ADD THIS - Relationship to UsrUserSessionWorkout
             entity.HasMany(e => e.UsrUserSessionWorkouts)
                 .WithOne(e => e.Session)
                 .HasForeignKey(e => e.SessionId)
@@ -1419,7 +1419,7 @@ public partial class FlexiFitDbContext : DbContext
                 .HasMaxLength(150)
                 .HasColumnName("workout_name");
 
-            // ✅ ADD THIS - Relationship to UsrUserSessionWorkout
+            //  ADD THIS - Relationship to UsrUserSessionWorkout
             // Kailangan ito para gumana ang .Include(sw => sw.Workout)
             entity.HasMany(e => e.UsrUserSessionWorkouts)
                 .WithOne(e => e.Workout)

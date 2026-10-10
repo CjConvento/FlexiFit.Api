@@ -39,7 +39,7 @@ builder.Services.AddCors(options =>
             )
             .AllowAnyMethod()
             .AllowAnyHeader()
-            .AllowCredentials();  // ✅ Okay na ito kasi may specific origins
+            .AllowCredentials();  //  Okay na ito kasi may specific origins
     });
 });
 
@@ -127,7 +127,7 @@ if (FirebaseApp.DefaultInstance == null)
 {
     try
     {
-        // ✅ 1. UNAHIN: RENDER SECRET FILE (Production)
+        //  1. UNAHIN: RENDER SECRET FILE (Production)
         var secretPath = "/etc/secrets/firebase-service-account.json";
 
         if (File.Exists(secretPath))
@@ -137,9 +137,9 @@ if (FirebaseApp.DefaultInstance == null)
             {
                 Credential = credential
             });
-            Console.WriteLine("✅ Firebase initialized using Render Secret File.");
+            Console.WriteLine(" Firebase initialized using Render Secret File.");
         }
-        // ✅ 2. ENVIRONMENT VARIABLE (Azure or Backup) — with Base64 support
+        //  2. ENVIRONMENT VARIABLE (Azure or Backup) — with Base64 support
         else if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("FIREBASE_SERVICE_ACCOUNT")))
         {
             string? firebaseJson = Environment.GetEnvironmentVariable("FIREBASE_SERVICE_ACCOUNT");
@@ -149,7 +149,7 @@ if (FirebaseApp.DefaultInstance == null)
             {
                 byte[] data = Convert.FromBase64String(firebaseJson!);
                 firebaseJson = System.Text.Encoding.UTF8.GetString(data);
-                Console.WriteLine("✅ Firebase JSON decoded from Base64.");
+                Console.WriteLine(" Firebase JSON decoded from Base64.");
             }
             catch
             {
@@ -160,9 +160,9 @@ if (FirebaseApp.DefaultInstance == null)
             {
                 Credential = GoogleCredential.FromJson(firebaseJson)
             });
-            Console.WriteLine("✅ Firebase initialized using environment variable.");
+            Console.WriteLine(" Firebase initialized using environment variable.");
         }
-        // ✅ 3. FALLBACK: LOCAL FILE (Development)
+        //  3. FALLBACK: LOCAL FILE (Development)
         else
         {
             var serviceAccountPath = Path.Combine(
@@ -179,7 +179,7 @@ if (FirebaseApp.DefaultInstance == null)
                 {
                     Credential = credential
                 });
-                Console.WriteLine($"✅ Firebase initialized using local file: {serviceAccountPath}");
+                Console.WriteLine($" Firebase initialized using local file: {serviceAccountPath}");
             }
             else
             {
@@ -256,7 +256,7 @@ using (var scope = app.Services.CreateScope())
 
         if (canConnect)
         {
-            logger2.LogInformation("✅ DATABASE CONNECTION: SUCCESS");
+            logger2.LogInformation(" DATABASE CONNECTION: SUCCESS");
             
             try
             {

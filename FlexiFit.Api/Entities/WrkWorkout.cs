@@ -22,7 +22,7 @@ public partial class WrkWorkout
     public string? ImgFilename { get; set; }
     public int? Duration { get; set; }
 
-    // ✅ ADD THIS - Navigation property to UsrUserSessionWorkout
+    //  ADD THIS - Navigation property to UsrUserSessionWorkout
     public virtual ICollection<UsrUserSessionWorkout> UsrUserSessionWorkouts { get; set; } = new List<UsrUserSessionWorkout>();
 
     // Existing navigation properties

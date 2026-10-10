@@ -39,7 +39,7 @@ namespace FlexiFit.Api.Controllers
             {
                 _logger.LogInformation("📡 ADMIN: Fetching all activity logs");
 
-                // ✅ RAW SQL - UNION of Workout, Nutrition, Water logs
+                //  RAW SQL - UNION of Workout, Nutrition, Water logs
                 var sql = @"
                     SELECT 
                         a.user_id,
@@ -150,12 +150,12 @@ namespace FlexiFit.Api.Controllers
                 parameters.Add(new NpgsqlParameter("@offset", (page - 1) * pageSize));
                 parameters.Add(new NpgsqlParameter("@pageSize", pageSize));
 
-                // ✅ Execute raw SQL and map to DTO
+                //  Execute raw SQL and map to DTO
                 var logs = await _context.Database
                     .SqlQueryRaw<ActivityLogDto>(sql, parameters.ToArray())
                     .ToListAsync();
 
-                _logger.LogInformation($"✅ Retrieved {logs.Count} logs, Total: {total}");
+                _logger.LogInformation($" Retrieved {logs.Count} logs, Total: {total}");
 
                 return Ok(new
                 {
@@ -250,7 +250,7 @@ namespace FlexiFit.Api.Controllers
 
                 await _context.SaveChangesAsync();
 
-                _logger.LogInformation($"✅ Activity logs deleted for user ID: {id}");
+                _logger.LogInformation($" Activity logs deleted for user ID: {id}");
                 return Ok(new { message = "Activity logs deleted successfully." });
             }
             catch (Exception ex)

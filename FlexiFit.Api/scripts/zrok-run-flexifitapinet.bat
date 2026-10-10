@@ -41,7 +41,7 @@ echo [STARTING] Sinisimulan ang zrok tunnel...
 echo Public Link: https://flexifitapinet.shares.zrok.io
 echo.
 echo ===================================================
-echo  ✅ TUNNEL ACTIVE: https://flexifitapinet.shares.zrok.io
+echo   TUNNEL ACTIVE: https://flexifitapinet.shares.zrok.io
 echo  📌 PAALALA: Huwag isasara ang window na ito!
 echo  🔄 API must be running on localhost:8090
 echo ===================================================

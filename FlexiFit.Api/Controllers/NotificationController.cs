@@ -70,7 +70,7 @@ namespace FlexiFit.Api.Controllers
                 _context.UsrUserNotificationSettings.Add(settings);
             }
 
-                        // ✅ FIXED: Convert int? to int with null coalescing
+                        //  FIXED: Convert int? to int with null coalescing
             settings.WorkoutReminderEnabled = dto.WorkoutReminderEnabled;
             settings.WorkoutReminderTime = ParseTime(dto.WorkoutReminderTime);
             settings.MealReminderEnabled = dto.MealReminderEnabled;
@@ -79,7 +79,7 @@ namespace FlexiFit.Api.Controllers
             settings.WaterStartTime = ParseTime(dto.WaterStartTime);
             settings.WaterEndTime = ParseTime(dto.WaterEndTime);
             
-            // ✅ FIXED: Use null coalescing to provide default values
+            //  FIXED: Use null coalescing to provide default values
             settings.WaterIntervalMinutes = dto.WaterIntervalMinutes ?? 60;
             settings.DailyWaterGoal = dto.DailyWaterGoal ?? 8;
             settings.GlassSizeMl = dto.GlassSizeMl ?? 250;

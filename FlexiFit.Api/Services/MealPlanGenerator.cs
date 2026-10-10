@@ -156,7 +156,7 @@ public class MealPlanGenerator
         decimal curProt = 0, curCarb = 0, curFat = 0;
 
         // ═══════════════════════════════════════════════════════════
-        // ✅ STEP 1: Force CARB_ADDON (rice) slot for BALANCED Lunch/Dinner
+        //  STEP 1: Force CARB_ADDON (rice) slot for BALANCED Lunch/Dinner
         // ═══════════════════════════════════════════════════════════
         bool isBalanced = dietaryType.Equals("BALANCED", StringComparison.OrdinalIgnoreCase);
         bool needsRice = isBalanced && (mealType == "Lunch" || mealType == "Dinner");
@@ -188,7 +188,7 @@ public class MealPlanGenerator
         }
 
         // ═══════════════════════════════════════════════════════════
-        // ✅ STEP 2: Greedy loop for regular foods (with overshoot prevention)
+        //  STEP 2: Greedy loop for regular foods (with overshoot prevention)
         // ═══════════════════════════════════════════════════════════
         int maxSlots = mealType == "Snack" ? 2 : 3;
         int minSlots = mealType == "Snack" ? 1 : 2;
@@ -234,7 +234,7 @@ public class MealPlanGenerator
 
             if (bestFood == null) break;
 
-            // ✅ OVERSHOOT PREVENTION: Don't add if it worsens score
+            //  OVERSHOOT PREVENTION: Don't add if it worsens score
             if (bestScore >= currentScore)
             {
                 _logger.LogDebug("{Meal}: stop — best candidate worsens score ({Best:F2} >= {Cur:F2})",
@@ -251,7 +251,7 @@ public class MealPlanGenerator
         }
 
         // ═══════════════════════════════════════════════════════════
-        // ✅ STEP 3: Optional FRUIT_ADDON top-up (if carbs still short)
+        //  STEP 3: Optional FRUIT_ADDON top-up (if carbs still short)
         // ═══════════════════════════════════════════════════════════
         if (fruitAddons.Any() && selected.Count < maxSlots)
         {

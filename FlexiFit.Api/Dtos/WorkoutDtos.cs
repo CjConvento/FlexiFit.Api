@@ -14,11 +14,11 @@
         public string? FocusArea { get; set; }
         public string? Level { get; set; }
 
-        // ✅ DAGDAG: Para sa skip functionality
+        //  DAGDAG: Para sa skip functionality
         public bool CanSkip { get; set; } = true;
         public string? SkipMessage { get; set; }
 
-        // ✅ DAGDAG: Para ma-track ang session ID
+        //  DAGDAG: Para ma-track ang session ID
         public int SessionId { get; set; }
 
         public int TotalExercises => Warmups.Count + Workouts.Count;
@@ -71,14 +71,14 @@
         public int TotalCalories { get; set; }
         public int TotalMinutes { get; set; }
 
-        // ✅ FIXED: Status values: "COMPLETED", "SKIPPED"
+        //  FIXED: Status values: "COMPLETED", "SKIPPED"
         public string Status { get; set; } = "COMPLETED";
 
-        // ✅ DAGDAG: Optional reason for skipping
+        //  DAGDAG: Optional reason for skipping
         public string? SkipReason { get; set; }
     }
 
-    // 5. ✅ BAGONG DTO: Response after completing/skipping
+    // 5.  BAGONG DTO: Response after completing/skipping
     public class WorkoutSessionResultDto
     {
         public int TotalCalories { get; set; }   // <-- add this
@@ -91,7 +91,7 @@
         public string? SkipMessage { get; set; }
     }
 
-    // 6. ✅ BAGONG DTO: Para sa workout history
+    // 6.  BAGONG DTO: Para sa workout history
     public class WorkoutHistoryDto
     {
         public int WorkoutDay { get; set; }

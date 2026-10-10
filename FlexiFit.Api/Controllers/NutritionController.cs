@@ -30,7 +30,7 @@ public class NutritionController : ControllerBase
         _mealPlanGenerator = mealPlanGenerator;
     }
 
-    // ✅ GET TODAY'S NUTRITION PLAN
+    //  GET TODAY'S NUTRITION PLAN
     [HttpGet("today")]
     public async Task<IActionResult> GetTodayPlan()
     {
@@ -259,7 +259,7 @@ public class NutritionController : ControllerBase
                                      dailyLog.TargetNetCalories);
             }
 
-            // ✅ Pass variationCode and baseUrl
+            //  Pass variationCode and baseUrl
             var mealGroups = await GetMealGroups(dailyLog.DailyLogId, calendarDay.TemplateId, calendarDay.DayNo,
                                                  calendarDay.VariationCode, baseUrl);
 
@@ -274,7 +274,7 @@ public class NutritionController : ControllerBase
 
             double consumedCal = dailyLog?.CaloriesConsumed ?? 0;
 
-            // ✅ Fetch user profile to get dietary type
+            //  Fetch user profile to get dietary type
             var userProfile = await _db.NtrUserNutritionProfiles
                 .FirstOrDefaultAsync(p => p.UserId == userId);
             string templateName = GetTemplateNameFromDietaryType(userProfile?.DietaryType);
@@ -324,7 +324,7 @@ public class NutritionController : ControllerBase
 
             var baseUrl = $"{Request.Scheme}://{Request.Host}";
 
-            // ✅ Resolve image URL: Appwrite full URL passthrough, else placeholder
+            //  Resolve image URL: Appwrite full URL passthrough, else placeholder
             string imgUrl;
             if (string.IsNullOrEmpty(food.ImgFilename))
             {
@@ -683,17 +683,17 @@ public class NutritionController : ControllerBase
     {
         try
         {
-            // ✅ Validate inputs
+            //  Validate inputs
             if (page < 1) page = 1;
             if (pageSize < 1) pageSize = 10;
             if (pageSize > 100) pageSize = 100; // Max limit para iwas abuse
 
             _logger.LogInformation("📡 ADMIN: Fetching foods — Page {Page}, Size {PageSize}, Search: {Search}", page, pageSize, search);
             
-            // ✅ Base query
+            //  Base query
             var query = _db.NtrFoodItems.AsNoTracking().AsQueryable();
 
-            // ✅ Optional search filter
+            //  Optional search filter
             if (!string.IsNullOrWhiteSpace(search))
             {
                 var lowerSearch = search.ToLower();
@@ -704,10 +704,10 @@ public class NutritionController : ControllerBase
                     f.Category!.ToLower().Contains(lowerSearch));
             }
 
-            // ✅ Get total count BEFORE pagination
+            //  Get total count BEFORE pagination
             var totalCount = await query.CountAsync();
 
-            // ✅ Apply pagination + sorting
+            //  Apply pagination + sorting
             var foods = await query
                 .OrderBy(f => f.FoodName)
                 .Skip((page - 1) * pageSize)
@@ -716,10 +716,10 @@ public class NutritionController : ControllerBase
 
             var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
 
-            _logger.LogInformation("✅ ADMIN: Retrieved {Count} foods (Page {Page}/{TotalPages}, Total: {Total})",
+            _logger.LogInformation(" ADMIN: Retrieved {Count} foods (Page {Page}/{TotalPages}, Total: {Total})",
             foods.Count, page, totalPages, totalCount);
 
-            // ✅ Return paginated response
+            //  Return paginated response
             return Ok(new
             {
                 data = foods,
@@ -788,7 +788,7 @@ public class NutritionController : ControllerBase
             _db.NtrFoodItems.Add(food);
             await _db.SaveChangesAsync();
 
-            _logger.LogInformation("✅ ADMIN: Food created with ID: {Id}", food.FoodId);
+            _logger.LogInformation(" ADMIN: Food created with ID: {Id}", food.FoodId);
             return CreatedAtAction(nameof(AdminGetFood), new { id = food.FoodId }, food);
         }
         catch (Exception ex)
@@ -849,7 +849,7 @@ public class NutritionController : ControllerBase
 
             await _db.SaveChangesAsync();
 
-            _logger.LogInformation("✅ ADMIN: Food updated: {Id}", id);
+            _logger.LogInformation(" ADMIN: Food updated: {Id}", id);
             return Ok(new { message = "Food updated successfully." });
         }
         catch (Exception ex)
@@ -882,7 +882,7 @@ public class NutritionController : ControllerBase
             _db.NtrFoodItems.Remove(food);
             await _db.SaveChangesAsync();
 
-            _logger.LogInformation("✅ ADMIN: Food deleted: {Id}", id);
+            _logger.LogInformation(" ADMIN: Food deleted: {Id}", id);
             return Ok(new { message = "Food deleted successfully." });
         }
         catch (Exception ex)
@@ -902,7 +902,7 @@ public class NutritionController : ControllerBase
 
         // 1. Get user profile to calculate accurate macros
         var nutProfile = await _db.NtrUserNutritionProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
-        var userProfile = await _db.UsrUserProfiles.FirstOrDefaultAsync(p => p.UserId == userId); // ✅ Dito ang Gender
+        var userProfile = await _db.UsrUserProfiles.FirstOrDefaultAsync(p => p.UserId == userId); //  Dito ang Gender
         var latestMetric = await _db.UsrUserMetrics
             .Where(m => m.UserId == userId)
             .OrderByDescending(m => m.RecordedAt)
@@ -1137,7 +1137,7 @@ public class NutritionController : ControllerBase
         if (string.IsNullOrEmpty(fileName))
             return $"{baseUrl}/images/foods/default.png";
 
-        // ✅ If DB has full URL (Appwrite), pass through
+        //  If DB has full URL (Appwrite), pass through
         if (fileName.StartsWith("http", StringComparison.OrdinalIgnoreCase))
             return fileName;
 

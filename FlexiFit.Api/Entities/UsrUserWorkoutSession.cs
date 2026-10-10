@@ -33,7 +33,7 @@ public partial class UsrUserWorkoutSession
     [Column("created_at")]
     public DateTime CreatedAt { get; set; }
 
-    // ✅ ADD THIS - Navigation property to session workouts
+    //  ADD THIS - Navigation property to session workouts
     public virtual ICollection<UsrUserSessionWorkout> UsrUserSessionWorkouts { get; set; } = new List<UsrUserSessionWorkout>();
 
     // Navigation properties

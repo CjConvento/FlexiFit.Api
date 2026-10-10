@@ -46,7 +46,7 @@ public class CalendarController : ControllerBase
 
             // 2. Get Template Days Pattern (Week 1 - Days 1-7)
             var templateDays = await _context.WrkProgramTemplateDays
-                .Where(d => d.ProgramId == activeProgram.ProgramId && d.WeekNo == 1)   // ✅ add week filter                .OrderBy(d => d.DayNo)
+                .Where(d => d.ProgramId == activeProgram.ProgramId && d.WeekNo == 1)   //  add week filter                .OrderBy(d => d.DayNo)
                 .Select(d => new { d.DayNo, d.DayType, d.Notes })
                 .ToListAsync();
 
