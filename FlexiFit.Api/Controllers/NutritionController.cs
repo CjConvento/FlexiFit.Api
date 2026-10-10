@@ -17,17 +17,20 @@ public class NutritionController : ControllerBase
     private readonly ILogger<NutritionController> _logger;
     private readonly NutritionCalculator _nutritionCalculator;
     private readonly MealPlanGenerator _mealPlanGenerator;
+    private readonly ProgramProgressionService _programProgressionService;
 
     public NutritionController(
         FlexiFitDbContext db, 
         ILogger<NutritionController> logger,
         NutritionCalculator nutritionCalculator,
-        MealPlanGenerator mealPlanGenerator)
+        MealPlanGenerator mealPlanGenerator,
+        ProgramProgressionService programProgressionService)
     {
         _db = db;
         _logger = logger;
         _nutritionCalculator = nutritionCalculator;
         _mealPlanGenerator = mealPlanGenerator;
+        _programProgressionService = programProgressionService;
     }
 
     //  GET TODAY'S NUTRITION PLAN
@@ -633,9 +636,9 @@ public class NutritionController : ControllerBase
 
             double net = dailyLog!.CaloriesConsumed - burnedCalories;
             double target = dailyLog.TargetNetCalories;
-            bool goalMet = Math.Abs(net - target) <= target * 0.10;
 
-            dailyLog.GoalMet = goalMet;
+            // 1. Gamitin ang centralized calculator (Item 4: Performance indicator lang)
+            dailyLog.GoalMet = NutritionCalculator.CheckGoalMet(net, target); 
             dailyLog.MarkedDoneAt = DateTime.UtcNow;
 
             var nutritionCalendar = await _db.NtrMealPlanCalendars
@@ -652,8 +655,8 @@ public class NutritionController : ControllerBase
 
             await _db.SaveChangesAsync();
 
-            // Try to advance the program day (only if both nutrition and workout are done)
-            await TryAdvanceProgramDay(userId.Value, todayDateOnly);
+            // 2. Gamitin ang single source of truth service para sa advancement
+            await _programProgressionService.TryAdvanceAsync(userId.Value, todayDateOnly);
 
             return Ok(new
             {
@@ -666,7 +669,7 @@ public class NutritionController : ControllerBase
                     consumedCalories = dailyLog.CaloriesConsumed,
                     burnedCalories = burnedCalories,
                     netCalories = net,
-                    goalMet = goalMet
+                    goalMet = dailyLog.GoalMet
                 }
             });
         }
@@ -963,105 +966,6 @@ public class NutritionController : ControllerBase
         _logger.LogInformation("Successfully seeded {ItemCount} meal items for DailyLog {DailyLogId}", seedResult.ItemLogs.Count, dailyLogId);
     }
 
-    private async Task TryAdvanceProgramDay(int userId, DateOnly date)
-    {
-        // 1. Get the cycle ID from daily log (or from the active program)
-        var dailyLog = await _db.NtrDailyLogs
-            .FirstOrDefaultAsync(l => l.UserId == userId && l.PlanDate == date);
-        if (dailyLog == null) return;
-
-        int cycleId = dailyLog.CycleId;
-
-        // 2. Check nutrition completion
-        var nutritionCalendar = await _db.NtrMealPlanCalendars
-            .FirstOrDefaultAsync(c => c.CycleId == cycleId && c.PlanDate == date);
-        if (nutritionCalendar == null) return;
-
-        // 3. Check workout completion
-        var workoutCalendar = await _db.WktWorkoutCalendars
-            .FirstOrDefaultAsync(w => w.UserId == userId && w.PlanDate == date);
-
-        bool nutritionDone = nutritionCalendar.Status == "DONE";
-        bool workoutDone = workoutCalendar?.Status == "DONE";
-
-        // 🔍 ADD THESE LINES
-        _logger.LogInformation($"Nutrition calendar for {date}: Status = {nutritionCalendar?.Status}");
-        _logger.LogInformation($"Workout calendar for {date}: Status = {workoutCalendar?.Status}");
-
-        if (!nutritionDone || !workoutDone)
-        {
-            _logger.LogInformation($"Both not done. Nutrition={nutritionDone}, Workout={workoutDone}");
-            return;
-        }
-        // 4. Get active program instance
-        var activeProgram = await _db.UsrUserProgramInstances
-            .FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
-        if (activeProgram == null) return;
-
-        // 5. Get total days from cycle target
-        var cycleTarget = await _db.NtrUserCycleTargets
-            .Where(t => t.UserId == userId && t.CycleId == activeProgram.CycleNo)
-            .OrderByDescending(t => t.CreatedAt)
-            .FirstOrDefaultAsync();
-
-        int totalDays = (cycleTarget?.WeeksInCycle ?? 4) * 7;
-
-        // 6. Advance day
-        activeProgram.CurrentDayNo++;
-        if (activeProgram.CurrentDayNo > totalDays)
-        {
-            activeProgram.Status = "COMPLETED";
-            activeProgram.CompletedAt = DateTime.UtcNow;
-        }
-        await _db.SaveChangesAsync();
-
-
-        // ========== NEW CODE: POPULATE DAILY_PROGRESS_LOG ==========
-        // Get the workout session for the completed day (the day BEFORE advancement)
-        int completedDayNo = activeProgram.CurrentDayNo - 1;
-
-        var workoutSession = await _db.UsrUserWorkoutSessions
-            .Include(s => s.UsrUserSessionWorkouts)
-                .ThenInclude(sw => sw.Workout)
-            .FirstOrDefaultAsync(s => s.UserId == userId
-                                   && s.WorkoutDay == completedDayNo
-                                   && s.ProgramInstanceId == activeProgram.InstanceId);
-
-        int caloriesBurned = workoutSession?.UsrUserSessionWorkouts
-            .Sum(sw => sw.Workout?.CaloriesBurned ?? 0) ?? 0;
-
-        // Get water intake for the completed day
-        var waterLog = await _db.NtrWaterLogs
-            .Where(w => w.UserId == userId && w.LogDate == date)
-            .SumAsync(w => w.WaterMl);
-
-        // Get daily log for the completed day (already retrieved, but ensure it's the correct one)
-        var completedDailyLog = dailyLog; // dailyLog is already from the date
-
-        // Create and insert the progress log record
-        var progressLog = new DailyProgressLog
-        {
-            UserId = userId,
-            InstanceId = activeProgram.InstanceId,
-            MonthNo = ((completedDayNo - 1) / 28) + 1,
-            WeekNo = ((completedDayNo - 1) / 7) + 1,
-            DayNo = completedDayNo,
-            CaloriesBurned = caloriesBurned,
-            CaloriesIntake = completedDailyLog?.CaloriesConsumed ?? 0,
-            WaterMl = waterLog,
-            MealPlanCompleted = true,
-            FitnessLevelSnapshot = activeProgram.FitnessLevelAtStart,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
-        };
-
-        _db.DailyProgressLogs.Add(progressLog);
-        await _db.SaveChangesAsync();
-        // ========== END NEW CODE ==========
-
-
-        _logger.LogInformation($"Advanced program day to {activeProgram.CurrentDayNo} for user {userId}");
-    }
     private async Task<List<MealGroupDto>> GetMealGroups(int dailyLogId, int templateId, int dayNo, string variationCode, string baseUrl)
     {
         var mealGroups = new List<MealGroupDto>();

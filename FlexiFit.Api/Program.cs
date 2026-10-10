@@ -120,6 +120,9 @@ builder.Services.AddScoped<IBlobService, AppwriteStorageService>();
 builder.Services.AddScoped<NutritionCalculator>();
 builder.Services.AddScoped<MealPlanGenerator>();
 
+// Progression Logic
+builder.Services.AddScoped<ProgramProgressionService>();
+
 // =======================================================
 // 🔥 5. FIREBASE ADMIN INITIALIZATION
 // =======================================================

@@ -181,4 +181,29 @@ public class NutritionCalculator
             _                                             => "SEDENTARY"
         };
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // GOAL MET CHECK (Item 4: Performance indicator, NOT a blocker)
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Checks if the user's net calories are within 10% of their target.
+    /// This is a PERFORMANCE INDICATOR only — hindi dapat gamitin bilang
+    /// blocker sa day completion o progression advance.
+    /// </summary>
+    public static bool CheckGoalMet(double netCalories, double targetCalories)
+    {
+        if (targetCalories <= 0) return false;
+        return Math.Abs(netCalories - targetCalories) <= targetCalories * 0.10;
+    }
+
+    /// <summary>
+    /// Calculates the daily intake target (food calories needed)
+    /// based on net target + workout burn.
+    /// </summary>
+    public static double CalculateIntakeTarget(double targetNetCalories, double workoutCaloriesBurned)
+    {
+        double intake = targetNetCalories + Math.Max(0, workoutCaloriesBurned);
+        return Math.Max(intake, 500); // Safety floor
+    }
 }

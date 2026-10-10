@@ -1,5 +1,6 @@
 using FlexiFit.Api.Dtos;
 using FlexiFit.Api.Entities;
+using FlexiFit.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -15,11 +16,16 @@ public class WorkoutController : ControllerBase
 {
     private readonly FlexiFitDbContext _context;
     private readonly ILogger<WorkoutController> _logger;
+    private readonly ProgramProgressionService _progressionService;
 
-    public WorkoutController(FlexiFitDbContext context, ILogger<WorkoutController> logger)
+    public WorkoutController(
+        FlexiFitDbContext context, 
+        ILogger<WorkoutController> logger,
+        ProgramProgressionService progressionService)
     {
         _context = context;
         _logger = logger;
+        _progressionService = progressionService;
     }
 
     [HttpGet("today")]
@@ -141,8 +147,29 @@ public class WorkoutController : ControllerBase
                         existing.UpdatedAt = DateTime.UtcNow;
                     }
 
-                    // Advance program day (directly, like original logic)
-                    await AdvanceProgramDayDirect(activeProgram.InstanceId, activeProgram.CycleNo);
+                    // (rest day = auto-complete both, so use the same service):
+                    // Mark workout calendar as DONE first, then advance
+                    var restWorkoutCal = await _context.WktWorkoutCalendars
+                        .FirstOrDefaultAsync(w => w.UserId == userInt && w.PlanDate == todayDateOnly);
+                    if (restWorkoutCal == null)
+                    {
+                        _context.WktWorkoutCalendars.Add(new WktWorkoutCalendar
+                        {
+                            UserId = userInt,
+                            CycleId = activeProgram.CycleNo,
+                            PlanDate = todayDateOnly,
+                            WeekNo = weekNo,
+                            DayNo = currentDay,
+                            TemplateId = 1,
+                            VariationCode = "A",
+                            IsWorkoutDay = false,
+                            Status = "DONE",
+                            CreatedAt = DateTime.UtcNow,
+                            UpdatedAt = DateTime.UtcNow
+                        });
+                        await _context.SaveChangesAsync();
+                    }
+                    await _progressionService.TryAdvanceAsync(userInt, todayDateOnly);
                 }
 
                 // Return rest day response
@@ -388,8 +415,8 @@ public class WorkoutController : ControllerBase
             await _context.SaveChangesAsync();
 
             // Try to advance program day (only if both are done)
-            await TryAdvanceProgramDay(userId.Value, todayDateOnly);
-
+            await _progressionService.TryAdvanceAsync(userId.Value, todayDateOnly);
+            
             // Reload active program to get updated day number
             activeProgram = await _context.UsrUserProgramInstances
                 .FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
@@ -991,167 +1018,7 @@ public class WorkoutController : ControllerBase
 
         return (weeks ?? 4) * 7;
     }   
-
-    private async Task AdvanceProgramDayDirect(int instanceId, int cycleNo)
-    {
-        var program = await _context.UsrUserProgramInstances
-            .FirstOrDefaultAsync(p => p.InstanceId == instanceId);
-        if (program == null) return;
-
-        int totalDays = await GetTotalDaysForCycle(cycleNo);
-        program.CurrentDayNo++;
-        if (program.CurrentDayNo > totalDays)
-        {
-            program.Status = "COMPLETED";
-            program.CompletedAt = DateTime.UtcNow;
-        }
-        await _context.SaveChangesAsync();
-    }
-
-    private async Task TryAdvanceProgramDay(int userId, DateOnly date)
-    {
-        _logger.LogInformation($"TryAdvanceProgramDay: userId={userId}, date={date}");
-
-        var dailyLog = await _context.NtrDailyLogs
-            .FirstOrDefaultAsync(l => l.UserId == userId && l.PlanDate == date);
-        if (dailyLog == null)
-        {
-            _logger.LogWarning($"No daily log found for user {userId} on {date}");
-            return;
-        }
-
-        int cycleId = dailyLog.CycleId;
-        _logger.LogInformation($"CycleId: {cycleId}");
-
-        var nutritionCalendar = await _context.NtrMealPlanCalendars
-            .FirstOrDefaultAsync(c => c.CycleId == cycleId && c.PlanDate == date);
-        if (nutritionCalendar == null)
-        {
-            _logger.LogWarning($"No nutrition calendar entry found for cycle {cycleId} on {date}");
-            return;
-        }
-        _logger.LogInformation($"Nutrition status: {nutritionCalendar.Status}");
-
-        var workoutCalendar = await _context.WktWorkoutCalendars
-            .FirstOrDefaultAsync(w => w.UserId == userId && w.PlanDate == date);
-        if (workoutCalendar == null)
-        {
-            _logger.LogWarning($"No workout calendar entry found for user {userId} on {date}");
-            return;
-        }
-        _logger.LogInformation($"Workout status: {workoutCalendar.Status}");
-
-        if (nutritionCalendar.Status != "DONE" || workoutCalendar.Status != "DONE")
-        {
-            _logger.LogInformation($"Both not done. Nutrition={nutritionCalendar.Status}, Workout={workoutCalendar.Status}");
-            return;
-        }
-
-        var activeProgram = await _context.UsrUserProgramInstances
-            .FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
-        if (activeProgram == null)
-        {
-            _logger.LogWarning("No active program found");
-            return;
-        }
-
-        //  RACE CONDITION FIX #1: Check kung na-advance na ang araw na 'to
-        int currentDay = activeProgram.CurrentDayNo;
-        var alreadyAdvanced = await _context.DailyProgressLogs
-            .AnyAsync(p => p.UserId == userId
-                        && p.InstanceId == activeProgram.InstanceId
-                        && p.DayNo == currentDay);
-
-        if (alreadyAdvanced)
-        {
-            _logger.LogWarning($"Day {currentDay} already advanced for user {userId}. Skipping to prevent double-advance.");
-            return;
-        }
-
-        var cycleTarget = await _context.NtrUserCycleTargets
-            .Where(t => t.UserId == userId && t.CycleId == activeProgram.CycleNo)
-            .OrderByDescending(t => t.CreatedAt)
-            .FirstOrDefaultAsync();
-
-        int totalDays = (cycleTarget?.WeeksInCycle ?? 4) * 7;
-
-        _logger.LogInformation($"Current day before advance: {activeProgram.CurrentDayNo}");
-
-        using var tx = await _context.Database.BeginTransactionAsync();
-        try
-        {
-            activeProgram.CurrentDayNo++;
-            if (activeProgram.CurrentDayNo > totalDays)
-            {
-                activeProgram.Status = "COMPLETED";
-                activeProgram.CompletedAt = DateTime.UtcNow;
-            }
-            await _context.SaveChangesAsync();
-            await tx.CommitAsync();
-        }
-        catch
-        {
-            await tx.RollbackAsync();
-            throw;
-        }
-
-
-        // ========== POPULATE DAILY_PROGRESS_LOG ==========
-        // The day that was just completed is the day BEFORE advancement
-        int completedDayNo = activeProgram.CurrentDayNo - 1;
-
-        // Get the workout session for the completed day
-        var workoutSession = await _context.UsrUserWorkoutSessions
-            .Include(s => s.UsrUserSessionWorkouts)
-                .ThenInclude(sw => sw.Workout)
-            .FirstOrDefaultAsync(s => s.UserId == userId
-                                   && s.WorkoutDay == completedDayNo
-                                   && s.ProgramInstanceId == activeProgram.InstanceId);
-
-        // Calculate total calories burned from all exercises in the session
-        int caloriesBurned = workoutSession?.UsrUserSessionWorkouts
-            .Sum(sw => sw.Workout?.CaloriesBurned ?? 0) ?? 0;
-
-        // Get water intake for the completed day
-        var waterLog = await _context.NtrWaterLogs
-            .Where(w => w.UserId == userId && w.LogDate == date)
-            .SumAsync(w => w.WaterMl);
-
-        // Create and insert the progress log record
-        var progressLog = new DailyProgressLog
-        {
-            UserId = userId,
-            InstanceId = activeProgram.InstanceId,
-            MonthNo = ((completedDayNo - 1) / 28) + 1,
-            WeekNo = ((completedDayNo - 1) / 7) + 1,
-            DayNo = completedDayNo,
-            CaloriesBurned = caloriesBurned,
-            CaloriesIntake = dailyLog.CaloriesConsumed,
-            WaterMl = waterLog,
-            MealPlanCompleted = true,
-            FitnessLevelSnapshot = activeProgram.FitnessLevelAtStart ?? "Beginner",
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
-        };
-
-        //  RACE CONDITION FIX #3: Handle unique constraint violation
-        try
-        {
-            _context.DailyProgressLogs.Add(progressLog);
-            await _context.SaveChangesAsync();
-        }
-        catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException pgEx && pgEx.SqlState == "23505")
-        {
-            _logger.LogWarning($"Duplicate DailyProgressLog detected for Day {completedDayNo}. Another thread already advanced.");
-            return;  //  Hindi mag-throw — graceful exit
-        }
-        // ========== END POPULATE DAILY_PROGRESS_LOG ==========  
-
-
-
-        _logger.LogInformation($"Advanced program day to {activeProgram.CurrentDayNo} for user {userId}");
-    }
-
+    
     private async Task EnsureWarmupsExist(int sessionId, int programId, string dayType, int weekNo, string fitnessLevel, bool isRehab)
     {
         // Build allowed difficulties
