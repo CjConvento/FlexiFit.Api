@@ -141,18 +141,31 @@ namespace FlexiFit.Api.Controllers
                 var todayLog = await _context.NtrDailyLogs
                     .FirstOrDefaultAsync(l => l.UserId == userId && l.PlanDate == todayDateOnly);
 
-                // Determine water consumption (still from water logs)
+                // FALLBACK: Kunin ang cycle target kung wala pang todayLog para laging may value
+                var cycleTarget = await _context.NtrUserCycleTargets
+                    .Where(t => t.UserId == userId)
+                    .OrderByDescending(t => t.CreatedAt)
+                    .FirstOrDefaultAsync();
+
+                // SAFE VALUES: Gamitin ang todayLog kung meron, kung wala, gamitin ang cycleTarget o 0
+                int safeTarget = todayLog?.TargetNetCalories ?? (cycleTarget?.DailyTargetNetCalories ?? 2000);
+                int safeIntake = todayLog?.CaloriesConsumed ?? 0;
+                double safeBurned = (double)(todayLog?.CaloriesBurned ?? 0);
+                int safeNet = todayLog?.NetCalories ?? 0;
+                int safeRemaining = safeTarget - safeNet;
+
+                // Determine water consumption
                 var waterMl = await _context.NtrWaterLogs
                     .Where(w => w.UserId == userId && w.LogDate == todayDateOnly)
                     .SumAsync(w => (int?)w.WaterMl) ?? 0;
 
                 dashboardData.Nutrition = new NutritionDataDto
                 {
-                    TargetCalories = todayLog?.TargetNetCalories,                    // int?
-                    Intake = todayLog?.CaloriesConsumed,                             // int?
-                    Burned = (double)(todayLog?.CaloriesBurned ?? 0),                // double, default 0
-                    NetCalories = todayLog?.NetCalories,                             // int?
-                    Remaining = todayLog != null ? todayLog.TargetNetCalories - todayLog.NetCalories : (int?)null,
+                    TargetCalories = safeTarget,                    // int?
+                    Intake = safeIntake,                             // int?
+                    Burned = safeBurned,                // double, default 0
+                    NetCalories = safeNet,                             // int?
+                    Remaining = safeRemaining,
                     WaterGlasses = waterMl / 250,
                     WaterTarget = 8                                                  // optional, can be null if not set
                 };
