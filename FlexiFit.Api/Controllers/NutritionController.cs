@@ -209,7 +209,11 @@ public class NutritionController : ControllerBase
                 WaterTargetMl = 2500,
                 Meals = mealGroups,
                 DailyLogId = dailyLog!.DailyLogId,
-                TemplateName = templateName   // <-- ADD THIS
+                TemplateName = templateName,   // <-- ADD THIS
+
+                // Day Properties
+                DayNo = calendarDay.DayNo,
+                WeekNo = weekNo
             });
         }
         catch (Exception ex)
@@ -298,7 +302,11 @@ public class NutritionController : ControllerBase
                 WaterTargetMl = 2500,
                 Meals = mealGroups,
                 DailyLogId = dailyLog!.DailyLogId,
-                TemplateName = templateName   // <-- ADD THIS
+                TemplateName = templateName,   // <-- ADD THIS
+
+                // Day Properties
+                DayNo = calendarDay.DayNo,
+                WeekNo = (calendarDay.DayNo - 1) / 7 + 1 // Calculate week number based on day number
             });
         }
         catch (Exception ex)
