@@ -54,8 +54,9 @@ namespace FlexiFit.Api.Controllers
                 var profile = await _db.UsrUserProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
                 if (profile != null)
                 {
+                    profile.Name = request.Name;
+                    profile.Username = request.Username;
                     profile.Gender = request.Gender;
-                    // Kung may column ka for lifestyle o level, i-map mo rin dito
                     profile.UpdatedAt = DateTime.UtcNow;
                 }
 
@@ -66,8 +67,18 @@ namespace FlexiFit.Api.Controllers
                     nutProfile.Age = (short)request.Age;
                     nutProfile.HeightCm = (decimal)request.HeightCm;
                     nutProfile.WeightKg = (decimal)request.WeightKg;
+                    nutProfile.TargetWeightKg = (decimal)request.TargetWeightKg;
+
+                    // SAVE ACTIVITY LEVEL AND DIETARY TYPE PARA HINDI MA-IGNORE
+                    if (!string.IsNullOrEmpty(request.FitnessLifestyle))
+                        nutProfile.ActivityLevel = request.FitnessLifestyle;
+                    if (!string.IsNullOrEmpty(request.DietaryType))
+                        nutProfile.DietaryType = request.DietaryType;
+                    if (!string.IsNullOrEmpty(request.BodyCompGoal))
+                        nutProfile.NutritionGoal = request.BodyCompGoal;
                 }
 
+                // 3. RECALCULATE CYCLE TARGETS USING CENTRALIZED CALCULATOR
                 var cycle = await _db.NtrUserCycleTargets
                     .OrderByDescending(c => c.CreatedAt)
                     .FirstOrDefaultAsync(c => c.UserId == userId);
@@ -322,36 +333,21 @@ namespace FlexiFit.Api.Controllers
 
             // 1. Update weight in nutrition profile
             nutProfile.WeightKg = (decimal)request.NewWeight;
-            _db.Entry(nutProfile).State = EntityState.Modified;
 
-            // 2. Update or create latest metric
-            var latestMetric = await _db.UsrUserMetrics
-                .Where(m => m.UserId == userId)
-                .OrderByDescending(m => m.RecordedAt)
-                .FirstOrDefaultAsync();
-
-            // Update weight in the latest metric (or create a new one)
-            if (latestMetric != null)
+            // 2. CREATE NEW METRIC ENTRY (Para may weight history graph sa future)
+            // Huwag na i-update ang lumang RecordedAt para hindi masira ang history timeline
+            var newMetric = new UsrUserMetric
             {
-                latestMetric.CurrentWeightKg = (decimal)request.NewWeight;
-                latestMetric.RecordedAt = DateTime.UtcNow;
-            }
-            else
-            {
-                // Use ternary operator to avoid null‑propagation casting issues
-                latestMetric = new UsrUserMetric
-                {
-                    UserId = userId,
-                    CurrentWeightKg = (decimal)request.NewWeight,
-                    CurrentHeightCm = nutProfile.HeightCm,
-                    FitnessGoal = nutProfile.NutritionGoal ?? "MAINTAIN",
-                    NutritionGoal = nutProfile.DietaryType ?? "BALANCED",
-                    RecordedAt = DateTime.UtcNow
-                };
-                _db.UsrUserMetrics.Add(latestMetric);
-            }
+                UserId = userId,
+                CurrentWeightKg = (decimal)request.NewWeight,
+                CurrentHeightCm = nutProfile.HeightCm,
+                FitnessGoal = nutProfile.NutritionGoal ?? "MAINTAIN",
+                NutritionGoal = nutProfile.DietaryType ?? "BALANCED",
+                RecordedAt = DateTime.UtcNow
+            };
+            _db.UsrUserMetrics.Add(newMetric);
 
-            // Recalculate cycle targets (if cycle exists)
+            // 3.Recalculate cycle targets (if cycle exists)
             if (cycle != null)
             {
                 double currentWeight = (double)request.NewWeight;
@@ -360,12 +356,10 @@ namespace FlexiFit.Api.Controllers
 
                 // Kunin ang Gender mula sa UsrUserProfile (profile), hindi sa UsrUser
                 string gender = profile?.Gender ?? "MALE"; 
-
                 string activityLevel = nutProfile.ActivityLevel ?? "SEDENTARY";
                 string goal = nutProfile.NutritionGoal?.ToUpper() ?? "MAINTAIN";
                 string dietaryType = nutProfile.DietaryType ?? "BALANCED";
-                string normalized = activityLevel.ToUpper().Replace("_", "").Replace(" ", "");
-
+                
                 var targets = _nutritionCalculator.Calculate(
                     weightKg: currentWeight,
                     heightCm: currentHeight,
@@ -383,19 +377,15 @@ namespace FlexiFit.Api.Controllers
                 cycle.FatsTargetG = targets.FatsG;
                 cycle.CreatedAt = DateTime.UtcNow; // mark as updated
 
-                // Also update the latest metric targets for consistency
-                if (latestMetric != null)
-                {
-                    latestMetric.CalorieTarget = targets.Calories;
-                    latestMetric.ProteinTargetG = targets.ProteinG;
-                    latestMetric.CarbsTargetG = targets.CarbsG;
-                    latestMetric.FatsTargetG = targets.FatsG;
-                }
-
+                // Update new metric targets for consistency
+                newMetric.CalorieTarget = targets.Calories;
+                newMetric.ProteinTargetG = targets.ProteinG;
+                newMetric.CarbsTargetG = targets.CarbsG;
+                newMetric.FatsTargetG = targets.FatsG;
             }
 
             await _db.SaveChangesAsync();
-            _logger.LogInformation("Weight updated for user {UserId} to {Weight} kg. Targets recalculated.", userId, request.NewWeight);
+            _logger.LogInformation("Weight updated for user {UserId} to {Weight} kg. New metric created.", userId, request.NewWeight);
 
             return Ok(new { message = "Weight and nutrition targets updated successfully!" });
         }

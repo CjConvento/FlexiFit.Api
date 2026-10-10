@@ -2,6 +2,10 @@
 {
     public class UpdateOnboardingRequest
     {
+        // added name and username
+        public string Name { get; set; }
+        public string Username { get; set; }
+        
         // PG1 & 1.5
         public int Age { get; set; }
         public string Gender { get; set; }
