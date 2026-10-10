@@ -146,15 +146,27 @@ namespace FlexiFit.Api.Controllers
                     .Where(w => w.UserId == userId && w.LogDate == todayDateOnly)
                     .SumAsync(w => (int?)w.WaterMl) ?? 0;
 
+                // FALLBACK: Get cycle target to PREVENT NULL values
+                var cycleTarget = await _context.NtrUserCycleTargets
+                    .Where(t => t.UserId == userId)
+                    .OrderByDescending(t => t.CreatedAt)
+                    .FirstOrDefaultAsync();
+
+                int safeTarget = todayLog?.TargetNetCalories ?? (cycleTarget?.DailyTargetNetCalories ?? 2000);
+                int safeIntake = todayLog?.CaloriesConsumed ?? 0;
+                double safeBurned = (double)(todayLog?.CaloriesBurned ?? 0);
+                int safeNet = todayLog?.NetCalories ?? 0;
+                int safeRemaining = safeTarget - safeNet;
+
                 dashboardData.Nutrition = new NutritionDataDto
                 {
-                    TargetCalories = todayLog?.TargetNetCalories,                    // int?
-                    Intake = todayLog?.CaloriesConsumed,                             // int?
-                    Burned = (double)(todayLog?.CaloriesBurned ?? 0),                // double, default 0
-                    NetCalories = todayLog?.NetCalories,                             // int?
-                    Remaining = todayLog != null ? todayLog.TargetNetCalories - todayLog.NetCalories : (int?)null,
+                    TargetCalories = safeTarget,
+                    Intake = safeIntake,                           
+                    Burned = safeBurned,              
+                    NetCalories = safeNet,                             
+                    Remaining = safeRemaining,
                     WaterGlasses = waterMl / 250,
-                    WaterTarget = 8                                                  // optional, can be null if not set
+                    WaterTarget = 8 // optional, can be null if not set
                 };
 
                 // 5. WORKOUT DATA
@@ -221,84 +233,47 @@ namespace FlexiFit.Api.Controllers
                     }
                 }
 
-                // 6. MEAL PREVIEW
+                // 6. MEAL PREVIEW (FROM ACTUAL DAILY LOG, NOT TEMPLATE)
                 List<MealGroupDto> todayMeals = new List<MealGroupDto>();
 
-                var nutritionProfile = await _context.NtrUserNutritionProfiles
-                    .Where(p => p.UserId == userId)
-                    .Select(p => p.DietaryType)
-                    .FirstOrDefaultAsync();
-                string dietaryType = nutritionProfile ?? "BALANCED";
-
-                var mealTemplate = await GetOrCacheMealTemplate(dietaryType);
-                if (mealTemplate != null && activeProgram != null)
+                if (todayLog != null)
                 {
-                    int currentDay = activeProgram.CurrentDayNo;
-                    int templateDayNo = ((currentDay - 1) % 7) + 1;
+                    var loggedMeals = await _context.NtrDailyMealItemLogs
+                        .Include(i => i.Food)
+                        .Where(i => i.DailyLogId == todayLog.DailyLogId)
+                        .OrderBy(i => i.SortOrder)
+                        .ToListAsync();
 
-                    // Fetch raw data
-                    var rawData = await _context.NtrTemplateDays
-                        .Where(td => td.TemplateId == mealTemplate.TemplateId && td.DayNo == templateDayNo)
-                        .Select(td => new
+                    todayMeals = loggedMeals
+                        .GroupBy(i => i.MealType)
+                        .OrderBy(g => GetMealOrder(g.Key)) // B=1, L=2, S=3, D=4
+                        .Select(g => new MealGroupDto
                         {
-                            td.TemplateDayId,
-                            Meals = td.NtrTemplateDayMeals
-                                .Select(m => new
-                                {
-                                    m.TemplateMealId,
-                                    m.MealType,
-                                    FoodItems = m.NtrTemplateMealItems
-                                        .OrderBy(i => i.SortOrder)
-                                        .Take(2)
-                                        .Select(i => new
-                                        {
-                                            i.FoodId,
-                                            i.Food.FoodName,
-                                            i.Food.Description,
-                                            i.Food.DietaryType,
-                                            i.DefaultQty,
-                                            i.Food.ServingUnit,
-                                            i.Food.Calories,
-                                            i.Food.ProteinG,
-                                            i.Food.CarbsG,
-                                            i.Food.FatsG,
-                                            i.Food.ImgFilename
-                                        }).ToList()
-                                }).ToList()
-                        })
-                        .FirstOrDefaultAsync();
-
-                    if (rawData != null)
-                    {
-                        // Build DTOs in memory
-                        todayMeals = rawData.Meals
-                            .OrderBy(m => GetMealOrder(m.MealType))
-                            .Select(m => new MealGroupDto
+                            TemplateMealId = 0, // Not applicable for actual logged items
+                            MealType = g.Key,
+                            Status = "PENDING", 
+                            FoodItems = g.Select(i => new FoodItemDto
                             {
-                                TemplateMealId = m.TemplateMealId,
-                                MealType = m.MealType,
-                                Status = "PENDING",
-                                FoodItems = m.FoodItems.Select(fi => new FoodItemDto
-                                {
-                                    FoodId = fi.FoodId,
-                                    Name = fi.FoodName,
-                                    Description = fi.Description ?? "",
-                                    ImageUrl = BuildFoodImageUrl(baseUrl, fi.DietaryType ?? "balanced", m.MealType, fi.ImgFilename),
-                                    DietaryType = fi.DietaryType ?? "balanced",
-                                    Qty = (double)fi.DefaultQty,
-                                    Unit = fi.ServingUnit,
-                                    Calories = (double)fi.Calories,
-                                    Protein = (double)fi.ProteinG,
-                                    Carbs = (double)fi.CarbsG,
-                                    Fats = (double)fi.FatsG
-                                }).ToList()
-                            }).ToList();
-                    }
+                                FoodId = i.FoodId,
+                                Name = i.Food?.FoodName ?? "Unknown",
+                                Description = i.Food?.Description ?? "",
+                                ImageUrl = BuildFoodImageUrl(baseUrl, i.Food?.DietaryType ?? "balanced", g.Key, i.Food?.ImgFilename),
+                                DietaryType = i.Food?.DietaryType ?? "balanced",
+                                Qty = (double)i.Qty,
+                                Unit = i.Food?.ServingUnit ?? "serving",
+                                Calories = (double)i.Calories,
+                                Protein = (double)i.ProteinG,
+                                Carbs = (double)i.CarbsG,
+                                Fats = (double)i.FatsG
+                            }).ToList()
+                        }).ToList();
                 }
 
                 dashboardData.TodayMeals = todayMeals;
                 _logger.LogInformation("Dashboard data built successfully, returning response.");
+
                 var json = System.Text.Json.JsonSerializer.Serialize(dashboardData);
+
                 _logger.LogInformation($"Dashboard response size: {json.Length} characters");
                 return Ok(dashboardData);
             }
