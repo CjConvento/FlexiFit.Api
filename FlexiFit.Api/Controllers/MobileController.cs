@@ -221,79 +221,40 @@ namespace FlexiFit.Api.Controllers
                     }
                 }
 
-                // 6. MEAL PREVIEW
+                // 6. MEAL PREVIEW (FROM ACTUAL DAILY LOG, NOT TEMPLATE)
                 List<MealGroupDto> todayMeals = new List<MealGroupDto>();
 
-                var nutritionProfile = await _context.NtrUserNutritionProfiles
-                    .Where(p => p.UserId == userId)
-                    .Select(p => p.DietaryType)
-                    .FirstOrDefaultAsync();
-                string dietaryType = nutritionProfile ?? "BALANCED";
-
-                var mealTemplate = await GetOrCacheMealTemplate(dietaryType);
-                if (mealTemplate != null && activeProgram != null)
+                if (todayLog != null)
                 {
-                    int currentDay = activeProgram.CurrentDayNo;
-                    int templateDayNo = ((currentDay - 1) % 7) + 1;
+                    var loggedMeals = await _context.NtrDailyMealItemLogs
+                        .Include(i => i.Food)
+                        .Where(i => i.DailyLogId == todayLog.DailyLogId)
+                        .OrderBy(i => i.SortOrder)
+                        .ToListAsync();
 
-                    // Fetch raw data
-                    var rawData = await _context.NtrTemplateDays
-                        .Where(td => td.TemplateId == mealTemplate.TemplateId && td.DayNo == templateDayNo)
-                        .Select(td => new
+                    todayMeals = loggedMeals
+                        .GroupBy(i => i.MealType)
+                        .OrderBy(g => GetMealOrder(g.Key)) // B=1, L=2, S=3, D=4
+                        .Select(g => new MealGroupDto
                         {
-                            td.TemplateDayId,
-                            Meals = td.NtrTemplateDayMeals
-                                .Select(m => new
-                                {
-                                    m.TemplateMealId,
-                                    m.MealType,
-                                    FoodItems = m.NtrTemplateMealItems
-                                        .OrderBy(i => i.SortOrder)
-                                        .Take(2)
-                                        .Select(i => new
-                                        {
-                                            i.FoodId,
-                                            i.Food.FoodName,
-                                            i.Food.Description,
-                                            i.Food.DietaryType,
-                                            i.DefaultQty,
-                                            i.Food.ServingUnit,
-                                            i.Food.Calories,
-                                            i.Food.ProteinG,
-                                            i.Food.CarbsG,
-                                            i.Food.FatsG,
-                                            i.Food.ImgFilename
-                                        }).ToList()
-                                }).ToList()
-                        })
-                        .FirstOrDefaultAsync();
-
-                    if (rawData != null)
-                    {
-                        // Build DTOs in memory
-                        todayMeals = rawData.Meals
-                            .OrderBy(m => GetMealOrder(m.MealType))
-                            .Select(m => new MealGroupDto
+                            TemplateMealId = 0, // Not applicable for actual logged items
+                            MealType = g.Key,
+                            Status = "PENDING", 
+                            FoodItems = g.Select(i => new FoodItemDto
                             {
-                                TemplateMealId = m.TemplateMealId,
-                                MealType = m.MealType,
-                                Status = "PENDING",
-                                FoodItems = m.FoodItems.Select(fi => new FoodItemDto
-                                {
-                                    FoodId = fi.FoodId,
-                                    Name = fi.FoodName,
-                                    Description = fi.Description ?? "",
-                                    ImageUrl = BuildFoodImageUrl(baseUrl, fi.DietaryType ?? "balanced", m.MealType, fi.ImgFilename),
-                                    DietaryType = fi.DietaryType ?? "balanced",
-                                    Qty = (double)fi.DefaultQty,
-                                    Unit = fi.ServingUnit,
-                                    Calories = (double)fi.Calories,
-                                    Protein = (double)fi.ProteinG,
-                                    Carbs = (double)fi.CarbsG,
-                                    Fats = (double)fi.FatsG
-                                }).ToList()
-                            }).ToList();
-                    }
+                                FoodId = i.FoodId,
+                                Name = i.Food?.FoodName ?? "Unknown",
+                                Description = i.Food?.Description ?? "",
+                                ImageUrl = BuildFoodImageUrl(baseUrl, i.Food?.DietaryType ?? "balanced", g.Key, i.Food?.ImgFilename),
+                                DietaryType = i.Food?.DietaryType ?? "balanced",
+                                Qty = (double)i.Qty,
+                                Unit = i.Food?.ServingUnit ?? "serving",
+                                Calories = (double)i.Calories,
+                                Protein = (double)i.ProteinG,
+                                Carbs = (double)i.CarbsG,
+                                Fats = (double)i.FatsG
+                            }).ToList()
+                        }).ToList();
                 }
 
                 dashboardData.TodayMeals = todayMeals;
@@ -307,58 +268,6 @@ namespace FlexiFit.Api.Controllers
                 _logger.LogError(ex, "Error in GetDashboard for user {UserId}", userId);
                 return StatusCode(500, "An error occurred while fetching dashboard data.");
             }
-        }
-
-        // Helper for caching (inject IMemoryCache)
-        private async Task<NtrMealTemplate> GetOrCacheMealTemplate(string dietaryType)
-        {
-            var cacheKey = $"MealTemplate_{dietaryType}";
-            if (!_cache.TryGetValue(cacheKey, out NtrMealTemplate template))
-            {
-                template = await _context.NtrMealTemplates
-                    .Where(t => t.DietaryType == dietaryType)
-                    .FirstOrDefaultAsync();
-
-                if (template == null)
-                    template = await _context.NtrMealTemplates.FirstOrDefaultAsync();
-
-                // Cache for 10 minutes (adjust as needed)
-                _cache.Set(cacheKey, template, TimeSpan.FromMinutes(10));
-            }
-            return template;
-        }
-
-        private static string BuildWorkoutImageUrl(string baseUrl, string category, string fileName)
-        {
-            if (string.IsNullOrEmpty(fileName))
-                return $"{baseUrl}/images/workouts/default.png";
-
-            //  If DB has full URL (Appwrite), pass through
-            if (fileName.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-                return fileName;
-
-            // Legacy bare filename → fallback to placeholder
-            return $"{baseUrl}/images/workouts/default.png";
-        }
-
-        private static string GetCategoryFolder(string? category)
-        {
-            if (string.IsNullOrEmpty(category))
-                return "general";
-
-            return category.ToLower() switch
-            {
-                "cardio" => "cardio",
-                "strength" => "strength",
-                "hiit" => "hiit",
-                "yoga" => "yoga",
-                "warmup" => "warmups",
-                "push" => "push",
-                "pull" => "pull",
-                "legs" => "legs",
-                "core" => "core",
-                _ => "general"
-            };
         }
 
         [Authorize]
@@ -1095,13 +1004,39 @@ namespace FlexiFit.Api.Controllers
         }
 
         #region Helpers
-        private int? GetUserId()
+
+        // Helper for caching (inject IMemoryCache)
+        private async Task<NtrMealTemplate> GetOrCacheMealTemplate(string dietaryType)
         {
-            var raw = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("user_id")?.Value;
-            return int.TryParse(raw, out var id) ? id : null;
+            var cacheKey = $"MealTemplate_{dietaryType}";
+            if (!_cache.TryGetValue(cacheKey, out NtrMealTemplate template))
+            {
+                template = await _context.NtrMealTemplates
+                    .Where(t => t.DietaryType == dietaryType)
+                    .FirstOrDefaultAsync();
+
+                if (template == null)
+                    template = await _context.NtrMealTemplates.FirstOrDefaultAsync();
+
+                // Cache for 10 minutes (adjust as needed)
+                _cache.Set(cacheKey, template, TimeSpan.FromMinutes(10));
+            }
+            return template;
         }
 
-        private int GetMealOrder(string mealType) => mealType switch { "B" => 1, "L" => 2, "S" => 3, "D" => 4, _ => 5 };
+        private static string BuildWorkoutImageUrl(string baseUrl, string category, string fileName)
+        {
+            if (string.IsNullOrEmpty(fileName))
+                return $"{baseUrl}/images/workouts/default.png";
+
+            //  If DB has full URL (Appwrite), pass through
+            if (fileName.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                return fileName;
+
+            // Legacy bare filename → fallback to placeholder
+            return $"{baseUrl}/images/workouts/default.png";
+        }
+
         private string BuildFoodImageUrl(string baseUrl, string category, string mealType, string? fileName)
         {
             if (string.IsNullOrEmpty(fileName)) return $"{baseUrl}/images/foods/default.png";
@@ -1113,6 +1048,40 @@ namespace FlexiFit.Api.Controllers
             // Legacy bare filename → fallback to placeholder
             return $"{baseUrl}/images/foods/default.png";
         }
+
+        private static string GetCategoryFolder(string? category)
+        {
+            if (string.IsNullOrEmpty(category))
+                return "general";
+
+            return category.ToLower() switch
+            {
+                "cardio" => "cardio",
+                "strength" => "strength",
+                "hiit" => "hiit",
+                "yoga" => "yoga",
+                "warmup" => "warmups",
+                "push" => "push",
+                "pull" => "pull",
+                "legs" => "legs",
+                "core" => "core",
+                _ => "general"
+            };
+        }
+        private int? GetUserId()
+        {
+            var raw = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("user_id")?.Value;
+            return int.TryParse(raw, out var id) ? id : null;
+        }
+
+        private int GetMealOrder(string mealType) => mealType switch 
+        { 
+            "B" => 1, 
+            "L" => 2, 
+            "S" => 3, 
+            "D" => 4, 
+            _ => 5 
+        };
 
         private static string MapNutritionGoal(string bodyGoal)
         {
