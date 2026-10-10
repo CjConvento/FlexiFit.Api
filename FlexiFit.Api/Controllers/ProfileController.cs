@@ -57,6 +57,15 @@ namespace FlexiFit.Api.Controllers
                     profile.Name = request.Name;
                     profile.Username = request.Username;
                     profile.Gender = request.Gender;
+
+                    // I-convert ang Age papuntang BirthDate para ma-update ang database column
+                    if (request.Age > 0)
+                    {
+                        int birthYear = DateTime.UtcNow.Year - request.Age;
+                        // I-save bilang Enero 1 ng birth year (dahil Age lang ang meron tayo, hindi exact birth month/day)
+                        profile.BirthDate = new DateOnly(birthYear, 1, 1);
+                    }
+
                     profile.UpdatedAt = DateTime.UtcNow;
                 }
 
