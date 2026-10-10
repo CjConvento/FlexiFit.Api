@@ -414,9 +414,24 @@ public class WorkoutController : ControllerBase
 
             await _context.SaveChangesAsync();
 
+            // ═══════════════════════════════════════════════════════════════
+            // ITEM 1: Upsert ActActivitySummary (Workout Calories)
+            // ═══════════════════════════════════════════════════════════════
+            if (!isSkipped && req.TotalCalories > 0)
+            {
+                // Safe cast from double/decimal to int para iwas compilation error
+                int caloriesToLog = (int)Math.Round(Convert.ToDouble(req.TotalCalories));
+                int minutesToLog = req.TotalMinutes > 0 ? req.TotalMinutes : 30; // Fallback to 30 mins kung 0
+                
+                await UpsertActivitySummaryAsync(userId.Value, todayDateOnly, caloriesToLog, minutesToLog);
+                
+                _logger.LogInformation($"[Item 1] Upserted ActActivitySummary: UserId={userId}, Date={todayDateOnly}, Calories={caloriesToLog}, Minutes={minutesToLog}");
+            }
+            // ═══════════════════════════════════════════════════════════════
+
             // Try to advance program day (only if both are done)
             await _progressionService.TryAdvanceAsync(userId.Value, todayDateOnly);
-            
+
             // Reload active program to get updated day number
             activeProgram = await _context.UsrUserProgramInstances
                 .FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
@@ -1000,6 +1015,41 @@ public class WorkoutController : ControllerBase
             await _context.SaveChangesAsync();
             _logger.LogInformation($"Created calendar entry for Day {dayNo} with Status: {calendarEntry.Status}");
         }
+    }
+
+    /// <summary>
+    /// ITEM 1: Upsert logic for ActActivitySummary.
+    /// Inserts a new record if none exists for the user+date, 
+    /// otherwise updates the existing CaloriesBurned.
+    /// </summary>
+    private async Task UpsertActivitySummaryAsync(int userId, DateOnly logDate, int caloriesBurned, int totalMinutes)
+    {
+        // 1. Hanapin kung may existing record na para sa user at date na 'to
+        var existingSummary = await _context.ActActivitySummaries
+            .FirstOrDefaultAsync(a => a.UserId == userId && a.LogDate == logDate);
+
+        if (existingSummary != null)
+        {
+            // 2. UPDATE: Idagdag ang bagong calories at minutes (para support multiple sessions per day)
+            existingSummary.CaloriesBurned += caloriesBurned;
+            existingSummary.TotalMinutes += totalMinutes;
+            existingSummary.UpdatedAt = DateTime.UtcNow;
+        }
+        else
+        {
+            // 3. INSERT: Gumawa ng bagong record
+            _context.ActActivitySummaries.Add(new ActActivitySummary
+            {
+                UserId = userId,
+                LogDate = logDate,
+                CaloriesBurned = caloriesBurned,
+                TotalMinutes = totalMinutes,
+                UpdatedAt = DateTime.UtcNow
+            });
+        }
+
+        // I-save agad para ma-read ng NutritionController kapag tinawag
+        await _context.SaveChangesAsync();
     }
 
     private string GetVariationCode(int weekNo)

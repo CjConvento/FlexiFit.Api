@@ -113,19 +113,16 @@ public class ProgramProgressionService
     {
         int completedDayNo = program.CurrentDayNo - 1;
 
-        var workoutSession = await _db.UsrUserWorkoutSessions
-            .Include(s => s.UsrUserSessionWorkouts)
-                .ThenInclude(sw => sw.Workout)
-            .FirstOrDefaultAsync(s => s.UserId == userId
-                                   && s.WorkoutDay == completedDayNo
-                                   && s.ProgramInstanceId == program.InstanceId);
-
-        int caloriesBurned = workoutSession?.UsrUserSessionWorkouts
-            .Sum(sw => sw.Workout?.CaloriesBurned ?? 0) ?? 0;
+        // ✅ FIX 1: Gamitin ang ActActivitySummary (Single Source of Truth from Item 1)
+        // Imbes na i-recalculate galing sa session workouts, kunin na lang natin ang 
+        // actual na na-log na calories para mag-match sa Nutrition Tab.
+        int caloriesBurned = await _db.ActActivitySummaries
+            .Where(a => a.UserId == userId && a.LogDate == date)
+            .SumAsync(a => (int?)a.CaloriesBurned) ?? 0;
 
         var waterMl = await _db.NtrWaterLogs
             .Where(w => w.UserId == userId && w.LogDate == date)
-            .SumAsync(w => w.WaterMl);
+            .SumAsync(w => (int?)w.WaterMl) ?? 0;
 
         var progressLog = new DailyProgressLog
         {
