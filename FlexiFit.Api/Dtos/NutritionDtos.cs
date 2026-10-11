@@ -10,6 +10,11 @@ namespace FlexiFit.Api.Dtos
         public double NetCalories { get; set; }
         public double RemainingCalories { get; set; }
 
+        // Breakdown fields (Base + Bonus = Total)
+        public double BaseTarget { get; set; } // original target from onboarding
+        public double BonusCalories { get; set; } // calories burned from workout (added to base target)
+        public double TotalTarget { get; set; } // Base + Bonus = Total target for the day
+        
         // Macro Totals
         public double TargetProtein { get; set; }
         public double ConsumedProtein { get; set; }

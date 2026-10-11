@@ -18,19 +18,22 @@ public class NutritionController : ControllerBase
     private readonly NutritionCalculator _nutritionCalculator;
     private readonly MealPlanGenerator _mealPlanGenerator;
     private readonly ProgramProgressionService _programProgressionService;
+    private readonly NutritionTargetService _nutritionTargetService;
 
     public NutritionController(
         FlexiFitDbContext db, 
         ILogger<NutritionController> logger,
         NutritionCalculator nutritionCalculator,
         MealPlanGenerator mealPlanGenerator,
-        ProgramProgressionService programProgressionService)
+        ProgramProgressionService programProgressionService,
+        NutritionTargetService nutritionTargetService)
     {
         _db = db;
         _logger = logger;
         _nutritionCalculator = nutritionCalculator;
         _mealPlanGenerator = mealPlanGenerator;
         _programProgressionService = programProgressionService;
+        _nutritionTargetService = nutritionTargetService;
     }
 
     //  GET TODAY'S NUTRITION PLAN
@@ -97,17 +100,7 @@ public class NutritionController : ControllerBase
 
             decimal targetNetCal = target?.DailyTargetNetCalories ?? 2000;
 
-            // 7. Get Burned Calories
-            var burnedCalories = await _db.ActActivitySummaries
-                .Where(a => a.UserId == userId && a.LogDate == todayDateOnly)
-                .SumAsync(a => (double?)a.CaloriesBurned) ?? 0;
-
-            // Calculate the total calories that must be consumed to achieve the net target
-            decimal intakeTarget = targetNetCal + (decimal)burnedCalories;
-            // Safety – never go below a reasonable minimum
-            if (intakeTarget < 500) intakeTarget = 500;
-
-            // 8. Get Daily Log
+            // 7. Get Daily Log (Kailangan ito bago tawagin ang NutritionTargetService)
             var dailyLog = await _db.NtrDailyLogs
                 .Include(d => d.NtrDailyMealLogs)
                 .FirstOrDefaultAsync(l => l.UserId == userId && l.PlanDate == todayDateOnly);
@@ -126,57 +119,43 @@ public class NutritionController : ControllerBase
                 };
                 _db.NtrDailyLogs.Add(dailyLog);
                 await _db.SaveChangesAsync();
-
-                // Seed meals with the intake target
                 await SeedDailyMeals(userId.Value, dailyLog.DailyLogId, dailyLog.TargetNetCalories);
-
-                // Reload the daily log to include the seeded meals
-                dailyLog = await _db.NtrDailyLogs
-                    .Include(d => d.NtrDailyMealLogs)
+                dailyLog = await _db.NtrDailyLogs.Include(d => d.NtrDailyMealLogs)
                     .FirstOrDefaultAsync(l => l.DailyLogId == dailyLog.DailyLogId);
             }
             else
-            {
-                var existingItemCount = await _db.NtrDailyMealItemLogs
-                    .CountAsync(i => i.DailyLogId == dailyLog.DailyLogId);
+            {   
+                // Existing calendar mismatch and seeding logic
+                var existingItemCount = await _db.NtrDailyMealItemLogs.CountAsync(i => i.DailyLogId == dailyLog.DailyLogId);
 
-                // If the stored calendar day doesn't match the current template day,
-                // it means the program advanced. Remove old items and reseed.
+                // Check kung nag-advance na ang araw para i-reseed ang meals kung wala pang items
                 if (existingItemCount > 0 && calendarDay.DayNo != dayInWeek)
                 {
                     _logger.LogInformation($"Calendar day mismatch: stored={calendarDay.DayNo}, current={dayInWeek}. Reseeding meals.");
-
-                    // Remove old meal items
-                    var oldItems = await _db.NtrDailyMealItemLogs
-                        .Where(i => i.DailyLogId == dailyLog.DailyLogId)
-                        .ToListAsync();
+                    var oldItems = await _db.NtrDailyMealItemLogs.Where(i => i.DailyLogId == dailyLog.DailyLogId).ToListAsync();
                     _db.NtrDailyMealItemLogs.RemoveRange(oldItems);
 
-                    // Remove old meal logs
-                    var oldMealLogs = await _db.NtrDailyMealLogs
-                        .Where(m => m.DailyLogId == dailyLog.DailyLogId)
-                        .ToListAsync();
+                    var oldMealLogs = await _db.NtrDailyMealLogs.Where(m => m.DailyLogId == dailyLog.DailyLogId).ToListAsync();
                     _db.NtrDailyMealLogs.RemoveRange(oldMealLogs);
-
                     await _db.SaveChangesAsync();
-
-                    // Update calendar day number to match the current day
+                
                     calendarDay.DayNo = dayInWeek;
                     await _db.SaveChangesAsync();
-
                     existingItemCount = 0; // force seeding
                 }
 
-                if (existingItemCount == 0)
+                if(existingItemCount == 0)
                 {
-                    await SeedDailyMeals(userId.Value, dailyLog.DailyLogId, intakeTarget);
-
-                    // Reload to get meal logs
-                    dailyLog = await _db.NtrDailyLogs
-                        .Include(d => d.NtrDailyMealLogs)
-                        .FirstOrDefaultAsync(l => l.DailyLogId == dailyLog.DailyLogId);
+                    await SeedDailyMeals(userId.Value, dailyLog.DailyLogId, dailyLog.TargetNetCalories);   
+                    dailyLog = await _db.NtrDailyLogs.Include(d => d.NtrDailyMealLogs)
+                        .FirstOrDefaultAsync(l => l.DailyLogId == dailyLog.DailyLogId); 
                 }
             }
+
+            // 8. Calling NutritionTargetService to get Base + Bonus = Total
+            var (baseTarget, bonusCalories, totalTarget) = 
+                await _nutritionTargetService.CalculateAndAdjustTargetAsync(
+                    userId.Value, todayDateOnly, dailyLog, activeProgram.CycleNo);
 
             // 9. Get Today's Meals (using actual logged items)
             var mealGroups = await GetMealGroups(dailyLog!.DailyLogId, calendarDay.TemplateId,
@@ -187,19 +166,22 @@ public class NutritionController : ControllerBase
                 .Where(w => w.UserId == userId && w.LogDate == todayDateOnly)
                 .SumAsync(w => (int?)w.WaterMl) ?? 0;
 
-            // 11. Calculate totals
-            double targetCal = (double)targetNetCal;
+            // 11. Map to DTO (gumamit ng values na nanggaling sa NutritionTargetService para consistent sa Base + Bonus = Total)
             double consumedCal = dailyLog?.CaloriesConsumed ?? 0;
-
             string templateName = GetTemplateNameFromDietaryType(userProfile?.DietaryType);
 
             return Ok(new NutritionScreenDto
             {
-                TargetCalories = targetCal,
+                BaseTarget = baseTarget,
+                BonusCalories = bonusCalories,
+                TotalTarget = totalTarget,
+                TargetCalories = totalTarget,
+                
                 ConsumedCalories = consumedCal,
-                BurnedCalories = burnedCalories,
-                NetCalories = consumedCal - burnedCalories,
-                RemainingCalories = Math.Max(0, targetCal - (consumedCal - burnedCalories)),
+                BurnedCalories = bonusCalories,
+                NetCalories = consumedCal - bonusCalories,
+
+                RemainingCalories = Math.Max(0, totalTarget - consumedCal),
 
                 TargetProtein = (double)(target?.ProteinTargetG ?? 150),
                 ConsumedProtein = dailyLog?.NtrDailyMealLogs?.Sum(l => (double)l.ProteinG) ?? 0,
@@ -212,7 +194,7 @@ public class NutritionController : ControllerBase
                 WaterTargetMl = 2500,
                 Meals = mealGroups,
                 DailyLogId = dailyLog!.DailyLogId,
-                TemplateName = templateName,   // <-- ADD THIS
+                TemplateName = templateName,   
 
                 // Day Properties
                 DayNo = calendarDay.DayNo,

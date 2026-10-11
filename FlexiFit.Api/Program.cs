@@ -123,6 +123,9 @@ builder.Services.AddScoped<MealPlanGenerator>();
 // Progression Logic
 builder.Services.AddScoped<ProgramProgressionService>();
 
+// Nutrition Target Adjustment Logic
+builder.Services.AddScoped<NutritionTargetService>();
+
 // =======================================================
 // 🔥 5. FIREBASE ADMIN INITIALIZATION
 // =======================================================
