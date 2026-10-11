@@ -45,6 +45,7 @@ namespace FlexiFit.Api.Dtos
 
     public class FoodItemDto
     {
+        public int ItemLogId { get; set; } // added item log id for meal item updates
         public int FoodId { get; set; }
         public string Name { get; set; } = "";
         public string Description { get; set; } = "";

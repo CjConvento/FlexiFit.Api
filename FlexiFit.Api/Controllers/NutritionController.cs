@@ -1018,6 +1018,7 @@ public class NutritionController : ControllerBase
 
             var foodItems = items.Select(i => new FoodItemDto
             {
+                ItemLogId = i.ItemLogId, // added itemlogid here for meal item update
                 FoodId = i.FoodId,
                 Name = i.Food.FoodName,
                 Description = i.Food.Description ?? "",

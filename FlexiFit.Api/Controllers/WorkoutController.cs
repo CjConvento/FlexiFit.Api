@@ -109,7 +109,7 @@ public class WorkoutController : ControllerBase
                 Week = weekNo,
                 Day = currentDay,
                 ProgramNumber = currentProgramNo,   // for numbering
-                TotalPrograms = totalPrograms       // Para sa Mobile arrow visibility
+                TotalPrograms = totalPrograms       // Para sa arrow visibility
             };
 
             // -------------------- REST DAY HANDLING (unchanged logic, but efficient) --------------------
@@ -620,7 +620,7 @@ public class WorkoutController : ControllerBase
                 Week = weekNo,
                 Day = day,
                 ProgramNumber = currentProgramNo,   // for numbering
-                TotalPrograms = totalPrograms       // Para sa Mobile arrow visibility
+                TotalPrograms = totalPrograms       // Para sa arrow visibility
             };
 
             var response = new DailyWorkoutPlanDto

@@ -112,7 +112,7 @@ public class CalendarController : ControllerBase
                     // Ipinasa ang nutritionStatus sa GetOverallStatus para mag-match ang 5 parameters
                     Status = GetOverallStatus(workoutSession, nutritionStatus, day, activeProgram.CurrentDayNo, isRestDay),
 
-                    // Idinagdag ang bagong properties para sa mobile logic
+                    // Idinagdag ang bagong properties para sa calendar logic
                     IsCurrentDay = day == activeProgram.CurrentDayNo,
                     IsFuture = day > activeProgram.CurrentDayNo
                 };
@@ -372,7 +372,7 @@ public class CalendarController : ControllerBase
         // I-normalize ang "DONE" papuntang "COMPLETED" para consistent sa workout
         if (nutritionDay != null)
         {
-            // Kung "DONE" ang galing sa DB, ginawang "COMPLETED" para mag-match sa mobile color mapping
+            // Kung "DONE" ang galing sa DB, ginawang "COMPLETED" para mag-match sa calendar color mapping
             return nutritionDay.Status.ToUpper() == "DONE" ? "COMPLETED" : nutritionDay.Status.ToUpper();
         }
 
