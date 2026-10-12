@@ -5,6 +5,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
+using FlexiFit.Api.Mappers;
+using FlexiFit.Api.Extensions;
 
 namespace FlexiFit.Api.Controllers;
 
@@ -40,7 +42,7 @@ public class NutritionController : ControllerBase
     [HttpGet("today")]
     public async Task<IActionResult> GetTodayPlan()
     {
-        var userId = GetUserId();
+        var userId = User.GetUserId();
         if (userId == null) return Unauthorized();
 
         var baseUrl = $"{Request.Scheme}://{Request.Host}";
@@ -61,12 +63,12 @@ public class NutritionController : ControllerBase
             int dayInWeek = (dayNumber - 1) % 7 + 1;
 
             // 3. Get variation code based on week
-            string variationCode = GetVariationCode(weekNo);
+            string variationCode = NutritionCalculator.GetVariationCode(weekNo);
 
             // 4. Get user's dietary type and corresponding template ID
             var userProfile = await _db.NtrUserNutritionProfiles
                 .FirstOrDefaultAsync(p => p.UserId == userId);
-            int templateId = GetTemplateIdFromDietaryType(userProfile?.DietaryType);
+            int templateId = NutritionCalculator.GetTemplateIdFromDietaryType(userProfile?.DietaryType);
 
             // 5. Get or Create Calendar Entry for today
             var calendarDay = await _db.NtrMealPlanCalendars
@@ -168,7 +170,7 @@ public class NutritionController : ControllerBase
 
             // 11. Map to DTO (gumamit ng values na nanggaling sa NutritionTargetService para consistent sa Base + Bonus = Total)
             double consumedCal = dailyLog?.CaloriesConsumed ?? 0;
-            string templateName = GetTemplateNameFromDietaryType(userProfile?.DietaryType);
+            string templateName = NutritionCalculator.GetTemplateNameFromDietaryType(userProfile?.DietaryType);
 
             return Ok(new NutritionScreenDto
             {
@@ -211,7 +213,7 @@ public class NutritionController : ControllerBase
     [HttpGet("history-detail")]
     public async Task<IActionResult> GetNutritionHistoryDetail([FromQuery] int day, [FromQuery] int month)
     {
-        var userId = GetUserId();
+        var userId = User.GetUserId();
         if (userId == null) return Unauthorized();
 
         var baseUrl = $"{Request.Scheme}://{Request.Host}";
@@ -266,7 +268,7 @@ public class NutritionController : ControllerBase
             //  Fetch user profile to get dietary type
             var userProfile = await _db.NtrUserNutritionProfiles
                 .FirstOrDefaultAsync(p => p.UserId == userId);
-            string templateName = GetTemplateNameFromDietaryType(userProfile?.DietaryType);
+            string templateName = NutritionCalculator.GetTemplateNameFromDietaryType(userProfile?.DietaryType);
 
             return Ok(new NutritionScreenDto
             {
@@ -359,7 +361,7 @@ public class NutritionController : ControllerBase
     [HttpPut("meal-item/{mealItemId}")]
     public async Task<IActionResult> UpdateMealItem(int mealItemId, [FromBody] UpdateMealItemRequest request)
     {
-        var userId = GetUserId();
+        var userId = User.GetUserId();
         if (userId == null) return Unauthorized();
 
         try
@@ -409,7 +411,7 @@ public class NutritionController : ControllerBase
     [HttpPost("meal-item/{mealItemId}/swap")]
     public async Task<IActionResult> SwapFoodItem(int mealItemId, [FromBody] SwapFoodRequest request)
     {
-        var userId = GetUserId();
+        var userId = User.GetUserId();
         if (userId == null) return Unauthorized();
 
         try
@@ -483,7 +485,7 @@ public class NutritionController : ControllerBase
     [HttpPost("water/add")]
     public async Task<IActionResult> AddWater([FromBody] AddWaterRequest request)
     {
-        var userId = GetUserId();
+        var userId = User.GetUserId();
         if (userId == null) return Unauthorized();
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
@@ -528,7 +530,7 @@ public class NutritionController : ControllerBase
     [HttpGet("water/today")]
     public async Task<IActionResult> GetWaterToday()
     {
-        var userId = GetUserId();
+        var userId = User.GetUserId();
         if (userId == null) return Unauthorized();
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
@@ -555,7 +557,7 @@ public class NutritionController : ControllerBase
     [HttpDelete("water/reset")]
     public async Task<IActionResult> ResetWater()
     {
-        var userId = GetUserId();
+        var userId = User.GetUserId();
         if (userId == null) return Unauthorized();
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
@@ -586,7 +588,7 @@ public class NutritionController : ControllerBase
     [HttpPost("complete")]
     public async Task<IActionResult> CompleteNutritionDay([FromBody] LogFullDayRequest req)
     {
-        var userId = GetUserId();
+        var userId = User.GetUserId();
         if (userId == null) return Unauthorized();
 
         var todayDateOnly = DateOnly.FromDateTime(DateTime.UtcNow);
@@ -1004,7 +1006,7 @@ public class NutritionController : ControllerBase
                 FoodId = i.FoodId,
                 Name = i.Food.FoodName,
                 Description = i.Food.Description ?? "",
-                ImageUrl = BuildFoodImageUrl(baseUrl, i.Food.DietaryType ?? "balanced", mealType, i.Food.ImgFilename),
+                ImageUrl = NutritionMapper.BuildFoodImageUrl(baseUrl, i.Food.DietaryType ?? "balanced", mealType, i.Food.ImgFilename),
                 DietaryType = i.Food.DietaryType ?? "balanced",
                 Qty = (double)i.Qty,
                 Unit = i.Food.ServingUnit,
@@ -1024,61 +1026,6 @@ public class NutritionController : ControllerBase
         }
 
         return mealGroups;
-    }
-
-
-    private string BuildFoodImageUrl(string baseUrl, string category, string mealType, string? fileName)
-    {
-        if (string.IsNullOrEmpty(fileName))
-            return $"{baseUrl}/images/foods/default.png";
-
-        //  If DB has full URL (Appwrite), pass through
-        if (fileName.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-            return fileName;
-
-        // Legacy bare filename → fallback to placeholder
-        return $"{baseUrl}/images/foods/default.png";
-    }
-
-    private string GetVariationCode(int weekNo)
-    {
-        int index = (weekNo - 1) % 4;
-        return ((char)('A' + index)).ToString();
-    }
-
-    private int GetTemplateIdFromDietaryType(string? dietaryType)
-    {
-        return dietaryType?.ToUpper() switch
-        {
-            "BALANCED" => 1,
-            "KETO" => 2,
-            "VEGAN" => 3,
-            "VEGETARIAN" => 4,
-            "HIGH_PROTEIN" => 5,
-            "LACTOSE_FREE" => 6,
-            _ => 1   // default to BALANCED
-        };
-    }
-
-    private string GetTemplateNameFromDietaryType(string? dietaryType)
-    {
-        return dietaryType?.ToUpper() switch
-        {
-            "BALANCED" => "Balanced",
-            "KETO" => "Keto",
-            "VEGAN" => "Vegan",
-            "VEGETARIAN" => "Vegetarian",
-            "HIGH_PROTEIN" => "High Protein",
-            "LACTOSE_FREE" => "Lactose Free",
-            _ => "Balanced"
-        };
-    }
-
-    private int? GetUserId()
-    {
-        var id = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ??
-                User.FindFirst("user_id")?.Value;
-        return int.TryParse(id, out var userId) ? userId : null;
     }
 
     #endregion

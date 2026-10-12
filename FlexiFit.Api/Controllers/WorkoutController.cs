@@ -1,11 +1,12 @@
 using FlexiFit.Api.Dtos;
 using FlexiFit.Api.Entities;
 using FlexiFit.Api.Services;
+using FlexiFit.Api.Mappers;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
-using Npgsql;
+using FlexiFit.Api.Extensions;
 
 namespace FlexiFit.Api.Controllers;
 
@@ -34,7 +35,7 @@ public class WorkoutController : ControllerBase
     [HttpGet("today")]
     public async Task<ActionResult<DailyWorkoutPlanDto>> GetTodayWorkout([FromQuery] int programNumber = 1)
     {
-        var userId = GetUserId();
+        var userId = User.GetUserId();
         if (userId == null) return Unauthorized();
 
         int userInt = userId.Value; 
@@ -277,12 +278,12 @@ public class WorkoutController : ControllerBase
             // Separate warmups from regular workouts
             var warmups = allWorkouts
                 .Where(w => w.Workout != null && w.Workout.Category?.ToUpper() == "WARMUP")
-                .Select(w => MapToWorkoutExerciseDto(w, baseUrl, isCompleted))
+                .Select(w => WorkoutMapper.ToWorkoutExerciseDto(w, baseUrl, isCompleted))
                 .ToList();
 
             var workouts = allWorkouts
                 .Where(w => w.Workout != null && w.Workout.Category?.ToUpper() != "WARMUP")
-                .Select(w => MapToWorkoutExerciseDto(w, baseUrl, isCompleted))
+                .Select(w => WorkoutMapper.ToWorkoutExerciseDto(w, baseUrl, isCompleted))
                 .ToList();
 
             // 7. Build response
@@ -293,7 +294,7 @@ public class WorkoutController : ControllerBase
                 Status = session.Status ?? "PENDING",
                 Level = activeProgram.Program?.FitnessLevel,
                 FocusArea = dayDef.DayType,
-                Message = GetStatusMessage(session.Status),
+                Message = WorkoutMapper.GetStatusMessage(session.Status),
                 CanSkip = canSkip,
                 SkipMessage = canSkip ? "Skipping will mark this day as skipped and move you to tomorrow's workout." : null,
                 SessionId = session.SessionId,
@@ -323,7 +324,7 @@ public class WorkoutController : ControllerBase
     [HttpPost("complete")]
     public async Task<ActionResult<WorkoutSessionResultDto>> CompleteSession([FromBody] WorkoutSessionCompleteDto req)
     {
-        var userId = GetUserId();
+        var userId = User.GetUserId();
         if (userId == null) return Unauthorized();
 
         var todayDateOnly = DateOnly.FromDateTime(DateTime.UtcNow);
@@ -498,7 +499,7 @@ public class WorkoutController : ControllerBase
     [HttpGet("can-skip")]
     public async Task<IActionResult> CanSkipToday()
     {
-        var userId = GetUserId();
+        var userId = User.GetUserId();
         if (userId == null) return Unauthorized();
 
         try
@@ -544,7 +545,7 @@ public class WorkoutController : ControllerBase
     [HttpGet("history-detail")]
     public async Task<ActionResult<DailyWorkoutPlanDto>> GetWorkoutByDate([FromQuery] int day, [FromQuery] int month, [FromQuery] int programNumber = 1)
     {
-        var userId = GetUserId();
+        var userId = User.GetUserId();
         if (userId == null) return Unauthorized();
 
         int userInt = userId.Value;
@@ -607,12 +608,12 @@ public class WorkoutController : ControllerBase
 
                 warmups = allWorkouts
                     .Where(w => w.Workout != null && w.Workout.Category?.ToUpper() == "WARMUP")
-                    .Select(w => MapToWorkoutExerciseDto(w, baseUrl, isCompleted))
+                    .Select(w => WorkoutMapper.ToWorkoutExerciseDto(w, baseUrl, isCompleted))
                     .ToList();
 
                 workouts = allWorkouts
                     .Where(w => w.Workout != null && w.Workout.Category?.ToUpper() != "WARMUP")
-                    .Select(w => MapToWorkoutExerciseDto(w, baseUrl, isCompleted))
+                    .Select(w => WorkoutMapper.ToWorkoutExerciseDto(w, baseUrl, isCompleted))
                     .ToList();
             }
 
@@ -657,7 +658,7 @@ public class WorkoutController : ControllerBase
                 Status = status,
                 Level = template?.FitnessLevel,
                 FocusArea = dayDef.DayType,
-                Message = GetStatusMessage(status),
+                Message = WorkoutMapper.GetStatusMessage(status),
                 CanSkip = false, // historical days cannot be skipped
                 SkipMessage = null,
                 SessionId = session?.SessionId ?? 0,
@@ -680,7 +681,7 @@ public class WorkoutController : ControllerBase
     [HttpGet("history")]
     public async Task<IActionResult> GetWorkoutHistory()
     {
-        var userId = GetUserId();
+        var userId = User.GetUserId();
         if (userId == null) return Unauthorized();
 
         try
@@ -715,7 +716,7 @@ public class WorkoutController : ControllerBase
     [HttpGet("session/{sessionId}")]
     public async Task<IActionResult> GetSessionDetails(int sessionId)
     {
-        var userId = GetUserId();
+        var userId = User.GetUserId();
         if (userId == null) return Unauthorized();
 
         try
@@ -1095,120 +1096,6 @@ public class WorkoutController : ControllerBase
 
         return (weeks ?? 4) * 7;
     }   
-    
-    private WorkoutExerciseDto MapToWorkoutExerciseDto(UsrUserSessionWorkout sw, string baseUrl, bool isCompleted)
-    {
-        // Handle null Workout gracefully
-        if (sw.Workout == null)
-        {
-            _logger.LogWarning($"Workout is null for SessionWorkoutId {sw.SessionWorkoutId}");
-            return new WorkoutExerciseDto
-            {
-                Id = sw.WorkoutId,
-                Name = "Unknown Exercise",
-                ImageFileName = $"{baseUrl}/images/workouts/default.png",
-                MuscleGroup = "Unknown",
-                Sets = sw.Sets,
-                Reps = sw.Reps,
-                DurationMinutes = 10,
-                RestSeconds = 60,
-                Calories = 50,
-                Description = "Exercise details not available",
-                VideoUrl = null,
-                Order = sw.OrderNo,
-                LoadKg = sw.LoadKg,
-                IsCompleted = isCompleted
-            };
-        }
-
-        // Determine image URL
-        string imageUrl;
-        string category = sw.Workout.Category?.ToUpper()!;
-
-        if (category == "WARMUP")
-        {
-            // Always use default image for warmups
-            imageUrl = $"{baseUrl}/images/workouts/default.png";
-        }
-        else if (!string.IsNullOrEmpty(sw.Workout.ImgFilename))
-        {
-            //  If DB has full URL (Appwrite), pass through
-            if (sw.Workout.ImgFilename.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-            {
-                imageUrl = sw.Workout.ImgFilename;
-            }
-            else
-            {
-                // Legacy bare filename → fallback to placeholder
-                imageUrl = $"{baseUrl}/images/workouts/default.png";
-            }
-        }
-        else
-        {
-            // Fallback to default
-            imageUrl = $"{baseUrl}/images/workouts/default.png";
-        }
-
-        return new WorkoutExerciseDto
-        {
-            Id = sw.WorkoutId,
-            Name = sw.Workout.WorkoutName ?? "Unknown Exercise",
-            ImageFileName = imageUrl,
-            MuscleGroup = sw.Workout.MuscleGroup ?? "Full Body",
-            Sets = sw.Sets,
-            Reps = sw.Reps,
-            DurationMinutes = sw.Workout.Duration ?? 10,
-            RestSeconds = 60,
-            Calories = (int)(sw.Workout.CaloriesBurned ?? 50),
-            Description = sw.Workout.Notes ?? "Perform with proper form",
-            VideoUrl = sw.Workout.VideoUrl,
-            Order = sw.OrderNo,
-            LoadKg = sw.LoadKg,
-            IsCompleted = isCompleted
-        };
-    }
-
-    private static string GetCategoryFolder(string? category)
-    {
-        if (string.IsNullOrEmpty(category))
-            return "general";
-
-        return category.ToLower() switch
-        {
-            "cardio" => "cardio",
-            "strength" => "strength",
-            "hiit" => "hiit",
-            "yoga" => "yoga",
-            "warmup" => "warmups",
-            "push" => "push",
-            "pull" => "pull",
-            "legs" => "legs",
-            "core" => "core",
-            _ => "general"
-        };
-    }
-
-    private static string GetStatusMessage(string? status)
-    {
-        return status?.ToUpper() switch
-        {
-            "COMPLETED" => "🎉 Great job! You've completed today's workout!",
-            "SKIPPED" => "This day was skipped. Ready for tomorrow? 💪",
-            "PENDING" => "Ready to crush it today! Let's go! 💪",
-            _ => "Let's get moving! 🏃"
-        };
-    }
-
-    private int? GetUserId()
-    {
-        var id = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ??
-                User.FindFirst("user_id")?.Value;
-
-        if (int.TryParse(id, out var userId))
-            return userId;
-
-        return null;
-    }
 
     // ========================================================================
     // TODO (Item 17): Migrate these helpers to IProgramService / ProgramService

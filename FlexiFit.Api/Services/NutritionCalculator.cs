@@ -244,4 +244,42 @@ public class NutritionCalculator
         if (bmi < 30.0) return "Overweight";
         return "Obese";
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // NUTRITION DOMAIN HELPERS (For Controller use)
+    // ═══════════════════════════════════════════════════════════════
+
+    public static string GetVariationCode(int weekNo)
+    {
+        int index = (weekNo - 1) % 4;
+        return ((char)('A' + index)).ToString();
+    }
+
+    public static int GetTemplateIdFromDietaryType(string? dietaryType)
+    {
+        return dietaryType?.ToUpper() switch
+        {
+            "BALANCED" => 1,
+            "KETO" => 2,
+            "VEGAN" => 3,
+            "VEGETARIAN" => 4,
+            "HIGH_PROTEIN" => 5,
+            "LACTOSE_FREE" => 6,
+            _ => 1 // Default to BALANCED
+        };
+    }
+
+    public static string GetTemplateNameFromDietaryType(string? dietaryType)
+    {
+        return dietaryType?.ToUpper() switch
+        {
+            "BALANCED" => "Balanced",
+            "KETO" => "Keto",
+            "VEGAN" => "Vegan",
+            "VEGETARIAN" => "Vegetarian",
+            "HIGH_PROTEIN" => "High Protein",
+            "LACTOSE_FREE" => "Lactose Free",
+            _ => "Balanced"
+        };
+    }
 }
