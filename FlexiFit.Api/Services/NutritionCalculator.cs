@@ -206,4 +206,42 @@ public class NutritionCalculator
         double intake = targetNetCalories + Math.Max(0, workoutCaloriesBurned);
         return Math.Max(intake, 500); // Safety floor
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // BMI CALCULATION (Centralized Body Metrics)
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Calculates BMI and returns both the value and the category.
+    /// </summary>
+    public static (double Bmi, string Category) CalculateBmi(double weightKg, double heightCm)
+    {
+        if (heightCm <= 0 || weightKg <= 0)
+            return (0, "Unknown");
+
+        double heightM = heightCm / 100.0;
+        double bmi = weightKg / (heightM * heightM);
+
+        string category = bmi switch
+        {
+            < 18.5 => "Underweight",
+            < 25.0 => "Normal",
+            < 30.0 => "Overweight",
+            _ => "Obese"
+        };
+
+        return (Math.Round(bmi, 1), category);
+    }
+
+    /// <summary>
+    /// Helper method to get the BMI category.
+    /// </summary>
+    public static string GetBmiCategory(double bmi)
+    {
+        if (bmi <= 0) return "Unknown";
+        if (bmi < 18.5) return "Underweight";
+        if (bmi < 25.0) return "Normal";
+        if (bmi < 30.0) return "Overweight";
+        return "Obese";
+    }
 }

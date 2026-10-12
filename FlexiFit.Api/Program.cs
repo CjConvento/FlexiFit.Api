@@ -124,6 +124,9 @@ builder.Services.AddScoped<MealPlanGenerator>();
 // Progression Logic
 builder.Services.AddScoped<ProgramProgressionService>();
 
+// Progress Tracking Logic
+builder.Services.AddScoped<ProgressTrackerService>();
+
 // Nutrition Target Adjustment Logic
 builder.Services.AddScoped<NutritionTargetService>();
 
