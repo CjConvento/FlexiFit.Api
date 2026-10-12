@@ -17,15 +17,18 @@ public class WorkoutController : ControllerBase
     private readonly FlexiFitDbContext _context;
     private readonly ILogger<WorkoutController> _logger;
     private readonly ProgramProgressionService _progressionService;
+    private readonly WorkoutPlanGenerator _workoutPlanGenerator;
 
     public WorkoutController(
         FlexiFitDbContext context, 
         ILogger<WorkoutController> logger,
-        ProgramProgressionService progressionService)
+        ProgramProgressionService progressionService,
+        WorkoutPlanGenerator workoutPlanGenerator)
     {
         _context = context;
         _logger = logger;
         _progressionService = progressionService;
+        _workoutPlanGenerator = workoutPlanGenerator;
     }
 
     [HttpGet("today")]
@@ -207,11 +210,23 @@ public class WorkoutController : ControllerBase
                 _context.UsrUserWorkoutSessions.Add(newSession);
                 await _context.SaveChangesAsync();
 
-                // Create workout exercises (includes warmups)
-                await CreateSessionWorkouts(newSession.SessionId, activeProgram.ProgramId, dayDef.DayType, weekNo, fitnessLevel, isRehab);
-
+                // Use WorkoutPlanGenerator instead of CreateSessionWorkouts
+                var generatedWorkouts = await _workoutPlanGenerator.GenerateForSessionAsync(
+                    newSession.SessionId,
+                    activeProgram.ProgramId,
+                    dayDef.DayType,
+                    weekNo,
+                    fitnessLevel,
+                    isRehab);
+                
+                if (generatedWorkouts.Any())
+                {
+                    _context.UsrUserSessionWorkouts.AddRange(generatedWorkouts);
+                    await _context.SaveChangesAsync();
+                }
+                
                 //  REORDER: Warmups muna, tapos main workouts
-                await ReorderWorkouts(newSession.SessionId);
+                await _workoutPlanGenerator.ReorderWorkoutsAsync(newSession.SessionId);
 
                 // Ensure calendar entry exists
                 await EnsureCalendarEntryExists(activeProgram.CycleNo, currentDay, activeProgram.CurrentDayNo, false);
@@ -234,10 +249,22 @@ public class WorkoutController : ControllerBase
             //  Repair missing warmups for pending sessions (with rehab support)
             if (!isCompleted && !isSkipped)
             {
-                await EnsureWarmupsExist(session.SessionId, activeProgram.ProgramId, dayDef.DayType, weekNo, fitnessLevel, isRehab);
+                var newWarmups = await _workoutPlanGenerator.EnsureWarmupsAsync(
+                    session.SessionId,
+                    activeProgram.ProgramId,
+                    dayDef.DayType,
+                    weekNo,
+                    fitnessLevel,
+                    isRehab);
+
+                if (newWarmups.Any())
+                {
+                    _context.UsrUserSessionWorkouts.AddRange(newWarmups);
+                    await _context.SaveChangesAsync();
+                }
 
                 //  REORDER: Warmups muna, tapos main workouts
-                await ReorderWorkouts(session.SessionId);
+                await _workoutPlanGenerator.ReorderWorkoutsAsync(session.SessionId);
 
                 // Reload to include the newly added warmups
                 allWorkouts = await _context.UsrUserSessionWorkouts
@@ -1069,227 +1096,6 @@ public class WorkoutController : ControllerBase
         return (weeks ?? 4) * 7;
     }   
     
-    private async Task EnsureWarmupsExist(int sessionId, int programId, string dayType, int weekNo, string fitnessLevel, bool isRehab)
-    {
-        // Build allowed difficulties
-        var allowedDifficulties = new List<string> { fitnessLevel };
-        if (isRehab)
-            allowedDifficulties.Add("REHAB LEVEL");
-
-        // Check if session already has any warmups
-        bool hasWarmups = await _context.UsrUserSessionWorkouts
-            .Include(sw => sw.Workout)
-            .AnyAsync(sw => sw.SessionId == sessionId && sw.Workout != null && sw.Workout.Category == "WARMUP");
-
-        if (hasWarmups) return;
-
-        // If not, add 2 random warmups filtered by allowed difficulties
-        var warmups = await _context.WrkWorkouts
-            .Where(w => w.Category == "WARMUP"
-                     && w.IsActive == true
-                     && allowedDifficulties.Contains(w.DifficultyLevel!))
-            .OrderBy(x => EF.Functions.Random())
-            .Take(2)
-            .ToListAsync();
-
-        if (!warmups.Any())
-        {
-            _logger.LogWarning("No active warmups found for the allowed difficulty levels");
-            return;
-        }
-
-        // Get the current max OrderNo
-        int maxOrder = await _context.UsrUserSessionWorkouts
-            .Where(sw => sw.SessionId == sessionId)
-            .MaxAsync(sw => (int?)sw.OrderNo) ?? 0;
-
-        var newWarmups = new List<UsrUserSessionWorkout>();
-        int order = maxOrder + 1;
-        foreach (var warmup in warmups)
-        {
-            newWarmups.Add(new UsrUserSessionWorkout
-            {
-                SessionId = sessionId,
-                WorkoutId = warmup.WorkoutId,
-                Sets = 2,
-                Reps = 12,
-                OrderNo = order++,
-                LoadKg = 0
-            });
-        }
-
-        _context.UsrUserSessionWorkouts.AddRange(newWarmups);
-        await _context.SaveChangesAsync();
-
-        _logger.LogInformation($"Added {newWarmups.Count} warmups to session {sessionId}");
-    }
-
-    private async Task ReorderWorkouts(int sessionId)
-    {
-        var allWorkouts = await _context.UsrUserSessionWorkouts
-            .Include(sw => sw.Workout)
-            .Where(sw => sw.SessionId == sessionId)
-            .ToListAsync();
-
-        // Separate warmups from main workouts
-        var warmups = allWorkouts
-            .Where(w => w.Workout != null && w.Workout.Category?.ToUpper() == "WARMUP")
-            .OrderBy(w => w.OrderNo)
-            .ToList();
-
-        var mainWorkouts = allWorkouts
-            .Where(w => w.Workout != null && w.Workout.Category?.ToUpper() != "WARMUP")
-            .OrderBy(w => w.OrderNo)
-            .ToList();
-
-        int order = 1;
-
-        // First assign orders to warmups
-        foreach (var warmup in warmups)
-        {
-            warmup.OrderNo = order++;
-        }
-
-        // Then assign orders to main workouts
-        foreach (var workout in mainWorkouts)
-        {
-            workout.OrderNo = order++;
-        }
-
-        await _context.SaveChangesAsync();
-        _logger.LogInformation($"Reordered {allWorkouts.Count} workouts for session {sessionId}");
-    }
-
-    private async Task CreateSessionWorkouts(int sessionId, int programId, string dayType, int weekNo, string fitnessLevel, bool isRehab)
-    {
-        _logger.LogInformation($"Creating session workouts for Session {sessionId}, Program {programId}, DayType {dayType}, Week {weekNo}, FitnessLevel: {fitnessLevel}, IsRehab: {isRehab}");
-
-
-        // Check if workouts already exist
-        var existingWorkouts = await _context.UsrUserSessionWorkouts
-            .AnyAsync(sw => sw.SessionId == sessionId);
-        if (existingWorkouts)
-        {
-            _logger.LogWarning($"Session {sessionId} already has workouts. Skipping creation.");
-            return;
-        }
-
-        // Define allowed difficulties
-        var allowedDifficulties = new List<string> { fitnessLevel };
-        if (isRehab)
-            allowedDifficulties.Add("REHAB LEVEL");
-
-        var sessionWorkouts = new List<UsrUserSessionWorkout>();
-        int order = 1;
-
-        // 1. Add 2 random warmups filtered by allowed difficulties
-        var warmups = await _context.WrkWorkouts
-            .Where(w => w.Category == "WARMUP"
-                     && w.IsActive == true
-                     && allowedDifficulties.Contains(w.DifficultyLevel!))
-            .OrderBy(x => EF.Functions.Random())
-            .Take(2)
-            .ToListAsync();
-
-        foreach (var warmup in warmups)
-        {
-            sessionWorkouts.Add(new UsrUserSessionWorkout
-            {
-                SessionId = sessionId,
-                WorkoutId = warmup.WorkoutId,
-                Sets = 2,
-                Reps = 12,
-                OrderNo = order++,
-                LoadKg = 0
-            });
-        }
-
-        // 2. Add main workouts from template (filtered by allowed difficulties)
-        var templateWorkouts = await _context.WrkProgramTemplateDaytypeWorkouts
-            .Where(tw => tw.ProgramId == programId && tw.WeekNo == weekNo && tw.DayType == dayType)
-            .Join(_context.WrkWorkouts, tw => tw.WorkoutId, w => w.WorkoutId, (tw, w) => new { tw, w })
-            .Where(j => allowedDifficulties.Contains(j.w.DifficultyLevel!))
-            .OrderBy(j => j.tw.WorkoutOrder)
-            .Take(8)
-            .Select(j => new { j.tw.WorkoutId, j.tw.SetsDefault, j.tw.RepsDefault })
-            .ToListAsync();
-
-        if (!templateWorkouts.Any())
-        {
-
-
-            // Fallback to week 1 with same difficulty filter
-            templateWorkouts = await _context.WrkProgramTemplateDaytypeWorkouts
-                .Where(tw => tw.ProgramId == programId && tw.WeekNo == 1 && tw.DayType == dayType)
-                .Join(_context.WrkWorkouts, tw => tw.WorkoutId, w => w.WorkoutId, (tw, w) => new { tw, w })
-                .Where(j => allowedDifficulties.Contains(j.w.DifficultyLevel!))
-                .OrderBy(j => j.tw.WorkoutOrder)
-                .Take(8)
-                .Select(j => new { j.tw.WorkoutId, j.tw.SetsDefault, j.tw.RepsDefault })
-                .ToListAsync();
-        }
-
-        if (!templateWorkouts.Any())
-        {
-
-
-            // Fallback to random workouts (excluding warmups and cardio)
-            var fallbackWorkouts = await _context.WrkWorkouts
-                .Where(w => w.IsActive == true
-                         && w.Category != null
-                         && w.Category.ToUpper() != "WARMUP"
-                         && w.Category.ToUpper() != "CARDIO")
-                .OrderBy(x => EF.Functions.Random())
-                .Take(8)
-                .ToListAsync();
-
-            foreach (var w in fallbackWorkouts)
-            {
-                sessionWorkouts.Add(new UsrUserSessionWorkout
-                {
-                    SessionId = sessionId,
-                    WorkoutId = w.WorkoutId,
-                    Sets = 3,
-                    Reps = 12,
-                    OrderNo = order++,
-                    LoadKg = 0
-                });
-            }
-        }
-        else
-        {
-            foreach (var tw in templateWorkouts)
-            {
-                sessionWorkouts.Add(new UsrUserSessionWorkout
-                {
-                    SessionId = sessionId,
-                    WorkoutId = tw.WorkoutId,
-                    Sets = tw.SetsDefault,
-                    Reps = tw.RepsDefault,
-                    OrderNo = order++,
-                    LoadKg = 0
-                });
-            }
-        }
-
-        // Ensure no duplicate order numbers
-        var duplicateOrders = sessionWorkouts
-            .GroupBy(w => w.OrderNo)
-            .Where(g => g.Count() > 1)
-            .Select(g => g.Key)
-            .ToList();
-        if (duplicateOrders.Any())
-        {
-            for (int i = 0; i < sessionWorkouts.Count; i++)
-                sessionWorkouts[i].OrderNo = i + 1;
-        }
-
-        _context.UsrUserSessionWorkouts.AddRange(sessionWorkouts);
-        await _context.SaveChangesAsync();
-
-        _logger.LogInformation($"Created {sessionWorkouts.Count} workout exercises for Session {sessionId} (Warmups: {warmups.Count}, Main: {sessionWorkouts.Count - warmups.Count})");
-    }
-
     private WorkoutExerciseDto MapToWorkoutExerciseDto(UsrUserSessionWorkout sw, string baseUrl, bool isCompleted)
     {
         // Handle null Workout gracefully

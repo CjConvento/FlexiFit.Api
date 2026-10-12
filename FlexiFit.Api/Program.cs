@@ -112,6 +112,7 @@ builder.Services.AddScoped<JwtService>();
 builder.Services.AddScoped<FirebaseTokenVerifier>();
 builder.Services.AddScoped<DeviceTokenService>();
 builder.Services.AddScoped<IUserService, UserService>();
+
 // Added Appwrite Storage
 builder.Services.AddScoped<IBlobService, AppwriteStorageService>();
 // builder.Services.AddScoped<IBlobService, BlobService>();
@@ -125,6 +126,9 @@ builder.Services.AddScoped<ProgramProgressionService>();
 
 // Nutrition Target Adjustment Logic
 builder.Services.AddScoped<NutritionTargetService>();
+
+// Workout Plan Generation Logic
+builder.Services.AddScoped<WorkoutPlanGenerator>();
 
 // =======================================================
 // 🔥 5. FIREBASE ADMIN INITIALIZATION
