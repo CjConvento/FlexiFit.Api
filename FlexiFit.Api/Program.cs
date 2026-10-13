@@ -127,6 +127,9 @@ builder.Services.AddScoped<ProgramProgressionService>();
 // Progress Tracking Logic
 builder.Services.AddScoped<ProgressTrackerService>();
 
+// Nutrition Service for meal group fetching and mapping
+builder.Services.AddScoped<NutritionService>();
+
 // Nutrition Target Adjustment Logic
 builder.Services.AddScoped<NutritionTargetService>();
 

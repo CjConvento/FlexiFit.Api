@@ -1080,12 +1080,6 @@ public class WorkoutController : ControllerBase
         await _context.SaveChangesAsync();
     }
 
-    private string GetVariationCode(int weekNo)
-    {
-        int index = (weekNo - 1) % 4;
-        return ((char)('A' + index)).ToString();
-    }
-
     private async Task<int> GetTotalDaysForCycle(int cycleId)
     {
         var weeks = await _context.NtrUserCycleTargets
