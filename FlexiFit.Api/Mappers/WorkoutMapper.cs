@@ -5,6 +5,7 @@ namespace FlexiFit.Api.Mappers;
 
 public static class WorkoutMapper
 {
+    // ── Single Exercise Mapping ──────────────────────────────────────
     public static WorkoutExerciseDto ToWorkoutExerciseDto(UsrUserSessionWorkout sw, string baseUrl, bool isCompleted)
     {
         if (sw.Workout == null)
@@ -49,6 +50,68 @@ public static class WorkoutMapper
         };
     }
 
+    // ── Full DailyWorkoutPlanDto Builder
+    public static DailyWorkoutPlanDto BuildDailyWorkoutPlanDto(
+        int dayNo,
+        string dayType,
+        string status,
+        string? level,
+        string message,
+        bool canSkip,
+        string? skipMessage,
+        int sessionId,
+        WorkoutProgramDto program,
+        List<WorkoutExerciseDto> warmups,
+        List<WorkoutExerciseDto> workouts
+    )
+    {
+        return new DailyWorkoutPlanDto
+        {
+            DayNo = dayNo,
+            DayType = dayType,
+            Status = status,
+            Level = level,
+            FocusArea = dayType,
+            Message = message,
+            CanSkip = canSkip,
+            SkipMessage = skipMessage,
+            SessionId = sessionId,
+            Program = program,
+            Warmups = warmups,
+            Workouts = workouts,
+            TotalCalories = warmups.Sum(x => x.Calories) + workouts.Sum(x => x.Calories),
+            TotalDuration = warmups.Sum(x => x.DurationMinutes) + workouts.Sum(x => x.DurationMinutes)
+        };
+    }
+
+
+    // ── Program DTO Builder ──────────────────────────────────────────
+    public static WorkoutProgramDto BuildProgramDto(
+        UsrUserProgramInstance p,
+        int programNumber,
+        int totalPrograms,
+        int month,
+        int week,
+        int day
+    )
+    {
+        return new WorkoutProgramDto
+        {
+            ProgramId = p.ProgramId,
+            ProgramName = p.Program?.ProgramName ?? "My Program",
+            Description = p.Program?.Description ?? "",
+            Environment = p.Program?.Environment ?? "Any",
+            Level = p.Program?.FitnessLevel ?? "Beginner",
+            Status = p.Status,  
+            Month = month,
+            Week = week,
+            Day = day,
+            ProgramNumber = programNumber,   // for numbering
+            TotalPrograms = totalPrograms       // Para sa arrow visibility           
+        };
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────
     public static string GetStatusMessage(string? status)
     {
         return status?.ToUpper() switch

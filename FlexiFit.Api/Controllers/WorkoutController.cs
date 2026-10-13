@@ -19,17 +19,20 @@ public class WorkoutController : ControllerBase
     private readonly ILogger<WorkoutController> _logger;
     private readonly ProgramProgressionService _progressionService;
     private readonly WorkoutPlanGenerator _workoutPlanGenerator;
+    private readonly ProgramService _programService; 
 
     public WorkoutController(
         FlexiFitDbContext context, 
         ILogger<WorkoutController> logger,
         ProgramProgressionService progressionService,
-        WorkoutPlanGenerator workoutPlanGenerator)
+        WorkoutPlanGenerator workoutPlanGenerator,
+        ProgramService programService)
     {
         _context = context;
         _logger = logger;
         _progressionService = progressionService;
         _workoutPlanGenerator = workoutPlanGenerator;
+        _programService = programService;
     }
 
     [HttpGet("today")]
@@ -46,7 +49,7 @@ public class WorkoutController : ControllerBase
         try
         {
             // Gamitin ang Helper para kunin ang lahat ng active programs
-            var activePrograms = await GetActiveProgramsAsync(userInt);
+            var activePrograms = await _programService.GetActiveProgramsAsync(userInt);
             if (activePrograms.Count == 0)
             {
                 return NotFound(new { message = "No active program found. Please start a program first." });
@@ -101,20 +104,7 @@ public class WorkoutController : ControllerBase
                 .FirstOrDefaultAsync();
 
             // COMMON PROGRAM DTO MAPPER (Para hindi ulit-ulitin ang code sa Rest at Workout day)
-            var programDto = new WorkoutProgramDto
-            {
-                ProgramId = activeProgram.ProgramId,
-                ProgramName = activeProgram.Program?.ProgramName ?? "My Program",
-                Description = activeProgram.Program?.Description ?? "",
-                Environment = activeProgram.Program?.Environment ?? "Any",
-                Level = activeProgram.Program?.FitnessLevel ?? "Beginner",
-                Status = activeProgram.Status,  
-                Month = monthNo,
-                Week = weekNo,
-                Day = currentDay,
-                ProgramNumber = currentProgramNo,   // for numbering
-                TotalPrograms = totalPrograms       // Para sa arrow visibility
-            };
+            var programDto = WorkoutMapper.BuildProgramDto(activeProgram, currentProgramNo, totalPrograms, monthNo, weekNo, currentDay);
 
             // -------------------- REST DAY HANDLING (unchanged logic, but efficient) --------------------
             if (isRestDay)
@@ -287,23 +277,14 @@ public class WorkoutController : ControllerBase
                 .ToList();
 
             // 7. Build response
-            var response = new DailyWorkoutPlanDto
-            {
-                DayNo = currentDay,
-                DayType = dayDef.DayType,
-                Status = session.Status ?? "PENDING",
-                Level = activeProgram.Program?.FitnessLevel,
-                FocusArea = dayDef.DayType,
-                Message = WorkoutMapper.GetStatusMessage(session.Status),
-                CanSkip = canSkip,
-                SkipMessage = canSkip ? "Skipping will mark this day as skipped and move you to tomorrow's workout." : null,
-                SessionId = session.SessionId,
-                Program = programDto,
-                Warmups = warmups,
-                Workouts = workouts,
-                TotalCalories = warmups.Sum(x => x.Calories) + workouts.Sum(x => x.Calories),
-                TotalDuration = warmups.Sum(x => x.DurationMinutes) + workouts.Sum(x => x.DurationMinutes)
-            };
+            var response = WorkoutMapper.BuildDailyWorkoutPlanDto(
+            currentDay, dayDef.DayType, session.Status ?? "PENDING",
+            activeProgram.Program?.FitnessLevel,
+            WorkoutMapper.GetStatusMessage(session.Status),
+            canSkip,
+            canSkip ? "Skipping will mark this day as skipped and move you to tomorrow's workout." : null,
+            session.SessionId, programDto, warmups, workouts);
+
 
             _logger.LogInformation($"Returning workout plan for User {userId}, Day {currentDay}, Status: {response.Status}, Warmups: {warmups.Count}, Workouts: {workouts.Count}");
             return Ok(response);
@@ -554,7 +535,7 @@ public class WorkoutController : ControllerBase
         try
         {
             // Gamitin ang helper para kunin ang lahat ng active programs (consistent sa GetTodayWorkout)
-            var activePrograms = await GetActiveProgramsAsync(userInt);
+            var activePrograms = await _programService.GetActiveProgramsAsync(userInt);
 
             if (activePrograms.Count == 0)
             {
@@ -567,7 +548,7 @@ public class WorkoutController : ControllerBase
 
             // Kunin ang Total Programs at Current Program Number gamit ang helpers
             int totalPrograms = activePrograms.Count;
-            int currentProgramNo = await GetProgramNumberAsync(userInt, activeProgram.InstanceId);
+            int currentProgramNo = await _programService.GetProgramNumberAsync(userInt, activeProgram.InstanceId);
 
             // Validate day (1-28)
             if (day < 1 || day > 28)
@@ -636,20 +617,7 @@ public class WorkoutController : ControllerBase
                 status = "NOT_STARTED";
             
             // Common DTO Mapper para consistent ang data structure
-            var programDto = new WorkoutProgramDto
-            {
-                ProgramId = activeProgram.ProgramId,
-                ProgramName = activeProgram.Program?.ProgramName ?? "My Program",
-                Description = activeProgram.Program?.Description ?? "",
-                Environment = activeProgram.Program?.Environment ?? "Any",
-                Level = activeProgram.Program?.FitnessLevel ?? "Beginner",
-                Status = activeProgram.Status,
-                Month = monthNo,
-                Week = weekNo,
-                Day = day,
-                ProgramNumber = currentProgramNo,   // for numbering
-                TotalPrograms = totalPrograms       // Para sa arrow visibility
-            };
+            var programDto = WorkoutMapper.BuildProgramDto(activeProgram, currentProgramNo, totalPrograms, monthNo, weekNo, day);
 
             var response = new DailyWorkoutPlanDto
             {
@@ -760,263 +728,6 @@ public class WorkoutController : ControllerBase
         }
     }
 
-    // ========== ADMIN CRUD Endpoints ==========            
-    #region Admin CRUD Endpoints  ← DITO ILAGAY           
-                                                            
-    /// <summary>
-    /// GET: api/workout/admin/all
-    /// </summary>
-    [Authorize(Roles = "ADMIN")]  // 🔐 ADMIN only
-    [HttpGet("admin/all")]
-    public async Task<ActionResult<object>> AdminGetAllWorkouts(
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 10,
-        [FromQuery] string? search = null)
-    {
-        try
-        {
-            //  Validate inputs
-            if (page < 1) page = 1;
-            if (pageSize < 1) pageSize = 10;
-            if (pageSize > 100) pageSize = 100; // Max limit para iwas abuse
-
-            _logger.LogInformation("📡 ADMIN: Fetching workouts — Page {Page}, Size {PageSize}",page, pageSize);
-
-            //  Base query
-            var query = _context.WrkWorkouts.AsNoTracking().AsQueryable();
-
-            //  Optional search filter
-            if (!string.IsNullOrWhiteSpace(search))
-            {
-                var lowerSearch = search.ToLower();
-                query = query.Where(w =>
-                    w.WorkoutName.ToLower().Contains(lowerSearch) ||
-                    w.MuscleGroup!.ToLower().Contains(lowerSearch) ||
-                    w.Equipment!.ToLower().Contains(lowerSearch));
-            }
-
-            //  Get total count BEFORE pagination
-            var totalCount = await query.CountAsync();
-
-            //  Apply pagination
-            var workouts = await query
-                .OrderBy(w => w.WorkoutId)
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
-                .ToListAsync();
-
-            var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
-
-             _logger.LogInformation(" ADMIN: Retrieved {Count} workouts (Page {Page}/{TotalPages}, Total: {Total})",
-            workouts.Count, page, totalPages, totalCount);
-
-            //  Return paginated response
-            return Ok(new
-            {
-                data = workouts,
-                total = totalCount,
-                page = page,
-                pageSize = pageSize,
-                totalPages = totalPages
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "❌ ADMIN: Error fetching workouts");
-            return StatusCode(500, new { error = "An error occurred while fetching workouts." });
-        }
-    }
-                                                            
-    /// <summary>
-    /// GET: api/workout/admin/{id}
-    /// </summary>
-    [Authorize(Roles = "ADMIN")]
-    [HttpGet("admin/{id}")]
-    public async Task<ActionResult<WrkWorkout>> AdminGetWorkout(int id)
-    {
-        try
-        {
-            _logger.LogInformation("📡 ADMIN: Fetching workout ID: {Id}", id);
-
-            var workout = await _context.WrkWorkouts
-                .FirstOrDefaultAsync(w => w.WorkoutId == id);
-
-            if (workout == null)
-            {
-                _logger.LogWarning("❌ ADMIN: Workout not found: {Id}", id);
-                return NotFound(new { error = $"Workout with ID {id} not found." });
-            }
-
-            return Ok(workout);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "❌ ADMIN: Error fetching workout ID: {Id}", id);
-            return StatusCode(500, new { error = "An error occurred while fetching the workout." });
-        }
-    }
-
-    /// <summary>
-    /// POST: api/workout/admin/create
-    /// </summary>
-    [Authorize(Roles = "ADMIN")]
-    [HttpPost("admin/create")]
-    public async Task<ActionResult<WrkWorkout>> AdminCreateWorkout([FromBody] WrkWorkout workout)
-    {
-        try
-        {
-            if (!ModelState.IsValid)
-            {
-                _logger.LogWarning("❌ ADMIN: Invalid model state for workout creation");
-                return BadRequest(ModelState);
-            }
-
-            _logger.LogInformation("📡 ADMIN: Creating new workout: {Name}", workout.WorkoutName);
-
-            workout.CreatedAt = DateTime.UtcNow;
-            workout.UpdatedAt = DateTime.UtcNow;
-            workout.IsActive = false; // Default: inactive (needs admin approval)
-
-            _context.WrkWorkouts.Add(workout);
-            await _context.SaveChangesAsync();
-
-            _logger.LogInformation(" ADMIN: Workout created with ID: {Id}", workout.WorkoutId);
-            return CreatedAtAction(nameof(AdminGetWorkout), new { id = workout.WorkoutId }, workout);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "❌ ADMIN: Error creating workout: {Name}", workout.WorkoutName);
-            return StatusCode(500, new { error = "An error occurred while creating the workout." });
-        }
-    }
-
-    /// <summary>
-    /// PUT: api/workout/admin/{id}
-    /// </summary>
-    [Authorize(Roles = "ADMIN")]
-    [HttpPut("admin/{id}")]
-    public async Task<IActionResult> AdminUpdateWorkout(int id, [FromBody] WrkWorkout workout)
-    {
-        try
-        {
-            if (id != workout.WorkoutId)
-            {
-                _logger.LogWarning("❌ ADMIN: ID mismatch: {Id} vs {WorkoutId}", id, workout.WorkoutId);
-                return BadRequest(new { error = "ID mismatch." });
-            }
-
-            if (!ModelState.IsValid)
-            {
-                _logger.LogWarning("❌ ADMIN: Invalid model state for workout update");
-                return BadRequest(ModelState);
-            }
-
-            _logger.LogInformation("📡 ADMIN: Updating workout ID: {Id}", id);
-
-            var existing = await _context.WrkWorkouts
-                .FirstOrDefaultAsync(w => w.WorkoutId == id);
-
-            if (existing == null)
-            {
-                _logger.LogWarning("❌ ADMIN: Workout not found: {Id}", id);
-                return NotFound(new { error = $"Workout with ID {id} not found." });
-            }
-
-            // Update fields
-            existing.WorkoutName = workout.WorkoutName;
-            existing.MuscleGroup = workout.MuscleGroup;
-            existing.Equipment = workout.Equipment;
-            existing.Environment = workout.Environment;
-            existing.Category = workout.Category;
-            existing.DifficultyLevel = workout.DifficultyLevel;
-            existing.IsWeighted = workout.IsWeighted;
-            existing.Notes = workout.Notes;
-            existing.CaloriesBurned = workout.CaloriesBurned;
-            existing.IsActive = workout.IsActive;
-            existing.ImgFilename = workout.ImgFilename;
-            existing.Duration = workout.Duration;
-            existing.VideoUrl = workout.VideoUrl;
-            existing.UpdatedAt = DateTime.UtcNow;
-
-            await _context.SaveChangesAsync();
-
-            _logger.LogInformation(" ADMIN: Workout updated: {Id}", id);
-            return Ok(new { message = "Workout updated successfully." });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "❌ ADMIN: Error updating workout ID: {Id}", id);
-            return StatusCode(500, new { error = "An error occurred while updating the workout." });
-        }
-    }
-
-    /// <summary>
-    /// DELETE: api/workout/admin/{id}
-    /// </summary>
-    [Authorize(Roles = "ADMIN")]
-    [HttpDelete("admin/{id}")]
-    public async Task<IActionResult> AdminDeleteWorkout(int id)
-    {
-        try
-        {
-            _logger.LogInformation("📡 ADMIN: Deleting workout ID: {Id}", id);
-
-            var workout = await _context.WrkWorkouts
-                .FirstOrDefaultAsync(w => w.WorkoutId == id);
-
-            if (workout == null)
-            {
-                _logger.LogWarning("❌ ADMIN: Workout not found: {Id}", id);
-                return NotFound(new { error = $"Workout with ID {id} not found." });
-            }
-
-            _context.WrkWorkouts.Remove(workout);
-            await _context.SaveChangesAsync();
-
-            _logger.LogInformation(" ADMIN: Workout deleted: {Id}", id);
-            return Ok(new { message = "Workout deleted successfully." });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "❌ ADMIN: Error deleting workout ID: {Id}", id);
-            return StatusCode(500, new { error = "An error occurred while deleting the workout." });
-        }
-    }
-
-    /// <summary>
-    /// GET: api/workout/admin/tutorials
-    /// </summary>
-    [Authorize(Roles = "ADMIN")]
-    [HttpGet("admin/tutorials")]
-    public async Task<ActionResult<IEnumerable<object>>> AdminGetTutorials()
-    {
-        try
-        {
-            _logger.LogInformation("📡 ADMIN: Fetching workouts with video tutorials");
-
-            var tutorials = await _context.WrkWorkouts
-                .Where(w => !string.IsNullOrEmpty(w.VideoUrl))
-                .OrderBy(w => w.WorkoutName)
-                .Select(w => new
-                {
-                    w.WorkoutId,
-                    w.WorkoutName,
-                    w.VideoUrl
-                })
-                .ToListAsync();
-
-            _logger.LogInformation(" ADMIN: Retrieved {Count} tutorials", tutorials.Count);
-            return Ok(tutorials);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "❌ ADMIN: Error fetching tutorials");
-            return StatusCode(500, new { error = "An error occurred while fetching tutorials." });
-        }
-    }
-
-    #endregion   
-
     #region Private Helper Methods
 
     private async Task EnsureCalendarEntryExists(int cycleNo, int dayNo, int currentDayNo, bool isRestDay)
@@ -1090,42 +801,6 @@ public class WorkoutController : ControllerBase
 
         return (weeks ?? 4) * 7;
     }   
-
-    // ========================================================================
-    // TODO (Item 17): Migrate these helpers to IProgramService / ProgramService
-    // ========================================================================
-
-    /// <summary>
-    /// Gets all ACTIVE program instances for a user, ordered by creation date.
-    /// </summary>
-    private async Task<List<UsrUserProgramInstance>> GetActiveProgramsAsync(int userId)
-    {
-        return await _context.UsrUserProgramInstances
-            .Where(p => p.UserId == userId && p.Status == "ACTIVE")
-            .OrderBy(p => p.CreatedAt)
-            .ThenBy(p => p.InstanceId)
-            .Include(p => p.Program) // Include para makuha ang ProgramName, etc.
-            .ToListAsync();
-    }
-
-    /// <summary>
-    /// Calculates the 1-based ordinal number of a specific program instance.
-    /// </summary>
-    private async Task<int> GetProgramNumberAsync(int userId, int instanceId)
-    {
-        var activePrograms = await GetActiveProgramsAsync(userId);
-        int index = activePrograms.FindIndex(p => p.InstanceId == instanceId);
-        return index >= 0 ? index + 1 : 1; // Fallback to 1 if not found
-    }
-
-    /// <summary>
-    /// Gets the total count of ACTIVE programs for a user.
-    /// </summary>
-    private async Task<int> GetTotalActiveProgramsAsync(int userId)
-    {
-        return await _context.UsrUserProgramInstances
-            .CountAsync(p => p.UserId == userId && p.Status == "ACTIVE");
-    }
 
     #endregion
 }
