@@ -165,4 +165,17 @@ public static class WorkoutMapper
         if (fileName.StartsWith("http", StringComparison.OrdinalIgnoreCase)) return fileName;
         return $"{baseUrl}/images/workouts/default.png"; // Fallback for legacy
     }
+
+    public static string BuildWorkoutImageUrl(string baseUrl, string category, string fileName)
+    {
+        if (string.IsNullOrEmpty(fileName))
+        return $"{baseUrl}/images/workouts/default.png";
+
+        //  If DB has full URL (Appwrite), pass through
+        if (fileName.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+        return fileName;
+
+        // Legacy bare filename → fallback to placeholder
+        return $"{baseUrl}/images/workouts/default.png";    
+    }
 }
