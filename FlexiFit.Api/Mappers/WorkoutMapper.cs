@@ -111,6 +111,30 @@ public static class WorkoutMapper
         };
     }
 
+    /// <summary>
+    /// Builds a clean Rest Day DTO.
+    /// </summary>
+    public static DailyWorkoutPlanDto BuildRestDayDto(int dayNo, string? level, WorkoutProgramDto program)
+    {
+        return new DailyWorkoutPlanDto
+        {
+            DayNo = dayNo,
+            DayType = "REST DAY",
+            Status = "REST",
+            Level = level,
+            FocusArea = "Recovery",
+            Message = "Today is a rest day! Time to recover and recharge. 🧘",
+            CanSkip = false,
+            SkipMessage = null,
+            SessionId = 0,
+            Program = program,
+            Warmups = new List<WorkoutExerciseDto>(),
+            Workouts = new List<WorkoutExerciseDto>(),
+            TotalCalories = 0,
+            TotalDuration = 0
+        };
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
     public static string GetStatusMessage(string? status)
     {
