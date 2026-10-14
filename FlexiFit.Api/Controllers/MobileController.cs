@@ -17,7 +17,7 @@ namespace FlexiFit.Api.Controllers
     [Route("api/mobile")]
     public class MobileController : ControllerBase
     {
-        private readonly ILogger<MobileController> _logger; 
+        private readonly ILogger<MobileController> _logger;
         private readonly MobileService _mobileService;
 
         public MobileController(
@@ -37,16 +37,9 @@ namespace FlexiFit.Api.Controllers
             if (userId == null) return Unauthorized();
 
 
-            try
-            {
-                var response = await _mobileService.GetBootstrapAsync(userId.Value);
-                return Ok(response);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in Bootstrap for user {UserId}", userId);
-                return StatusCode(500, new { message = "An error occurred while fetching bootstrap data." });
-            }
+
+            var response = await _mobileService.GetBootstrapAsync(userId.Value);
+            return Ok(response);
         }
 
         [Authorize]
@@ -56,18 +49,10 @@ namespace FlexiFit.Api.Controllers
             var userId = User.GetUserId();
             if (userId == null) return Unauthorized();
 
-            try
-            {
-                var baseUrl = $"{Request.Scheme}://{Request.Host}";
-                var response = await _mobileService.GetDashboardAsync(userId.Value, baseUrl);
+            var baseUrl = $"{Request.Scheme}://{Request.Host}";
+            var response = await _mobileService.GetDashboardAsync(userId.Value, baseUrl);
 
-                return Ok(response);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in GetDashboard for user {UserId}", userId);
-                return StatusCode(500, "An error occurred while fetching dashboard data.");
-            }
+            return Ok(response);
         }
 
         [Authorize]
@@ -77,16 +62,8 @@ namespace FlexiFit.Api.Controllers
             var userId = User.GetUserId();
             if (userId == null) return Unauthorized();
 
-            try
-            {
-                var response = await _mobileService.SubmitOnboardingProfileAsync(userId.Value, request);
-                return Ok(response);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in SubmitOnboardingProfile for user {UserId}", userId);
-                return StatusCode(500, new { message = ex.Message });
-            }
+            var response = await _mobileService.SubmitOnboardingProfileAsync(userId.Value, request);
+            return Ok(response);
         }
 
         [Authorize]
@@ -96,16 +73,8 @@ namespace FlexiFit.Api.Controllers
             var currentUserId = User.GetUserId();
             if (currentUserId != userId) return Forbid();
 
-            try
-            { 
-                var response = await _mobileService.ResetOnboardingAsync(userId);
-                return Ok(response);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in ResetOnboarding for user {UserId}", userId);
-                return StatusCode(500, new { message = ex.Message });
-            }
+            var response = await _mobileService.ResetOnboardingAsync(userId);
+            return Ok(response);
         }
     }
 }

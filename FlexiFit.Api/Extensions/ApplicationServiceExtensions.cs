@@ -58,35 +58,48 @@ public static class ApplicationServiceExtensions
     // =======================================================
     // 4. SCOPED SERVICES REGISTRATION
     // =======================================================
+    services.AddScoped<AuthService>();
     services.AddScoped<JwtService>();
     services.AddScoped<FirebaseTokenVerifier>();
     services.AddScoped<DeviceTokenService>();
-    services.AddScoped<IUserService, UserService>();
+    services.AddScoped<IUserService, IUserService>();
     services.AddScoped<IBlobService, AppwriteStorageService>();
     // services.AddScoped<IBlobService, BlobService>(); // if using azure blob 
 
-
     // =======================================================
-    // 5. NUTRITION, WORKOUT, PROGRESSION LOGIC
+    // 5. USER, NUTRITION, WORKOUT, PROGRESSION LOGIC
     // =======================================================
-    // Centralized nutrition logic
+    // Nutrition Planning Logic
+    services.AddScoped<NutritionService>();
+    services.AddScoped<NutritionTargetService>();
     services.AddScoped<NutritionCalculator>();
     services.AddScoped<MealPlanGenerator>();
 
+    // Workout Planning Logic
+    services.AddScoped<WorkoutService>();
+    services.AddScoped<WorkoutPlanGenerator>();
+
+    // Calendar Logic
+    services.AddScoped<CalendarService>();
+
     // Progression Logic
     services.AddScoped<ProgramProgressionService>();
+    services.AddScoped<ProgramService>();
 
     // Progress Tracking Logic
     services.AddScoped<ProgressTrackerService>();
 
-    // Nutrition Service for meal group fetching and mapping
-    services.AddScoped<NutritionService>();
+    // User Account Management Logic
+    services.AddScoped<UserService>();
+    services.AddScoped<AccountService>();
+    services.AddScoped<ProfileService>();
+    services.AddScoped<MobileService>();
+    services.AddScoped<ActivityLogService>();
+    services.AddScoped<NotificationService>();
 
-    // Nutrition Target Adjustment Logic
-    services.AddScoped<NutritionTargetService>();
-
-    // Workout Plan Generation Logic
-    services.AddScoped<WorkoutPlanGenerator>();
+    // Admin Logic
+    services.AddScoped<AdminService>();
+    services.AddScoped<MigrationService>();
 
     // =======================================================
     // 6. FIREBASE ADMIN SDK INITIALIZATION

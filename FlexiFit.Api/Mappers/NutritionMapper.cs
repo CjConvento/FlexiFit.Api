@@ -47,7 +47,7 @@ public static class NutritionMapper
     }
 
     // ── Food Image URL ───────────────────────────────────────────────
-    public static string BuildFoodImageUrl(string? baseUrl, string? dietaryType, string mealType, string? fileName)
+    public static string BuildFoodImageUrl(string? baseUrl, string? fileName)
     {
         if (string.IsNullOrEmpty(fileName)) return $"{baseUrl}/images/foods/default.png";
         if (fileName.StartsWith("http", StringComparison.OrdinalIgnoreCase)) return fileName;

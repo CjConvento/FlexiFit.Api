@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
+using FlexiFit.Api.Services;
 using Npgsql;
 
 namespace FlexiFit.Api.Controllers
@@ -12,18 +13,18 @@ namespace FlexiFit.Api.Controllers
     [Authorize]
     public class ProfileStatusController : ControllerBase
     {
-        private readonly FlexiFitDbContext _context;
+        private readonly ProfileService _profileService;
 
-        public ProfileStatusController(FlexiFitDbContext context)
+        public ProfileStatusController(
+            ProfileService profileService)
         {
-            _context = context;
+            _profileService = profileService;
         }
 
         [HttpGet("status")]
         public async Task<IActionResult> Status(CancellationToken ct)
         {
-            // Firebase UID claim can vary depending on auth setup.
-            // Try "user_id" first (common in Firebase), then fallback to NameIdentifier.
+            // 1. Extract Claim
             var firebaseUid =
                 User.FindFirst("user_id")?.Value ??
                 User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -31,24 +32,17 @@ namespace FlexiFit.Api.Controllers
             if (string.IsNullOrWhiteSpace(firebaseUid))
                 return Unauthorized(new { message = "Missing or invalid token claims." });
 
-            // Find local user mapped to Firebase UID
-            var dbUser = await _context.UsrUsers
-                .AsNoTracking()
-                .FirstOrDefaultAsync(u => u.FirebaseUid == firebaseUid, ct);
+            // 2. Delegate to Service
+            var status = await _profileService.GetProfileStatusAsync(firebaseUid, ct);
 
-            if (dbUser == null)
+            // 3. Handle Result
+            if (!status.UserExists)
                 return NotFound(new { message = "User not found." });
-
-            // Profile completion check (current version exists)
-            // NOTE: adjust dbUser.UserId vs dbUser.Id depending on your entity.
-            var isProfileCompleted = await _context.UsrUserProfileVersions
-                .AsNoTracking()
-                .AnyAsync(p => p.UserId == dbUser.UserId && p.IsCurrent, ct);
 
             return Ok(new
             {
                 firebaseUid,
-                isProfileCompleted
+                isProfileCompleted = status.IsProfileCompleted
             });
         }
     }

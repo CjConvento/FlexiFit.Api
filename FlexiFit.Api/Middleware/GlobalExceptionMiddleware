@@ -1,0 +1,83 @@
+using System.Net;
+using System.Text.Json;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Hosting; 
+
+namespace FlexiFit.Api.Middleware;
+
+public class GlobalExceptionMiddleware
+{
+    private readonly RequestDelegate _next;
+    private readonly ILogger<GlobalExceptionMiddleware> _logger;
+    private readonly IWebHostEnvironment _environment;
+
+    public GlobalExceptionMiddleware(
+        RequestDelegate next, 
+        ILogger<GlobalExceptionMiddleware> logger,
+        IWebHostEnvironment environment)
+    {
+        _next = next;
+        _logger = logger;
+        _environment = environment;
+    }
+
+    public async Task InvokeAsync(HttpContext context)
+    {
+        try
+        {
+            // I-pass ang request sa susunod na middleware
+            await _next(context);
+        }
+        catch (Exception ex)
+        {
+            // Hawakan ang error at i-log
+            _logger.LogError(ex, "An unhandled exception occurred while processing the request: {Message}", ex.Message);
+            
+            // IPASA ANG _environment DITO
+            await HandleExceptionAsync(context, ex, _environment);
+        }
+    }
+
+    private static Task HandleExceptionAsync(HttpContext context, Exception exception, IWebHostEnvironment environment)
+    {
+        context.Response.ContentType = "application/json";
+
+        // 1. Default 500 Internal Server Error
+        var statusCode = (int)System.Net.HttpStatusCode.InternalServerError;
+        var message = "An unexpected error occurred. Please try again later.";
+
+        // 2. Map specific exceptions to proper HTTP Status Codes
+        if (exception is KeyNotFoundException)
+        {
+            statusCode = (int)System.Net.HttpStatusCode.NotFound; // 404
+            message = exception.Message;
+        }
+        else if (exception is ArgumentException || exception is InvalidOperationException)
+        {
+            statusCode = (int)System.Net.HttpStatusCode.BadRequest; // 400
+            message = exception.Message;
+        }
+        else if (exception is UnauthorizedAccessException)
+        {
+            statusCode = (int)System.Net.HttpStatusCode.Unauthorized; // 401
+            message = "You are unauthorized to perform this action.";
+        }
+
+        context.Response.StatusCode = statusCode; // Set the status code based on the exception type
+
+        // 3. SECURITY: Expose StackTrace ONLY in Development
+        var response = new
+        {
+            statusCode = statusCode,
+            message = message,
+            stackTrace = environment.IsDevelopment() ? exception.StackTrace : null // ginamit ang injected environment variable to check if it's development
+        };
+
+        // 4. Build Consistent JSON Response Format
+        var jsonResponse = JsonSerializer.Serialize(response);        
+        return context.Response.WriteAsync(jsonResponse);
+    }
+
+
+}

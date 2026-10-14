@@ -123,7 +123,7 @@ public class MobileService
                 dashboardData.UpcomingWorkouts = rawWorkouts.Select(w => new WorkoutExerciseDto
                 {
                     Id = w.WorkoutId, Name = w.WorkoutName,
-                    ImageFileName = !string.IsNullOrEmpty(w.ImgFilename) ? WorkoutMapper.BuildWorkoutImageUrl(baseUrl, w.Category, w.ImgFilename) : "",
+                    ImageFileName = !string.IsNullOrEmpty(w.ImgFilename) ? WorkoutMapper.ResolveImageUrl(baseUrl, w.ImgFilename) : "",
                     MuscleGroup = w.MuscleGroup ?? "Full Body", Sets = w.SetsDefault, Reps = w.RepsDefault,
                     DurationMinutes = w.Duration ?? 10, Calories = (int)(w.CaloriesBurned ?? 50), IsCompleted = isCompletedToday
                 }).ToList();
@@ -142,7 +142,7 @@ public class MobileService
                     FoodItems = g.Select(i => new FoodItemDto
                     {
                         FoodId = i.FoodId, Name = i.Food?.FoodName ?? "Unknown", Description = i.Food?.Description ?? "",
-                        ImageUrl = NutritionMapper.BuildFoodImageUrl(baseUrl, i.Food?.DietaryType ?? "balanced", g.Key, i.Food?.ImgFilename),
+                        ImageUrl = NutritionMapper.BuildFoodImageUrl(baseUrl, i.Food?.ImgFilename),
                         DietaryType = i.Food?.DietaryType ?? "balanced", Qty = (double)i.Qty, Unit = i.Food?.ServingUnit ?? "serving",
                         Calories = (double)i.Calories, Protein = (double)i.ProteinG, Carbs = (double)i.CarbsG, Fats = (double)i.FatsG
                     }).ToList()

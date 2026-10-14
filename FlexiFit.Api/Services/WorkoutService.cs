@@ -308,6 +308,106 @@ public class WorkoutService
         };
     }
 
+    // ==========================================
+    // WORKOUT SESSION & HISTORY LOGIC
+    // ==========================================
+    public async Task<object> CanSkipTodayAsync(int userId)
+    {
+        var activeProgram = await _context.UsrUserProgramInstances
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
+
+        if (activeProgram == null)
+            return new { canSkip = false, reason = "No active program", currentDay = 0 };
+
+        int templateDayNo = ((activeProgram.CurrentDayNo - 1) % 7) + 1;
+        var dayDef = await _context.WrkProgramTemplateDays
+            .AsNoTracking()
+            .FirstOrDefaultAsync(d => d.ProgramId == activeProgram.ProgramId && d.DayNo == templateDayNo && d.WeekNo == 1);
+
+        bool isRestDay = dayDef?.DayType?.Contains("REST", StringComparison.OrdinalIgnoreCase) ?? false;
+
+        var session = await _context.UsrUserWorkoutSessions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.UserId == userId
+                                   && s.ProgramInstanceId == activeProgram.InstanceId
+                                   && s.WorkoutDay == activeProgram.CurrentDayNo);
+
+        bool alreadyProcessed = session != null &&
+            (session.Status?.ToUpper() == "COMPLETED" || session.Status?.ToUpper() == "SKIPPED");
+
+        return new
+        {
+            canSkip = !isRestDay && !alreadyProcessed,
+            isRestDay = isRestDay,
+            alreadyProcessed = alreadyProcessed,
+            currentDay = activeProgram.CurrentDayNo,
+            message = isRestDay ? "Rest days cannot be skipped" :
+                      alreadyProcessed ? "This day has already been processed" :
+                      "You can skip this workout if needed"
+        };
+    }
+
+    public async Task<object> GetWorkoutHistoryAsync(int userId)
+    {
+        var activeProgram = await _context.UsrUserProgramInstances
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
+
+        if (activeProgram == null)
+            return new List<object>();
+
+        return await _context.UsrUserWorkoutSessions
+            .AsNoTracking()
+            .Where(s => s.ProgramInstanceId == activeProgram.InstanceId)
+            .OrderBy(s => s.WorkoutDay)
+            .Select(s => new
+            {
+                s.WorkoutDay,
+                s.Status,
+                s.CompletedAt,
+                s.StartedAt
+            })
+            .ToListAsync();
+    }
+
+    public async Task<object> GetSessionDetailsAsync(int sessionId, int userId)
+    {
+        var session = await _context.UsrUserWorkoutSessions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.SessionId == sessionId && s.UserId == userId);
+
+        if (session == null)
+            throw new KeyNotFoundException("Session not found");
+
+        var workouts = await _context.UsrUserSessionWorkouts
+            .AsNoTracking()
+            .Include(sw => sw.Workout)
+            .Where(sw => sw.SessionId == sessionId)
+            .OrderBy(sw => sw.OrderNo)
+            .Select(sw => new
+            {
+                sw.SessionWorkoutId,
+                sw.WorkoutId,
+                WorkoutName = sw.Workout != null ? sw.Workout.WorkoutName : "Unknown",
+                sw.Sets,
+                sw.Reps,
+                sw.OrderNo,
+                sw.LoadKg
+            })
+            .ToListAsync();
+
+        return new
+        {
+            sessionId = session.SessionId,
+            workoutDay = session.WorkoutDay,
+            status = session.Status,
+            startedAt = session.StartedAt,
+            completedAt = session.CompletedAt,
+            workouts = workouts
+        };
+    }
+
     // ── Private Helpers (Moved from Controller) ──────────────────────────────
     private async Task EnsureCalendarEntryExistsAsync(int cycleNo, int dayNo, int currentDayNo, bool isRestDay)
     {

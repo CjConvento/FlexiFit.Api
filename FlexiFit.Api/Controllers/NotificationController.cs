@@ -1,10 +1,10 @@
 ﻿using System.Security.Claims;
 using FlexiFit.Api.Dtos;
-using FlexiFit.Api.Entities;
+using FlexiFit.Api.Extensions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using FlexiFit.Api.Services;
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 
 namespace FlexiFit.Api.Controllers
 {
@@ -13,11 +13,15 @@ namespace FlexiFit.Api.Controllers
     [Route("api/notifications")]
     public class NotificationsController : ControllerBase
     {
-        private readonly FlexiFitDbContext _context;
+        private readonly NotificationService _notificationService;
+        private readonly ILogger<NotificationsController> _logger;
 
-        public NotificationsController(FlexiFitDbContext context)
+        public NotificationsController(
+            NotificationService notificationService,
+            ILogger<NotificationsController> logger)
         {
-            _context = context;
+            _notificationService = notificationService;
+            _logger = logger;
         }
 
         // ==========================================
@@ -27,145 +31,35 @@ namespace FlexiFit.Api.Controllers
         [HttpGet("settings")]
         public async Task<ActionResult<NotificationSettingsDto>> GetSettings()
         {
-            var userId = await GetCurrentUserIdAsync();
-            if (userId == null)
-                return Unauthorized(new { error = "Authenticated user not found." });
+            var userId = User.GetUserId();
+            if (userId == null) return Unauthorized(new { message = "Invalid user claims." });
 
-            var settings = await _context.UsrUserNotificationSettings
-                .FirstOrDefaultAsync(x => x.UserId == userId.Value);
-
-            // Kung wala pang settings, return default values
-            if (settings == null)
-            {
-                return Ok(new NotificationSettingsDto
-                {
-                    WorkoutReminderEnabled = false,
-                    WaterIntervalMinutes = 60,
-                    DailyWaterGoal = 2000,      // 8 glasses of 250ml → 2000ml
-                    GlassSizeMl = 250,
-                    CalorieDisplayMode = "remaining"
-                });
-            }
-
-            return Ok(MapToDto(settings));
+            var settings = await _notificationService.GetSettingsAsync(userId.Value);
+            return Ok(settings);
         }
 
         [HttpPut("settings")]
         public async Task<IActionResult> UpdateSettings([FromBody] NotificationSettingsDto dto)
         {
-            var userId = await GetCurrentUserIdAsync();
-            if (userId == null)
-                return Unauthorized(new { error = "Authenticated user not found." });
+            var userId = User.GetUserId();
+            if (userId == null) return Unauthorized(new { message = "Invalid user claims." });
 
-            var settings = await _context.UsrUserNotificationSettings
-                .FirstOrDefaultAsync(x => x.UserId == userId.Value);
-
-            if (settings == null)
-            {
-                settings = new UsrUserNotificationSetting
-                {
-                    UserId = userId.Value,
-                    CreatedAt = DateTime.Now
-                };
-                _context.UsrUserNotificationSettings.Add(settings);
-            }
-
-                        //  FIXED: Convert int? to int with null coalescing
-            settings.WorkoutReminderEnabled = dto.WorkoutReminderEnabled;
-            settings.WorkoutReminderTime = ParseTime(dto.WorkoutReminderTime);
-            settings.MealReminderEnabled = dto.MealReminderEnabled;
-            settings.MealReminderTime = ParseTime(dto.MealReminderTime);
-            settings.WaterReminderEnabled = dto.WaterReminderEnabled;
-            settings.WaterStartTime = ParseTime(dto.WaterStartTime);
-            settings.WaterEndTime = ParseTime(dto.WaterEndTime);
-            
-            //  FIXED: Use null coalescing to provide default values
-            settings.WaterIntervalMinutes = dto.WaterIntervalMinutes ?? 60;
-            settings.DailyWaterGoal = dto.DailyWaterGoal ?? 8;
-            settings.GlassSizeMl = dto.GlassSizeMl ?? 250;
-            settings.CalorieDisplayMode = dto.CalorieDisplayMode ?? "remaining";
-            settings.UpdatedAt = DateTime.Now;
-
-            await _context.SaveChangesAsync();
+            await _notificationService.UpdateSettingsAsync(userId.Value, dto);
             return NoContent();
         }
 
         // ==========================================
-        // 2. HISTORY ENDPOINTS
+        // 2. NOTIFICATION HISTORY ENDPOINTS
         // ==========================================
 
         [HttpGet("history")]
         public async Task<ActionResult<IEnumerable<NotificationHistoryDto>>> GetNotificationHistory()
         {
-            var userId = await GetCurrentUserIdAsync();
-            if (userId == null) return Unauthorized();
+            var userId = User.GetUserId();
+            if (userId == null) return Unauthorized(new { message = "Invalid user claims." });
 
-            var history = await _context.UsrNotificationHistories
-                .Where(x => x.UserId == userId.Value)
-                .OrderByDescending(x => x.CreatedAt)
-                .Select(x => new NotificationHistoryDto
-                {
-                    Id = x.Id,
-                    Title = x.Title,
-                    Message = x.Message,
-                    Type = x.Type,
-                    Time = x.CreatedAt.ToString("o")
-                })
-                .ToListAsync();
-
+            var history = await _notificationService.GetNotificationHistoryAsync(userId.Value);
             return Ok(history);
         }
-
-        // ==========================================
-        // HELPERS (IBINALIK NATIN YUNG ORIGINAL LOGIC MO)
-        // ==========================================
-
-        private async Task<int?> GetCurrentUserIdAsync()
-        {
-            // Binabalik natin yung Firebase at Email checking logic mo
-            var firebaseUid =
-                User.FindFirst("user_id")?.Value ??
-                User.FindFirst("uid")?.Value ??
-                User.FindFirst("sub")?.Value;
-
-            var email =
-                User.FindFirst(ClaimTypes.Email)?.Value ??
-                User.FindFirst("email")?.Value;
-
-            UsrUser? user = null;
-
-            if (!string.IsNullOrWhiteSpace(firebaseUid))
-            {
-                user = await _context.UsrUsers.FirstOrDefaultAsync(x => x.FirebaseUid == firebaseUid);
-            }
-
-            if (user == null && !string.IsNullOrWhiteSpace(email))
-            {
-                user = await _context.UsrUsers.FirstOrDefaultAsync(x => x.Email == email);
-            }
-
-            return user?.UserId;
-        }
-
-        private static TimeOnly? ParseTime(string? value)
-        {
-            if (string.IsNullOrWhiteSpace(value)) return null;
-            return TimeOnly.TryParse(value, out var parsed) ? parsed : null;
-        }
-
-        private NotificationSettingsDto MapToDto(UsrUserNotificationSetting s) => new()
-        {
-            WorkoutReminderEnabled = s.WorkoutReminderEnabled,
-            WorkoutReminderTime = s.WorkoutReminderTime?.ToString("HH:mm"),
-            MealReminderEnabled = s.MealReminderEnabled,
-            MealReminderTime = s.MealReminderTime?.ToString("HH:mm"),
-            WaterReminderEnabled = s.WaterReminderEnabled,
-            WaterStartTime = s.WaterStartTime?.ToString("HH:mm"),
-            WaterEndTime = s.WaterEndTime?.ToString("HH:mm"),
-            WaterIntervalMinutes = s.WaterIntervalMinutes,
-            DailyWaterGoal = s.DailyWaterGoal,
-            GlassSizeMl = s.GlassSizeMl,
-            CalorieDisplayMode = s.CalorieDisplayMode
-        };
     }
 }   

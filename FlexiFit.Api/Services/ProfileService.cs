@@ -8,11 +8,19 @@ public class ProfileService
 {
     private readonly FlexiFitDbContext _db;
     private readonly ILogger<ProfileService> _logger;
+    private readonly NutritionCalculator _nutritionCalculator;
+    private readonly IBlobService _blobService;
 
-    public ProfileService(FlexiFitDbContext db, ILogger<ProfileService> logger)
+    public ProfileService(
+        FlexiFitDbContext db, 
+        ILogger<ProfileService> logger,
+        NutritionCalculator nutritionCalculator,
+        IBlobService blobService)
     {
         _db = db;
         _logger = logger;
+        _nutritionCalculator = nutritionCalculator;
+        _blobService = blobService;
     }
 
     /// <summary>
@@ -133,5 +141,166 @@ public class ProfileService
             CarbsG = (double)(cycle?.CarbsTargetG ?? 0m),
             FatsG = (double)(cycle?.FatsTargetG ?? 0m),
         };
+    }
+
+    // Encapsulated profile status check for external use (e.g., AuthController)
+    public async Task<(bool UserExists, bool IsProfileCompleted)> GetProfileStatusAsync(string firebaseUid, CancellationToken ct = default)
+    {
+            // Find local user mapped to Firebase UID
+            var dbUser = await _db.UsrUsers
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.FirebaseUid == firebaseUid, ct);
+
+            if (dbUser == null)
+            {
+                return (false, false);
+            }
+
+            // Profile completion check (current version exists)
+            var isProfileCompleted = await _db.UsrUserProfileVersions
+                .AsNoTracking()
+                .AnyAsync(p => p.UserId == dbUser.UserId && p.IsCurrent, ct);
+
+            return (true, isProfileCompleted);
+    }
+
+    // ==========================================
+    // PROFILE UPDATES
+    // ==========================================
+    public async Task<decimal> UpdateFullProfileAsync(int userId, UpdateOnboardingRequest request)
+    {
+        // 1. Update Basic Profile
+        var profile = await _db.UsrUserProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
+        if (profile != null)
+        {
+            profile.Name = request.Name;
+            profile.Username = request.Username;
+            profile.Gender = request.Gender;
+            if (request.Age > 0)
+            {
+                profile.BirthDate = new DateOnly(DateTime.UtcNow.Year - request.Age, 1, 1);
+            }
+            profile.UpdatedAt = DateTime.UtcNow;
+        }
+
+        // 2. Update Nutrition Profile
+        var nutProfile = await _db.NtrUserNutritionProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
+        if (nutProfile != null)
+        {
+            nutProfile.Age = (short)request.Age;
+            nutProfile.HeightCm = (decimal)request.HeightCm;
+            nutProfile.WeightKg = (decimal)request.WeightKg;
+            nutProfile.TargetWeightKg = (decimal)request.TargetWeightKg;
+            
+            if (!string.IsNullOrEmpty(request.FitnessLifestyle)) nutProfile.ActivityLevel = request.FitnessLifestyle;
+            if (!string.IsNullOrEmpty(request.DietaryType)) nutProfile.DietaryType = request.DietaryType;
+            if (!string.IsNullOrEmpty(request.BodyCompGoal)) nutProfile.NutritionGoal = request.BodyCompGoal;
+        }
+
+        // 3. Recalculate Cycle Targets
+        var cycle = await _db.NtrUserCycleTargets
+            .OrderByDescending(c => c.CreatedAt)
+            .FirstOrDefaultAsync(c => c.UserId == userId);
+
+        if (cycle != null && nutProfile != null)
+        {
+            var targets = _nutritionCalculator.Calculate(
+                weightKg: (double)request.WeightKg,
+                heightCm: (double)request.HeightCm,
+                age: request.Age,
+                gender: request.Gender,
+                activityLevel: nutProfile.ActivityLevel ?? "SEDENTARY",
+                goal: request.BodyCompGoal ?? "MAINTAIN",
+                dietaryType: nutProfile.DietaryType ?? "BALANCED",
+                workoutCaloriesBurned: 0
+            );
+
+            cycle.DailyTargetNetCalories = targets.Calories;
+            cycle.ProteinTargetG = targets.ProteinG;
+            cycle.CarbsTargetG = targets.CarbsG;
+            cycle.FatsTargetG = targets.FatsG;
+            cycle.GoalType = request.BodyCompGoal;
+            cycle.CreatedAt = DateTime.UtcNow;
+        }
+
+        await _db.SaveChangesAsync();
+        return cycle?.DailyTargetNetCalories ?? 0;
+    }
+
+    public async Task<string> UploadAvatarAsync(int userId, IFormFile file)
+    {
+        var avatarUrl = await _blobService.UploadFileAsync(file, containerName: "avatars");
+
+        // I-update o i-create ang Profile record sa database
+        var profile = await _db.UsrUserProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
+        if (profile == null)
+        {
+            _db.UsrUserProfiles.Add(new UsrUserProfile
+            {
+                UserId = userId,
+                AvatarUrl = avatarUrl,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            });
+        }
+        else
+        {
+            profile.AvatarUrl = avatarUrl;
+            profile.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await _db.SaveChangesAsync();
+        return avatarUrl;
+    }
+
+    public async Task UpdateWeightAsync(int userId, UpdateWeightRequest request)
+    {
+        var nutProfile = await _db.NtrUserNutritionProfiles.FirstOrDefaultAsync(p => p.UserId == userId) 
+            ?? throw new KeyNotFoundException("Nutrition profile not found.");
+        
+        var profile = await _db.UsrUserProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
+        var cycle = await _db.NtrUserCycleTargets
+            .OrderByDescending(c => c.CreatedAt)
+            .FirstOrDefaultAsync(c => c.UserId == userId);
+
+        nutProfile.WeightKg = (decimal)request.NewWeight;
+
+        var newMetric = new UsrUserMetric
+        {
+            UserId = userId,
+            CurrentWeightKg = (decimal)request.NewWeight,
+            CurrentHeightCm = nutProfile.HeightCm,
+            FitnessGoal = nutProfile.NutritionGoal ?? "MAINTAIN",
+            NutritionGoal = nutProfile.DietaryType ?? "BALANCED",
+            RecordedAt = DateTime.UtcNow
+        };
+        _db.UsrUserMetrics.Add(newMetric);
+
+        if (cycle != null && profile != null)
+        {
+            var targets = _nutritionCalculator.Calculate(
+                weightKg: (double)request.NewWeight,
+                heightCm: (double)nutProfile.HeightCm,
+                age: (int)nutProfile.Age,
+                gender: profile.Gender ?? "MALE",
+                activityLevel: nutProfile.ActivityLevel ?? "SEDENTARY",
+                goal: (nutProfile.NutritionGoal ?? "MAINTAIN").ToUpper(),
+                dietaryType: nutProfile.DietaryType ?? "BALANCED",
+                workoutCaloriesBurned: 0
+            );
+
+            cycle.DailyTargetNetCalories = targets.Calories;
+            cycle.ProteinTargetG = targets.ProteinG;
+            cycle.CarbsTargetG = targets.CarbsG;
+            cycle.FatsTargetG = targets.FatsG;
+            cycle.CreatedAt = DateTime.UtcNow;
+
+            newMetric.CalorieTarget = targets.Calories;
+            newMetric.ProteinTargetG = targets.ProteinG;
+            newMetric.CarbsTargetG = targets.CarbsG;
+            newMetric.FatsTargetG = targets.FatsG;
+        }
+
+        await _db.SaveChangesAsync();
     }
 }

@@ -18,20 +18,20 @@ namespace FlexiFit.Api.Controllers
     [Authorize(Roles = "ADMIN")]
     public class MigrationController : ControllerBase
     {
-        private readonly FlexiFitDbContext _db;
         private readonly IBlobService _blobService;
         private readonly Storage _storage;
         private readonly ILogger<MigrationController> _logger;
+        private readonly MigrationService _migrationService;
 
         public MigrationController(
-            FlexiFitDbContext db,
             IBlobService blobService,
             IConfiguration config,
-            ILogger<MigrationController> logger)
+            ILogger<MigrationController> logger,
+            MigrationService migrationService)
         {
-            _db = db;
             _blobService = blobService;
             _logger = logger;
+            _migrationService = migrationService;
 
             var client = new Client()
                 .SetEndpoint(config["StorageSettings:Appwrite:Endpoint"]!)
@@ -48,94 +48,9 @@ namespace FlexiFit.Api.Controllers
             [FromQuery] bool dryRun = false,
             [FromQuery] int? cap = null)
         {
-            var updated = 0; var skipped = 0; var notFound = 0;
-            var invalidName = 0; var totalScanned = 0;
-            var samples = new List<object>();
-            var limit = 100; var offset = 0;
-            var stop = false;
-
-            try
-            {
-                while (!stop)
-                {
-                    var files = await _storage.ListFiles(
-                        bucketId: "workouts",
-                        queries: new List<string> { Query.Limit(limit), Query.Offset(offset) }
-                    );
-
-                    if (files.Files.Count == 0) break;
-
-                    foreach (var file in files.Files)
-                    {
-                        totalScanned++;
-
-                        var match = Regex.Match(file.Name, @"^(\d+)_");
-                        if (!match.Success)
-                        {
-                            invalidName++;
-                        }
-                        else
-                        {
-                            var workoutId = int.Parse(match.Groups[1].Value);
-                            var newUrl = _blobService.GetFileUrl(file.Id, "workouts");
-
-                            var workout = await _db.WrkWorkouts
-                                .FirstOrDefaultAsync(w => w.WorkoutId == workoutId);
-
-                            if (workout == null) { notFound++; }
-                            else if (workout.ImgFilename == newUrl) { skipped++; }
-                            else
-                            {
-                                if (samples.Count < 3)
-                                {
-                                    samples.Add(new {
-                                        workoutId,
-                                        fileName = file.Name,
-                                        oldValue = workout.ImgFilename,
-                                        newValue = newUrl
-                                    });
-                                }
-
-                                if (!dryRun) workout.ImgFilename = newUrl;
-                                updated++;
-                            }
-                        }
-
-                        // Stop check AFTER processing each file
-                        if (cap.HasValue && totalScanned >= cap.Value)
-                        {
-                            stop = true;
-                            break;
-                        }
-                    }
-
-                    if (files.Files.Count < limit) break;
-                    offset += limit;
-                }
-
-                if (!dryRun && updated > 0) await _db.SaveChangesAsync();
-
-                _logger.LogInformation(
-                    "Workouts migration: dryRun={DryRun} cap={Cap} scanned={Scanned} updated={Updated} skipped={Skipped} notFound={NotFound} invalid={Invalid}",
-                    dryRun, cap, totalScanned, updated, skipped, notFound, invalidName);
-
-                return Ok(new {
-                    bucket = "workouts",
-                    dryRun,
-                    capApplied = cap,
-                    totalScanned,
-                    updated,
-                    skipped,
-                    notFound,
-                    invalidName,
-                    sampleChanges = samples
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Workouts migration failed");
-                return StatusCode(500, new { error = ex.Message, inner = ex.InnerException?.Message });
-            }
+            _logger.LogInformation("Starting Workouts migration (dryRun: {DryRun}, cap: {Cap})", dryRun, cap);
+            var result = await _migrationService.MigrateWorkoutsAsync(dryRun, cap);
+            return Ok(result);
         }
 
         // Foods: "food_387_..." → id = 387
@@ -144,96 +59,9 @@ namespace FlexiFit.Api.Controllers
             [FromQuery] bool dryRun = false,
             [FromQuery] int? cap = null)
         {
-            var updated = 0; var skipped = 0; var notFound = 0;
-            var invalidName = 0; var totalScanned = 0;
-            var samples = new List<object>();
-            var invalidFiles = new List<string>(); 
-            var limit = 100; var offset = 0;
-            var stop = false;
-
-            try
-            {
-                while (!stop)
-                {
-                    var files = await _storage.ListFiles(
-                        bucketId: "foods",
-                        queries: new List<string> { Query.Limit(limit), Query.Offset(offset) }
-                    );
-
-                    if (files.Files.Count == 0) break;
-
-                    foreach (var file in files.Files)
-                    {
-                        totalScanned++;
-
-                        var match = Regex.Match(file.Name, @"^food_(\d+)_", RegexOptions.IgnoreCase);
-                        if (!match.Success)
-                        {
-                            invalidName++;
-                            invalidFiles.Add(file.Name);
-                        }
-                        else
-                        {
-                            var foodId = int.Parse(match.Groups[1].Value);
-                            var newUrl = _blobService.GetFileUrl(file.Id, "foods");
-
-                            var food = await _db.NtrFoodItems
-                                .FirstOrDefaultAsync(f => f.FoodId == foodId);
-
-                            if (food == null) { notFound++; }
-                            else if (food.ImgFilename == newUrl) { skipped++; }
-                            else
-                            {
-                                if (samples.Count < 3)
-                                {
-                                    samples.Add(new {
-                                        foodId,
-                                        fileName = file.Name,
-                                        oldValue = food.ImgFilename,
-                                        newValue = newUrl
-                                    });
-                                }
-
-                                if (!dryRun) food.ImgFilename = newUrl;
-                                updated++;
-                            }
-                        }
-
-                        if (cap.HasValue && totalScanned >= cap.Value)
-                        {
-                            stop = true;
-                            break;
-                        }
-                    }
-
-                    if (files.Files.Count < limit) break;
-                    offset += limit;
-                }
-
-                if (!dryRun && updated > 0) await _db.SaveChangesAsync();
-
-                _logger.LogInformation(
-                    "Foods migration: dryRun={DryRun} cap={Cap} scanned={Scanned} updated={Updated} skipped={Skipped} notFound={NotFound} invalid={Invalid}",
-                    dryRun, cap, totalScanned, updated, skipped, notFound, invalidName);
-
-                return Ok(new {
-                    bucket = "foods",
-                    dryRun,
-                    capApplied = cap,
-                    totalScanned,
-                    updated,
-                    skipped,
-                    notFound,
-                    invalidName,
-                    invalidFiles,
-                    sampleChanges = samples
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Foods migration failed");
-                return StatusCode(500, new { error = ex.Message, inner = ex.InnerException?.Message });
-            }
+            _logger.LogInformation("Starting Workouts migration (dryRun: {DryRun}, cap: {Cap})", dryRun, cap);
+            var result = await _migrationService.MigrateWorkoutsAsync(dryRun, cap);
+            return Ok(result);
         }
     }
 }

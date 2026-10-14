@@ -247,7 +247,7 @@ public class NutritionService
                 FoodId = i.FoodId,
                 Name = i.Food.FoodName,
                 Description = i.Food.Description ?? "",
-                ImageUrl = NutritionMapper.BuildFoodImageUrl(baseUrl, i.Food.DietaryType ?? "balanced", mealType, i.Food.ImgFilename),
+                ImageUrl = NutritionMapper.BuildFoodImageUrl(baseUrl, i.Food.ImgFilename),
                 DietaryType = i.Food.DietaryType ?? "balanced",
                 Qty = (double)i.Qty,
                 Unit = i.Food.ServingUnit,
@@ -267,6 +267,136 @@ public class NutritionService
         }
 
         return mealGroups;
+    }
+
+    // ==========================================
+    // FOOD DETAILS
+    // ==========================================
+    public async Task<FoodDetailsResponse> GetFoodDetailsAsync(int foodId, string baseUrl)
+    {
+        var food = await _db.NtrFoodItems.FirstOrDefaultAsync(f => f.FoodId == foodId);
+        if (food == null)
+            throw new KeyNotFoundException("Food not found");
+
+        string imgUrl = string.IsNullOrEmpty(food.ImgFilename) || !food.ImgFilename.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+            ? $"{baseUrl}/images/foods/default.png"
+            : food.ImgFilename;
+
+        return new FoodDetailsResponse
+        {
+            FoodId = food.FoodId,
+            FoodName = food.FoodName,
+            Description = food.Description,
+            Calories = (double)food.Calories,
+            ProteinG = (double)food.ProteinG,
+            CarbsG = (double)food.CarbsG,
+            FatsG = (double)food.FatsG,
+            ServingUnit = food.ServingUnit,
+            ImgFilename = imgUrl
+        };
+    }
+
+    // ==========================================
+    // MEAL ITEM UPDATES
+    // ==========================================
+    public async Task UpdateMealItemAsync(int mealItemId, int userId, UpdateMealItemRequest request)
+    {
+        var mealItem = await _db.NtrDailyMealItemLogs
+            .Include(m => m.DailyLog)
+            .FirstOrDefaultAsync(m => m.ItemLogId == mealItemId);
+
+        if (mealItem == null)
+            throw new KeyNotFoundException("Meal item not found");
+
+        if (mealItem.DailyLog.UserId != userId)
+            throw new UnauthorizedAccessException("You do not own this meal item");
+
+        mealItem.Qty = request.NewQty;
+
+        var food = await _db.NtrFoodItems.FindAsync(mealItem.FoodId);
+        if (food != null)
+        {
+            mealItem.Calories = food.Calories * request.NewQty;
+            mealItem.ProteinG = food.ProteinG * request.NewQty;
+            mealItem.CarbsG = food.CarbsG * request.NewQty;
+            mealItem.FatsG = food.FatsG * request.NewQty;
+        }
+
+        await UpdateDailyMealTotalsAsync(mealItem.DailyLogId);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task SwapFoodItemAsync(int mealItemId, int userId, SwapFoodRequest request)
+    {
+        var currentItem = await _db.NtrDailyMealItemLogs
+            .Include(m => m.DailyLog)
+            .FirstOrDefaultAsync(m => m.ItemLogId == mealItemId);
+
+        if (currentItem == null)
+            throw new KeyNotFoundException("Meal item not found");
+
+        if (currentItem.DailyLog.UserId != userId)
+            throw new UnauthorizedAccessException("You do not own this meal item");
+
+        var newFood = await _db.NtrFoodItems.FirstOrDefaultAsync(f => f.FoodId == request.NewFoodId);
+        if (newFood == null)
+            throw new KeyNotFoundException("New food not found");
+
+        currentItem.FoodId = newFood.FoodId;
+        currentItem.Calories = newFood.Calories * currentItem.Qty;
+        currentItem.ProteinG = newFood.ProteinG * currentItem.Qty;
+        currentItem.CarbsG = newFood.CarbsG * currentItem.Qty;
+        currentItem.FatsG = newFood.FatsG * currentItem.Qty;
+
+        await UpdateDailyMealTotalsAsync(currentItem.DailyLogId);
+        await _db.SaveChangesAsync();
+    }
+
+    // ==========================================
+    // WATER INTAKE
+    // ==========================================
+    public async Task<WaterResponse> AddWaterAsync(int userId, AddWaterRequest request)
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var waterLog = await _db.NtrWaterLogs.FirstOrDefaultAsync(w => w.UserId == userId && w.LogDate == today);
+
+        if (waterLog == null)
+        {
+            waterLog = new NtrWaterLog
+            {
+                UserId = userId,
+                WaterMl = request.AmountMl,
+                LogDate = today,
+                CreatedAt = DateTime.UtcNow
+            };
+            _db.NtrWaterLogs.Add(waterLog);
+        }
+        else
+        {
+            waterLog.WaterMl += request.AmountMl;
+        }
+
+        await _db.SaveChangesAsync();
+        return new WaterResponse { WaterMl = waterLog.WaterMl };
+    }
+
+    public async Task<WaterResponse> GetWaterTodayAsync(int userId)
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var waterLog = await _db.NtrWaterLogs.FirstOrDefaultAsync(w => w.UserId == userId && w.LogDate == today);
+        return new WaterResponse { WaterMl = waterLog?.WaterMl ?? 0 };
+    }
+
+    public async Task ResetWaterAsync(int userId)
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var waterLog = await _db.NtrWaterLogs.FirstOrDefaultAsync(w => w.UserId == userId && w.LogDate == today);
+
+        if (waterLog != null)
+        {
+            waterLog.WaterMl = 0;
+            await _db.SaveChangesAsync();
+        }
     }
 
     /// <summary>
