@@ -1,5 +1,6 @@
 ﻿using FlexiFit.Api.Entities;
 using FlexiFit.Api.Dtos;
+using FlexiFit.Api.Extensions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
@@ -24,7 +25,7 @@ namespace FlexiFit.Api.Controllers
         [HttpPost("check-progression")]
         public async Task<IActionResult> CheckProgression()
         {
-            var userId = GetUserId();
+            var userId = User.GetUserId();
 
             var activeProgram = await _context.UsrUserProgramInstances
                 .FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
@@ -39,7 +40,7 @@ namespace FlexiFit.Api.Controllers
         [Authorize(Roles = "ADMIN")]
         public async Task<IActionResult> FastForwardToEnd()
         {
-            var userId = GetUserId();
+            var userId = User.GetUserId();
 
             var activeProgram = await _context.UsrUserProgramInstances
                 .FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
@@ -149,11 +150,6 @@ namespace FlexiFit.Api.Controllers
                 _context.UsrUserSessionWorkouts.AddRange(sessionWorkouts);
             }
             await _context.SaveChangesAsync();
-        }
-        private int GetUserId()
-        {
-            var claim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            return claim != null ? int.Parse(claim) : 0;
         }
 
         private async Task<IActionResult> ProcessProgressionLogic(UsrUserProgramInstance activeProgram)

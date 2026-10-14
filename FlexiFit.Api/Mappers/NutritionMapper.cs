@@ -38,7 +38,7 @@ public static class NutritionMapper
             WaterTargetMl = waterTargetMl,
             Meals = meals,
             DailyLogId = dailyLogId,
-            TemplateName = templateName,   // <-- ADD THIS
+            TemplateName = templateName, 
 
             // Day Properties
             DayNo = DayNo,

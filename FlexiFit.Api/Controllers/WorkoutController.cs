@@ -135,7 +135,7 @@ public class WorkoutController : ControllerBase
         {
             var baseUrl = $"{Request.Scheme}://{Request.Host}";
 
-            // ✅ DELEGATED TO SERVICE (From ~80 lines down to 1 line!)
+            // DELEGATED TO SERVICE (From ~80 lines down to 1 line)
             var response = await _workoutService.GetWorkoutByDateAsync(userId.Value, day, month, programNumber, baseUrl);
 
             return Ok(response);
