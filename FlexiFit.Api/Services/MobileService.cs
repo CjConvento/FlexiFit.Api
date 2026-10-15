@@ -458,10 +458,11 @@ public class MobileService
                 for (int d = 2; d <= 28; d++)
                 {
                     // Ginamit ang dictionary imbes na mag-query ulit sa database (Iwas N+1)
-                    var templateDayRecord = templateDaysDict.GetValueOrDefault(((d - 1) % 7) + 1);
+                    int dayNoKey = ((d - 1) % 7) + 1; // Maps 1-7 repeatedly
+                    var templateDayRecord = templateDaysDict.GetValueOrDefault(dayNoKey);
                     bool isWorkout = templateDayRecord != null && !templateDayRecord.DayType.Contains("REST");
 
-                    _context.NtrMealPlanCalendars.Add(new NtrMealPlanCalendar
+                    calendarEntries.Add(new NtrMealPlanCalendar
                     {
                         CycleId = cycleTarget.CycleId,
                         PlanDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(d - 1)),
@@ -578,10 +579,15 @@ public class MobileService
 
                     // 3. PRE-FETCH: Kunin ang Day 1 structures at Workout Pools in ONE query
                     var programIds = instanceWrappers.Select(w => w.Template.ProgramId).Distinct().ToList();
-
-                    var dayStructures = await _context.WrkProgramTemplateDays
+                    
+                    // Use GroupBy to handle multiple Day 1 entries per ProgramId (e.g., across different weeks)
+                    var dayStructuresList = await _context.WrkProgramTemplateDays
                         .Where(d => programIds.Contains(d.ProgramId) && d.DayNo == 1)
-                        .ToDictionaryAsync(d => d.ProgramId);
+                        .ToListAsync();
+
+                    var dayStructures = dayStructuresList
+                        .GroupBy(d => d.ProgramId)
+                        .ToDictionary(g => g.Key, g => g.First()); // Kunin lang ang first occurrence per ProgramId
 
                     var neededDayTypes = dayStructures.Values.Select(d => d.DayType ?? "WORKOUT").Distinct().ToList();
 
