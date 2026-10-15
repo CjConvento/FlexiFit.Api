@@ -420,9 +420,23 @@ public class MobileService
                 int safeTemplateId = matchedTemplate?.TemplateId ?? 1;
 
                 // Kinukuha na ang 7 days ONCE lang, hindi na 27 beses sa loob ng loop
-                var templateDaysDict = await _context.WrkProgramTemplateDays
-                    .Where(t => t.ProgramId == 95)
-                    .ToDictionaryAsync(t => t.DayNo);
+                var firstSelectedProgramName = request.SelectedPrograms?.FirstOrDefault()?.Name?.Trim().ToLower().Replace(" ", "");
+
+                var seedProgram = await _context.WrkProgramTemplates
+                    .FirstOrDefaultAsync(t => t.ProgramName.Replace(" ", "").ToLower() == firstSelectedProgramName);
+
+                // Fallback to 95 kung hindi mahanap para hindi maputol ang calendar generation
+                int seedProgramId = seedProgram?.ProgramId ?? 95;
+
+                // HANDLES DUPLICATES AUTOMATICALLY (Iwas "Key: 1" error)
+                // Kunin muna as List, tapos GroupBy para kunin lang ang FIRST occurrence ng bawat DayNo
+                var templateDaysList = await _context.WrkProgramTemplateDays
+                    .Where(t => t.ProgramId == seedProgramId)
+                    .ToListAsync();
+
+                var templateDaysDict = templateDaysList
+                    .GroupBy(t => t.DayNo)
+                    .ToDictionary(g => g.Key, g => g.First());
 
                 var calendarEntries = new List<NtrMealPlanCalendar>();
                 var today = DateOnly.FromDateTime(DateTime.UtcNow);
@@ -460,7 +474,7 @@ public class MobileService
                     });
                 }
                 _context.NtrMealPlanCalendars.AddRange(calendarEntries);
-                await _context.SaveChangesAsync(); //SAVE POINT 3: 1 batched save para sa 28 entries
+                await _context.SaveChangesAsync(); // SAVE POINT 3: 1 batched save para sa 28 entries
 
                 // --- 7. MACRO-BALANCED MEAL SEEDING ---
                 var seedResult = await _mealPlanGenerator.GenerateForDayAsync(
