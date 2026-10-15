@@ -28,14 +28,17 @@ public class AppwriteStorageService : IBlobService
         _storage = new Storage(client);
     }
 
-    public async Task<string> UploadFileAsync(Stream fileStream, string fileName, string containerName)
+    public async Task<string> UploadFileAsync(IFormFile file, string containerName)
     {
         try
         {
-            var mimeType = MimeTypeHelper.GetMimeType(fileName); // mimehelper for appwrite 8.0.0
+            var fileName = file.FileName; // mimehelper for appwrite 8.0.0
+            var mimeType = MimeTypeHelper.GetMimeType(fileName); 
+
+            using var fileStream = file.OpenReadStream();
             var inputFile = InputFile.FromStream(fileStream, fileName, mimeType);
 
-            var file = await _storage.CreateFile(
+            var uploadedFile = await _storage.CreateFile(
                 bucketId: containerName,
                 fileId: ID.Unique(),
                 file: inputFile
@@ -43,13 +46,11 @@ public class AppwriteStorageService : IBlobService
 
             _logger.LogInformation("File uploaded successfully to {Container}.", containerName);
 
-            return file.Id;
+            return GetFileUrl(uploadedFile.Id, containerName);
         }
         catch (Exception ex)
         {
-            _logger.LogError("Appwrite upload failed for container {Container}.", containerName);
-
-            _logger.LogDebug(ex, "Appwrite upload error details");
+            _logger.LogError(ex,"Appwrite upload failed for container {Container}.", containerName);
             throw;
         }
     }
@@ -64,8 +65,7 @@ public class AppwriteStorageService : IBlobService
         }
         catch (Exception ex)
         {
-            _logger.LogError("Appwrite delete failed for container {Container}.", containerName);
-            _logger.LogDebug(ex, "Appwrite delete error details");
+            _logger.LogError(ex, "Appwrite delete failed for container {Container}, file: {FileName}.", containerName, fileName);
             return false;
         }
     }
