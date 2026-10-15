@@ -62,7 +62,7 @@ public static class ApplicationServiceExtensions
     services.AddScoped<JwtService>();
     services.AddScoped<FirebaseTokenVerifier>();
     services.AddScoped<DeviceTokenService>();
-    services.AddScoped<IUserService, IUserService>();
+    services.AddScoped<IUserService, UserService>();
     services.AddScoped<IBlobService, AppwriteStorageService>();
     // services.AddScoped<IBlobService, BlobService>(); // if using azure blob 
 

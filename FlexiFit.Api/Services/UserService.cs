@@ -1,10 +1,11 @@
 ﻿using Dapper;
 using FlexiFit.Api.DTOs;
+using FlexiFit.Api.Entities;
 using Npgsql;
 
 namespace FlexiFit.Api.Services;
 
-public class UserService
+public class UserService : IUserService
 {
     private readonly string _connectionString;
     private readonly ILogger<UserService> _logger;
@@ -17,6 +18,19 @@ public class UserService
         ?? throw new InvalidOperationException("Connection string 'FlexifitDb' not found.");
         _logger = logger;
 
+    }
+
+    // =======================================================
+    // IMPLEMENTATION OF IUserService (Required by Interface)
+    // =======================================================
+    public async Task<UsrUser?> GetByFirebaseUidAsync(string firebaseUid)
+    {
+        var sql = @"SELECT user_id, firebase_uid, email, name, username, is_verified, role, status, auth_provider, created_at, updated_at 
+                    FROM usr_users 
+                    WHERE firebase_uid = @firebaseUid";
+        
+        using var connection = new NpgsqlConnection(_connectionString);
+        return await connection.QueryFirstOrDefaultAsync<UsrUser>(sql, new { firebaseUid });
     }
 
     // =======================================================
