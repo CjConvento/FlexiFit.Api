@@ -60,9 +60,9 @@ public class NutritionCalculator
         double multiplier = actKey switch
         {
             "SEDENTARY"                    => 1.2,
-            "LIGHTLYACTIVE"                => 1.375,
+            "LIGHTLY_ACTIVE"                => 1.375,
             "ACTIVE" or "MODERATELYACTIVE" => 1.55,
-            "VERYACTIVE"                   => 1.725,
+            "VERY_ACTIVE"                   => 1.725,
             _                              => 1.2
         };
 
