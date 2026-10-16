@@ -577,7 +577,7 @@ public class MobileService
                     
                     // Use GroupBy to handle multiple Day 1 entries per ProgramId (e.g., across different weeks)
                     var dayStructuresList = await _context.WrkProgramTemplateDays
-                        .Where(d => programIds.Contains(d.ProgramId) && d.DayNo == 1)
+                        .Where(d => programIds.Contains(d.ProgramId) && d.DayNo == 1 && d.WeekNo == 1)
                         .ToListAsync();
 
                     var dayStructures = dayStructuresList
@@ -588,11 +588,19 @@ public class MobileService
 
                     var workoutPools = await _context.WrkProgramTemplateDaytypeWorkouts
                         .Include(dw => dw.Workout)
-                        .Where(dw => programIds.Contains(dw.ProgramId) && neededDayTypes.Contains(dw.DayType ?? "WORKOUT"))
+                        .Where(dw => programIds.Contains(dw.ProgramId) 
+                            && neededDayTypes.Contains(dw.DayType ?? "WORKOUT")
+                            && dw.WeekNo == 1)
                         .ToListAsync();
 
-                    // Group in memory for O(1) lookup
-                    var workoutPoolDict = workoutPools
+                    // Deduplicate in memory just in case may extra copies pa rin sa Week 1
+                    var uniqueWorkoutPools = workoutPools
+                        .GroupBy(dw => new { dw.ProgramId, DayType = dw.DayType ?? "WORKOUT", dw.WorkoutId })
+                        .Select(g => g.First())
+                        .ToList();
+
+                    // Gamitin ang unique list para sa dictionary
+                    var workoutPoolDict = uniqueWorkoutPools
                         .GroupBy(dw => new { dw.ProgramId, DayType = dw.DayType ?? "WORKOUT" })
                         .ToDictionary(g => (g.Key.ProgramId, g.Key.DayType), g => g.ToList());
 
@@ -659,14 +667,18 @@ public class MobileService
                             filteredPool = dayWorkoutsPool.OrderBy(dw => dw.Workout?.DifficultyLevel).ToList();
                         }
 
-                        var shuffledPool = filteredPool.OrderBy(x => Guid.NewGuid()).ToList();
+                        var shuffledPool = filteredPool
+                            .GroupBy(dw => dw.WorkoutId)
+                            .Select(g => g.First())
+                            .OrderBy(x => Guid.NewGuid())
+                            .ToList();
 
                         double currentTotalBurn = 0;
                         int workoutCount = 0;
 
                         foreach (var dw in shuffledPool)
                         {
-                            if (workoutCount >= 8 && currentTotalBurn >= targetBurnForSession) break;
+                            if (workoutCount >= 8 || currentTotalBurn >= targetBurnForSession) break;
 
                             sessionWorkoutsToCreate.Add(new UsrUserSessionWorkout
                             {
