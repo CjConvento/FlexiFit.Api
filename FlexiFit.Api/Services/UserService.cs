@@ -59,6 +59,7 @@ public class UserService : IUserService
 
     // READ
     // =======================================================
+    // TODO: Implement pagination and filtering for GetAllUsersAsync
     public async Task<IEnumerable<UserDto>> GetAllUsersAsync()
     {
         var sql = "SELECT * FROM usr_users ORDER BY created_at DESC";

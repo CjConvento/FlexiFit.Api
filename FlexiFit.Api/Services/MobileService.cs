@@ -179,6 +179,9 @@ public class MobileService
             using var tx = await _context.Database.BeginTransactionAsync();
             try
             {
+                // ==========================================
+                // BATCH 1: CORE DATA (Profile, Cycle, DailyLog, Allergies)
+                // ==========================================
                 // --- 1. BASE PROFILE & USER SYNC (SMART FALLBACK) ---
                 var user = await _context.UsrUsers.FindAsync(userId);
                 var profile = await _context.UsrUserProfiles.FirstOrDefaultAsync(p => p.UserId == userId)
@@ -350,7 +353,6 @@ public class MobileService
                     CreatedAt = DateTime.UtcNow
                 };
                 _context.NtrUserCycleTargets.Add(cycleTarget);
-                await _context.SaveChangesAsync();
 
                 // --- ADD/UPDATE NUTRITION PROFILE ---
                 var nutProfile = await _context.NtrUserNutritionProfiles
@@ -407,6 +409,9 @@ public class MobileService
                 // 💾 SAVE POINT 1: Dito nagsave para ma-generate profileVersionId, cycleId, and dailyLogId in ONE trip.
                 await _context.SaveChangesAsync();
 
+                // ==========================================
+                // BATCH 2: PREPARE CALENDAR & MEALS
+                // ==========================================
                 // --- 6. SEED MEAL PLAN CALENDAR (OPTIMIZED 3: Iwas Calendar N+1 Loop) ---
                 var dietTypeUpper = (request.DietType ?? "BALANCED").ToUpper();
                 var matchedTemplate = await _context.NtrMealTemplates
@@ -490,8 +495,9 @@ public class MobileService
                     });
                 }
 
-                await _context.SaveChangesAsync(); // SAVE POINT 3
-
+                // ==========================================
+                // BATCH 3: PROGRAM INSTANCES
+                // ==========================================
                 // --- 5. WORKOUT ACTIVATION (OPTIMIZED 4: Iwas Workout N+1 at Excessive Saves) ---
                 if (request.SelectedPrograms != null && request.SelectedPrograms.Any())
                 {
@@ -569,6 +575,9 @@ public class MobileService
                     // 💾 SAVE POINT 2: Generates InstanceId needed for Sessions
                     await _context.SaveChangesAsync();
 
+                    // ==========================================
+                    // BATCH 4: WORKOUT SESSIONS
+                    // ==========================================
                     // 3. PRE-FETCH: Kunin ang Day 1 structures at Workout Pools in ONE query
                     var programIds = instanceWrappers.Select(w => w.Template.ProgramId).Distinct().ToList();
                     
@@ -630,6 +639,9 @@ public class MobileService
                     // 💾 SAVE POINT 3: Generates SessionId needed for SessionWorkouts
                     await _context.SaveChangesAsync();
 
+                    // ==========================================
+                    // BATCH 5: SESSION WORKOUTS (Uses generated SessionId)
+                    // ==========================================
                     // 4. Build SessionWorkouts IN-MEMORY (Filtering & Shuffling)
                     var sessionWorkoutsToCreate = new List<UsrUserSessionWorkout>();
 
@@ -680,9 +692,11 @@ public class MobileService
                     // ADDED TO CONTEXT, HINDI PA SINE-SAVE
                     _context.UsrUserSessionWorkouts.AddRange(sessionWorkoutsToCreate);
                 }
-
+                
+                // ==========================================
+                // FINAL SAVE: 
+                // ==========================================
                 // --- 6. FINALIZE ---
-
                 if (user != null) user.Status = "ACTIVE";
 
                 // 💾 SAVE POINT 4: FINAL
