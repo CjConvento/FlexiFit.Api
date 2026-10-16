@@ -593,16 +593,18 @@ public class MobileService
                             && dw.WeekNo == 1)
                         .ToListAsync();
 
-                    // Deduplicate in memory just in case may extra copies pa rin sa Week 1
+                    // Group by Week, DayType, AND WorkoutId para deduplicate per week
                     var uniqueWorkoutPools = workoutPools
-                        .GroupBy(dw => new { dw.ProgramId, DayType = dw.DayType ?? "WORKOUT", dw.WorkoutId })
+                        .GroupBy(dw => new { dw.ProgramId, dw.WeekNo, DayType = dw.DayType ?? "WORKOUT", dw.WorkoutId })
                         .Select(g => g.First())
                         .ToList();
 
                     // Gamitin ang unique list para sa dictionary
                     var workoutPoolDict = uniqueWorkoutPools
-                        .GroupBy(dw => new { dw.ProgramId, DayType = dw.DayType ?? "WORKOUT" })
-                        .ToDictionary(g => (g.Key.ProgramId, g.Key.DayType), g => g.ToList());
+                        .GroupBy(dw => new { dw.ProgramId, dw.WeekNo, DayType = dw.DayType ?? "WORKOUT" })
+                        .ToDictionary(
+                            g => (ProgramId: g.Key.ProgramId, WeekNo: g.Key.WeekNo, DayType: g.Key.DayType), 
+                            g => g.ToList());
 
                     var sessionWrappers = new List<(UsrUserWorkoutSession Session, WrkProgramTemplate Template)>();
                     var sessionInstancesToCreate = new List<UsrUserSessionInstance>();
@@ -649,11 +651,13 @@ public class MobileService
 
                     foreach (var wrapper in sessionWrappers)
                     {
-                        var template = wrapper.Template;
-                        var dayStructure = dayStructures[template.ProgramId];
+                        int currentWeek = ((wrapper.Session.WorkoutDay - 1) / 7) + 1;
+                        var dayStructure = dayStructuresList.First();
                         var dayType = dayStructure.DayType ?? "WORKOUT";
-
-                        var key = (template.ProgramId, dayType);
+    
+                        // LOOKUP USING THE EXACT SAME 3-PART TUPLE STRUCTURE
+                        var key = (ProgramId: wrapper.Template.ProgramId, WeekNo: currentWeek, DayType: dayType);
+                        
                         if (!workoutPoolDict.TryGetValue(key, out var dayWorkoutsPool)) continue;
 
                         // Apply strict level filter IN MEMORY (Super fast)

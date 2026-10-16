@@ -204,18 +204,22 @@ public class ProgramService
 
         foreach (var session in sessionsToAdd)
         {
-            // Map session to template day type
+            // 1. Map session to template day type (day 1- 7 pattern)
             int templateDayNo = ((session.WorkoutDay -1) % 7) + 1;  
             var dayDef = templateDays.First(td => td.DayNo == templateDayNo);
 
-            // FILTER BY WEEK NO. (GroupBy WorkoutId para tanggalin ang 4 copies sa DB)
-            // tapos kunin lang ang 1 unique copy per exercise bago i-Take(8).
+            // 2. DYNAMIC WEEK CALCULATION: 
+            // Day 1-7 = Week 1 | Day 8-14 = Week 2 | Day 15-21 = Week 3 | Day 22-28 = Week 4
+            int currentWeek = ((session.WorkoutDay - 1) / 7) + 1;
+
+            // FILTER BY WEEK NO. + DEDUPLICATE SAFETY NET
             var exercises = await _context.WrkProgramTemplateDaytypeWorkouts
                 .AsNoTracking()
                 .Where(w => w.ProgramId == programId
-                        && w.DayType == dayDef.DayType)
-                .GroupBy(w => w.WorkoutId)  // Group the duplicates together
-                .Select(g => g.First())    // Kunin lang ang 1 representative per group
+                        && w.DayType == dayDef.DayType
+                        && w.WeekNo == currentWeek) // FOR ROTATION: Filter by current week
+                .GroupBy(w => w.WorkoutId)  // Safety net kung may accidental duplicate sa loob ng Week
+                .Select(g => g.First())    // Kunin lang ang 1 unique copy
                 .OrderBy(w => w.WorkoutOrder)
                 .Take(8) // Limit to 8 exercises per session
                 .ToListAsync();
