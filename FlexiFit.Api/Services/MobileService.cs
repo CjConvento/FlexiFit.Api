@@ -246,8 +246,6 @@ public class MobileService
                 };
                 _context.UsrUserProfileVersions.Add(profileVersion);
 
-                await _context.SaveChangesAsync();
-
                 // 3. ONBOARDING DETAILS
                 var details = await _context.UsrUserOnboardingDetails.FirstOrDefaultAsync(d => d.UserId == userId)
                             ?? new UsrUserOnboardingDetail { UserId = userId, CreatedAt = DateTime.UtcNow };
@@ -291,7 +289,6 @@ public class MobileService
                     if (newAllergies.Any())
                     {
                         _context.NtrAllergies.AddRange(newAllergies);
-                        await _context.SaveChangesAsync(); // 1 save lang para sa lahat ng new allergies
 
                         foreach (var na in newAllergies)
                             existingAllergies[na.AllergyName] = na;
@@ -394,9 +391,6 @@ public class MobileService
                 if (_context.Entry(nutProfile).State == EntityState.Detached)
                     _context.NtrUserNutritionProfiles.Add(nutProfile);
 
-                // SAVE POINT 1: Kailangan para ma-generate ang CycleId at ProfileVersionId
-                await _context.SaveChangesAsync();
-
                 // --- 5. CREATE DAILY LOG (Para sa Dashboard Today) ---
                 var dailyLog = new NtrDailyLog
                 {
@@ -409,7 +403,9 @@ public class MobileService
                     GoalMet = false
                 };
                 _context.NtrDailyLogs.Add(dailyLog);
-                await _context.SaveChangesAsync(); // SAVE POINT 2: Kailangan para sa DailyLogId
+
+                // 💾 SAVE POINT 1: Dito nagsave para ma-generate profileVersionId, cycleId, and dailyLogId in ONE trip.
+                await _context.SaveChangesAsync();
 
                 // --- 6. SEED MEAL PLAN CALENDAR (OPTIMIZED 3: Iwas Calendar N+1 Loop) ---
                 var dietTypeUpper = (request.DietType ?? "BALANCED").ToUpper();
@@ -421,7 +417,6 @@ public class MobileService
 
                 // Kinukuha na ang 7 days ONCE lang, hindi na 27 beses sa loob ng loop
                 var firstSelectedProgramName = request.SelectedPrograms?.FirstOrDefault()?.Name?.Trim().ToLower().Replace(" ", "");
-
                 var seedProgram = await _context.WrkProgramTemplates
                     .FirstOrDefaultAsync(t => t.ProgramName.Replace(" ", "").ToLower() == firstSelectedProgramName);
 
@@ -430,17 +425,14 @@ public class MobileService
 
                 // HANDLES DUPLICATES AUTOMATICALLY (Iwas "Key: 1" error)
                 // Kunin muna as List, tapos GroupBy para kunin lang ang FIRST occurrence ng bawat DayNo
-                var templateDaysList = await _context.WrkProgramTemplateDays
-                    .Where(t => t.ProgramId == seedProgramId)
-                    .ToListAsync();
-
-                var templateDaysDict = templateDaysList
-                    .GroupBy(t => t.DayNo)
-                    .ToDictionary(g => g.Key, g => g.First());
+                var templateDaysDict = await _context.WrkProgramTemplateDays
+                    .Where(t => t.ProgramId == seedProgramId && t.WeekNo == 1) 
+                    .ToDictionaryAsync(t => t.DayNo);
 
                 var calendarEntries = new List<NtrMealPlanCalendar>();
                 var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
+                // Day 1
                 calendarEntries.Add(new NtrMealPlanCalendar
                 {
                     CycleId = cycleTarget.CycleId,
@@ -454,7 +446,7 @@ public class MobileService
                     UpdatedAt = DateTime.UtcNow
                 });
 
-                // Future Days (2-28) - FIXED: Nilagyan na ng TemplateId babe para hindi mag-error
+                // Future Days (2-28)
                 for (int d = 2; d <= 28; d++)
                 {
                     // Ginamit ang dictionary imbes na mag-query ulit sa database (Iwas N+1)
@@ -475,9 +467,8 @@ public class MobileService
                     });
                 }
                 _context.NtrMealPlanCalendars.AddRange(calendarEntries);
-                await _context.SaveChangesAsync(); // SAVE POINT 3: 1 batched save para sa 28 entries
 
-                // --- 7. MACRO-BALANCED MEAL SEEDING ---
+                // --- 7. MACRO-BALANCED MEAL SEEDING --- (Added to Context, No Save Yet)
                 var seedResult = await _mealPlanGenerator.GenerateForDayAsync(
                     userId: userId,
                     dailyLogId: dailyLog.DailyLogId,
@@ -499,7 +490,7 @@ public class MobileService
                     });
                 }
 
-                await _context.SaveChangesAsync(); // SAVE POINT 4
+                await _context.SaveChangesAsync(); // SAVE POINT 3
 
                 // --- 5. WORKOUT ACTIVATION (OPTIMIZED 4: Iwas Workout N+1 at Excessive Saves) ---
                 if (request.SelectedPrograms != null && request.SelectedPrograms.Any())
@@ -573,8 +564,9 @@ public class MobileService
 
                     if (!instanceWrappers.Any()) return new { message = "No valid programs found.", status = "ACTIVE" }; 
 
-                    // SAVE POINT 5: Batch insert ALL instances to generate IDs (1 DB Hit instead of N)
                     _context.UsrUserProgramInstances.AddRange(instanceWrappers.Select(w => w.Instance));
+
+                    // 💾 SAVE POINT 2: Generates InstanceId needed for Sessions
                     await _context.SaveChangesAsync();
 
                     // 3. PRE-FETCH: Kunin ang Day 1 structures at Workout Pools in ONE query
@@ -632,9 +624,10 @@ public class MobileService
                         });
                     }
 
-                    // SAVE POINT 6: Batch insert ALL sessions to generate Session IDs (1 DB Hit instead of N)
                     _context.UsrUserWorkoutSessions.AddRange(sessionWrappers.Select(w => w.Session));
                     _context.UsrUserSessionInstances.AddRange(sessionInstancesToCreate);
+
+                    // 💾 SAVE POINT 3: Generates SessionId needed for SessionWorkouts
                     await _context.SaveChangesAsync();
 
                     // 4. Build SessionWorkouts IN-MEMORY (Filtering & Shuffling)
@@ -684,14 +677,17 @@ public class MobileService
                         }
                     }
 
-                    // SAVE POINT 7: Batch insert ALL session workouts at once (1 DB Hit instead of N)
+                    // ADDED TO CONTEXT, HINDI PA SINE-SAVE
                     _context.UsrUserSessionWorkouts.AddRange(sessionWorkoutsToCreate);
-                    await _context.SaveChangesAsync();
                 }
 
                 // --- 6. FINALIZE ---
 
                 if (user != null) user.Status = "ACTIVE";
+
+                // 💾 SAVE POINT 4: FINAL
+                // Isang malaking batch na nagse-save ng Calendar (28 rows), Meal Logs, Meal Item Logs, 
+                // Session Workouts, at User Status Update nang SABAY-SABAY
                 await _context.SaveChangesAsync(); // FINAL SAVE POINT
 
                 await tx.CommitAsync();
