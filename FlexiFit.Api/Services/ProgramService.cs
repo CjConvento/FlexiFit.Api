@@ -166,7 +166,9 @@ public class ProgramService
 
     private async Task GenerateProgramSlotsForNewCycleAsync(int instanceId, int userId, int programId)
     {
-        // Filter by WeekNo == 1 para kumuha lang ng base pattern (Day 1-7)
+        // 1. Kunin ang Template Days (Structure ng week: e.g., Day 1 = Push, Day 2 = Pull)
+        // Ito ay usually 7 days lang (isang weekly template)
+
         var templateDays = await _context.WrkProgramTemplateDays
             .AsNoTracking()
             .Where(td => td.ProgramId == programId && td.WeekNo == 1)
@@ -202,12 +204,20 @@ public class ProgramService
 
         foreach (var session in sessionsToAdd)
         {
-            int dayOfWeek = ((session.WorkoutDay - 1) % 7) + 1;
-            var dayDef = templateDays.First(td => td.DayNo == session.WorkoutDay);
+            // Calculate which week this session belongs to (1 to 4)
+            int currentWeek = ((session.WorkoutDay - 1) / 7) + 1;
             
+            // Map session to template day type
+            int templateDayNo = ((session.WorkoutDay -1) % 7) + 1;  
+            var dayDef = templateDays.First(td => td.DayNo == templateDayNo);
+
+            // FILTER BY WEEK NO.
+            // Kukunin lang ang exercises na nakalagay sa specific week na 'to            
             var exercises = await _context.WrkProgramTemplateDaytypeWorkouts
                 .AsNoTracking()
-                .Where(w => w.ProgramId == programId && w.DayType == dayDef.DayType)
+                .Where(w => w.ProgramId == programId
+                        && w.DayType == dayDef.DayType 
+                        && w.WeekNo == currentWeek)
                 .OrderBy(w => w.WorkoutOrder)
                 .Take(8) // Limit to 8 exercises per session
                 .ToListAsync();
