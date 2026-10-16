@@ -102,62 +102,86 @@ public class ProgramService
         if (profile == null) 
             throw new InvalidOperationException("Profile missing.");
 
-        // 2. Determine Next Level
+        // 2. Determine Next Level (Beginner -> Intermediate -> Advanced -> Repeat Advanced)
         string currentLevel = (profile.FitnessLevelSelected ?? "BEGINNER").Trim().ToUpper();
         string nextLevel = currentLevel switch
         {
             "BEGINNER" => "INTERMEDIATE",
             "INTERMEDIATE" => "ADVANCED",
-            _ => "ADVANCED"
+            _ => "ADVANCED" // Pag Advanced na, stay lang sa Advanced (Repeat Routine)
         };
 
         // 3. Hanapin ang tamang Template
         var nextTemplate = await _context.WrkProgramTemplates
             .Where(t => t.IsActive && t.FitnessLevel.ToUpper() == nextLevel)
-            .OrderByDescending(t => t.ProgramId)
+            .OrderByDescending(t => t.ProgramId) // Kunin ang pinakabagong template ng level na 'yan
             .FirstOrDefaultAsync();
             
         if (nextTemplate == null) 
             throw new KeyNotFoundException($"No template found for {nextLevel} level.");
+        
+        // 4. BURAHIN ANG LUMANG DATA (Safety First: Workouts -> Sessions -> Instances)
 
-        // 4. Gamitin ang ExecuteDeleteAsync (Direct SQL DELETE)
+        // A. Kunin muna ang Session IDs para mabura ang SessionWorkouts (Iwas FK Error)        
+        var sessionIdsToDelete = await _context.UsrUserWorkoutSessions
+            .Where(s => s.ProgramInstanceId == activeProgram.InstanceId)
+            .Select(s => s.SessionId)
+            .ToListAsync();
+
+        if (sessionIdsToDelete.Any())
+        {
+            await _context.UsrUserSessionWorkouts
+                .Where(sw => sessionIdsToDelete.Contains(sw.SessionId))
+                .ExecuteDeleteAsync();
+        }
+
+        // B. Burahin ang Sessions at SessionInstances
         await _context.UsrUserWorkoutSessions
             .Where(s => s.ProgramInstanceId == activeProgram.InstanceId)
             .ExecuteDeleteAsync();
-            
+
         await _context.UsrUserSessionInstances
             .Where(i => i.InstanceId == activeProgram.InstanceId)
             .ExecuteDeleteAsync();
-
-        // 5. Update Level sa Profile at Instance
+    
+        // 5. Update Level sa Profile at Instance (I-assign ang bagong ProgramId)
         string formattedLevel = nextLevel.Substring(0, 1).ToUpper() + nextLevel.Substring(1).ToLower();
+        
         profile.FitnessLevelSelected = formattedLevel;
-        activeProgram.ProgramId = nextTemplate.ProgramId;
+        activeProgram.ProgramId = nextTemplate.ProgramId; // Palitan ng bagong program (o same kung Advanced)
         activeProgram.FitnessLevelAtStart = formattedLevel;
-        activeProgram.CurrentDayNo = 1;
+        activeProgram.CurrentDayNo = 1; // I-reset sa Day 1 para ulitin ang routine
+        
         await _context.SaveChangesAsync();
 
-        // 6. Generate New Slots
+        // 6. Generate New Slots para sa bagong cycle/level
         await GenerateProgramSlotsForNewCycleAsync(activeProgram.InstanceId, activeProgram.UserId, activeProgram.ProgramId);
 
-        return new { message = $"Level Up to {formattedLevel} Success! 🚀" };
+        return new { 
+            message = $"Level Up to {formattedLevel} Success! 🚀 New 28-day cycle generated.",
+            newLevel = formattedLevel,
+            newProgramId = nextTemplate.ProgramId
+        };
     }
 
     private async Task GenerateProgramSlotsForNewCycleAsync(int instanceId, int userId, int programId)
     {
-        // I-batch ang pag-add at mag-SaveChanges lang isang beses
+        // Filter by WeekNo == 1 para kumuha lang ng base pattern (Day 1-7)
         var templateDays = await _context.WrkProgramTemplateDays
             .AsNoTracking()
-            .Where(td => td.ProgramId == programId)
+            .Where(td => td.ProgramId == programId && td.WeekNo == 1)
+            .OrderBy(td => td.DayNo)
             .ToListAsync();
 
         var sessionsToAdd = new List<UsrUserWorkoutSession>();
-        var workoutsToAdd = new List<UsrUserSessionWorkout>();
 
-        // 1. Create all Main Sessions first
+        // 1. Create all Main Sessions first (Day 1 to 28)
         for (int day = 1; day <= 28; day++)
         {
-            var workoutForThisDay = templateDays.FirstOrDefault(td => td.DayNo == day);
+            // Gamitin ang module para mag-cycle sa 7-day pattern ng Week 1
+            int dayOfWeek = ((day - 1) % 7) + 1; // Day 1-7 pattern
+            var workoutForThisDay = templateDays.FirstOrDefault(td => td.DayNo == dayOfWeek);
+
             if (workoutForThisDay == null || workoutForThisDay.DayType == "REST") continue;
 
             sessionsToAdd.Add(new UsrUserWorkoutSession
@@ -174,15 +198,18 @@ public class ProgramService
         await _context.SaveChangesAsync(); // Save once to generate SessionIds
 
         // 2. Fetch exercises and map to SessionWorkouts
+        var workoutsToAdd = new List<UsrUserSessionWorkout>();
+
         foreach (var session in sessionsToAdd)
         {
+            int dayOfWeek = ((session.WorkoutDay - 1) % 7) + 1;
             var dayDef = templateDays.First(td => td.DayNo == session.WorkoutDay);
             
             var exercises = await _context.WrkProgramTemplateDaytypeWorkouts
                 .AsNoTracking()
                 .Where(w => w.ProgramId == programId && w.DayType == dayDef.DayType)
                 .OrderBy(w => w.WorkoutOrder)
-                .Take(8)
+                .Take(8) // Limit to 8 exercises per session
                 .ToListAsync();
 
             workoutsToAdd.AddRange(exercises.Select(ex => new UsrUserSessionWorkout
