@@ -354,6 +354,9 @@ public class MobileService
                 };
                 _context.NtrUserCycleTargets.Add(cycleTarget);
 
+                // 💾 SAVE POINT 1: Database generates the real CycleId and ProfileVersionId here!
+                await _context.SaveChangesAsync();
+
                 // --- ADD/UPDATE NUTRITION PROFILE ---
                 var nutProfile = await _context.NtrUserNutritionProfiles
                     .FirstOrDefaultAsync(p => p.UserId == userId);
@@ -406,7 +409,7 @@ public class MobileService
                 };
                 _context.NtrDailyLogs.Add(dailyLog);
 
-                // 💾 SAVE POINT 1: Dito nagsave para ma-generate profileVersionId, cycleId, and dailyLogId in ONE trip.
+                // 💾 SAVE POINT 2: Dito nagsave para ma-generate profileVersionId, cycleId, and dailyLogId in ONE trip.
                 await _context.SaveChangesAsync();
 
                 // ==========================================
@@ -572,7 +575,7 @@ public class MobileService
 
                     _context.UsrUserProgramInstances.AddRange(instanceWrappers.Select(w => w.Instance));
 
-                    // 💾 SAVE POINT 2: Generates InstanceId needed for Sessions
+                    // 💾 SAVE POINT 3: Generates InstanceId needed for Sessions
                     await _context.SaveChangesAsync();
 
                     // ==========================================
@@ -636,7 +639,7 @@ public class MobileService
                     _context.UsrUserWorkoutSessions.AddRange(sessionWrappers.Select(w => w.Session));
                     _context.UsrUserSessionInstances.AddRange(sessionInstancesToCreate);
 
-                    // 💾 SAVE POINT 3: Generates SessionId needed for SessionWorkouts
+                    // 💾 SAVE POINT 4: Generates SessionId needed for SessionWorkouts
                     await _context.SaveChangesAsync();
 
                     // ==========================================
@@ -692,14 +695,14 @@ public class MobileService
                     // ADDED TO CONTEXT, HINDI PA SINE-SAVE
                     _context.UsrUserSessionWorkouts.AddRange(sessionWorkoutsToCreate);
                 }
-                
+
                 // ==========================================
                 // FINAL SAVE: 
                 // ==========================================
                 // --- 6. FINALIZE ---
                 if (user != null) user.Status = "ACTIVE";
 
-                // 💾 SAVE POINT 4: FINAL
+                // 💾 SAVE POINT 5: FINAL
                 // Isang malaking batch na nagse-save ng Calendar (28 rows), Meal Logs, Meal Item Logs, 
                 // Session Workouts, at User Status Update nang SABAY-SABAY
                 await _context.SaveChangesAsync(); // FINAL SAVE POINT
