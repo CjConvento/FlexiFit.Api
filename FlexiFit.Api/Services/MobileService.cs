@@ -376,17 +376,8 @@ public class MobileService
                 nutProfile.TargetWeightKg = (decimal)request.TargetWeightKg;
 
                 // 🔁 Map activity level to allowed database values
-                string rawActivity = request.ActivityLevel?.ToUpper() ?? "SEDENTARY";
-                string mappedActivity = rawActivity switch
-                {
-                    "SEDENTARY" => "SEDENTARY",
-                    "LIGHTLY ACTIVE" => "LIGHTLY_ACTIVE",
-                    "MODERATELY ACTIVE" => "ACTIVE",
-                    "ACTIVE" => "ACTIVE",
-                    "VERY ACTIVE" => "VERY_ACTIVE",
-                    _ => "SEDENTARY"
-                };
-                nutProfile.ActivityLevel = mappedActivity;
+                string rawActivity = request.ActivityLevel ?? request.ActivityLevel ?? "Sedentary";
+                nutProfile.ActivityLevel = NutritionCalculator.NormalizeActivity(rawActivity);
 
                 nutProfile.DietaryType = request.DietType?.ToUpper() ?? "BALANCED";
                 nutProfile.NutritionGoal = request.BodyGoal?.ToUpper() ?? "MAINTAIN";

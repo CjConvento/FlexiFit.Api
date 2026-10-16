@@ -109,7 +109,7 @@ public class NutritionCalculator
         );
     }
 
-        // ═══════════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════════════════════
     // NORMALIZATION HELPERS (multi-client safe)
     // ═══════════════════════════════════════════════════════════════
 
@@ -175,9 +175,9 @@ public class NutritionCalculator
         return a switch
         {
             "SEDENTARY" or "NONE" or "LOW"               => "SEDENTARY",
-            "LIGHTLYACTIVE" or "LIGHT" or "LIGHTACTIVE"  => "LIGHTLYACTIVE",
+            "LIGHTLYACTIVE" or "LIGHT" or "LIGHTACTIVE"  => "LIGHTLY_ACTIVE",
             "ACTIVE" or "MODERATELYACTIVE" or "MODERATE" => "ACTIVE",
-            "VERYACTIVE" or "HIGHLYACTIVE" or "INTENSE"  => "VERYACTIVE",
+            "VERYACTIVE" or "HIGHLYACTIVE" or "INTENSE"  => "VERY_ACTIVE",
             _                                             => "SEDENTARY"
         };
     }
