@@ -13,8 +13,7 @@
         // Para sa "Upcoming Workout" section
         public List<WorkoutExerciseDto>? UpcomingWorkouts { get; set; }
 
-        // ETO ANG PINAKA-IMPORTANTE BABE: 
-        // Ginawa nating List of Groups para gumana ang Spinner sa Android!
+        // Ginawang List of Groups para gumana ang Spinner sa Android!
         public List<MealGroupDto>? TodayMeals { get; set; } 
     }
 

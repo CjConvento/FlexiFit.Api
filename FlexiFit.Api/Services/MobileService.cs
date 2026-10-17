@@ -652,12 +652,12 @@ public class MobileService
                     foreach (var wrapper in sessionWrappers)
                     {
                         int currentWeek = ((wrapper.Session.WorkoutDay - 1) / 7) + 1;
-                        var dayStructure = dayStructuresList.First();
+                        var dayStructure = dayStructures[wrapper.Template.ProgramId];
                         var dayType = dayStructure.DayType ?? "WORKOUT";
     
                         // LOOKUP USING THE EXACT SAME 3-PART TUPLE STRUCTURE
                         var key = (ProgramId: wrapper.Template.ProgramId, WeekNo: currentWeek, DayType: dayType);
-                        
+
                         if (!workoutPoolDict.TryGetValue(key, out var dayWorkoutsPool)) continue;
 
                         // Apply strict level filter IN MEMORY (Super fast)
@@ -682,7 +682,7 @@ public class MobileService
 
                         foreach (var dw in shuffledPool)
                         {
-                            if (workoutCount >= 8 || currentTotalBurn >= targetBurnForSession) break;
+                            if (workoutCount >= 5 || currentTotalBurn >= targetBurnForSession) break;
 
                             sessionWorkoutsToCreate.Add(new UsrUserSessionWorkout
                             {
@@ -731,6 +731,18 @@ public class MobileService
         var strategy = _context.Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync(async () =>
         {
+            // STEP 0: Early Exit Guard (bago mag open ng transaction)
+            var user = await _context.UsrUsers
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.UserId == userId);
+
+            if (user == null)
+                return new { message = "User not found." };
+
+            if (user.Status == "PENDING_ONBOARDING")
+                return new { message = "User data is already cleared. No action taken."};
+
+            // Sisimulan na ang trasaction dahil may mga dependent child records na kailangang i-delete sa tamang order
             using var tx = await _context.Database.BeginTransactionAsync();
             try
             {
@@ -925,10 +937,10 @@ public class MobileService
                 await tx.CommitAsync();
                 return new { message = "Complete user data reset successfully." };
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 await tx.RollbackAsync();
-                throw new Exception($"Error during reset: {ex.Message}");
+                throw; // ipapasa sa global exception handler para sa logging at response formatting
             }
         });
     }

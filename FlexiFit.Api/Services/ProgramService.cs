@@ -221,7 +221,7 @@ public class ProgramService
                 .GroupBy(w => w.WorkoutId)  // Safety net kung may accidental duplicate sa loob ng Week
                 .Select(g => g.First())    // Kunin lang ang 1 unique copy
                 .OrderBy(w => w.WorkoutOrder)
-                .Take(8) // Limit to 8 exercises per session
+                .Take(5) // Limit to 5 exercises per session
                 .ToListAsync();
 
             workoutsToAdd.AddRange(exercises.Select(ex => new UsrUserSessionWorkout
