@@ -71,7 +71,10 @@ namespace FlexiFit.Api.Controllers
         public async Task<IActionResult> ResetOnboarding(int userId)
         {
             var currentUserId = User.GetUserId();
-            if (currentUserId != userId) return Forbid();
+            bool isAdmin = User.IsInRole("ADMIN"); // kikilalanin natin kung ang kasalukuyang user ay may "ADMIN" role
+
+            if (!isAdmin && currentUserId != userId) 
+                return Forbid();
 
             var response = await _mobileService.ResetOnboardingAsync(userId);
             return Ok(response);

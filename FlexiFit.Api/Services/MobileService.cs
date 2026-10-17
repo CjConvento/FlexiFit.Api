@@ -1,8 +1,8 @@
 using FlexiFit.Api.Dtos;
-using FlexiFit.Api.Services;
 using FlexiFit.Api.Extensions;
 using FlexiFit.Api.Entities;
 using FlexiFit.Api.Mappers;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 
