@@ -7,18 +7,25 @@ public class WorkoutPlanGenerator
 {
     private readonly FlexiFitDbContext _db;
     private readonly ILogger<WorkoutPlanGenerator> _logger;
+    private readonly WorkoutPoolSelector _poolSelector;
     
     public WorkoutPlanGenerator(
         FlexiFitDbContext db,
-        ILogger<WorkoutPlanGenerator> logger)
+        ILogger<WorkoutPlanGenerator> logger,
+        WorkoutPoolSelector workoutPoolSelector)
     {
         _db = db;
         _logger = logger;
+        _poolSelector = workoutPoolSelector;
     }
 
         /// <summary>
         /// Generates workout exercises for a session.
         /// </summary>
+        /// <param name="userId">
+        /// When provided, the calorie-burn target is applied to the main-workout pick
+        /// (same rule as onboarding). When null, only the 4-5 count cap applies.
+        /// </param>
         /// <returns>List of created UsrUserSessionWorkout entities (NOT saved yet)</returns>
         public async Task<List<UsrUserSessionWorkout>> GenerateForSessionAsync(
             int sessionId,
@@ -26,7 +33,8 @@ public class WorkoutPlanGenerator
             string dayType,
             int weekNo,
             string fitnessLevel,
-            bool isRehab)
+            bool isRehab,
+            int? userId = null) 
         {
             _logger.LogInformation($"Generating workout plan: Session={sessionId}, Program={programId}, DayType={dayType}, Week={weekNo}, Level={fitnessLevel}, Rehab={isRehab}");
 
@@ -70,19 +78,19 @@ public class WorkoutPlanGenerator
                 });
             }
 
-            // 2. Add main workouts from template (filtered by allowed difficulties)
-            var templateWorkouts = await _db.WrkProgramTemplateDaytypeWorkouts
-                .Where(tw => tw.ProgramId == programId && tw.WeekNo == weekNo && tw.DayType == dayType)
-                .Join(_db.WrkWorkouts, tw => tw.WorkoutId, w => w.WorkoutId, (tw, w) => new { tw,w })
-                .Where(j => allowedDifficulties.Contains(j.w.DifficultyLevel!))
-                .OrderBy(j => j.tw.WorkoutOrder)
-                .Take(8)
-                .Select(j => new { j.tw.WorkoutId, j.tw.SetsDefault, j.tw.RepsDefault})
-                .ToListAsync();
+            // 2. Add main workouts from the program/week/day-type pool.
+            //    Level filter, de-dupe, 4-5 cap and calorie stop live in WorkoutPoolSelector.
+            // Replaced old manual .Take(8) logic with WorkoutPoolSelector
+            var pool = await _poolSelector.GetPoolAsync(programId, weekNo, dayType);
+            double? targetBurn = userId.HasValue
+                ? await _poolSelector.GetTargetBurnAsync(userId.Value)
+                : null;
 
-            if (!templateWorkouts.Any())
+            var picked = WorkoutPoolSelector.Pick(pool, allowedDifficulties, targetBurn, logger: _logger);
+            
+            if (!picked.Any())
             {
-                // Fallback to week 1 with same difficulty filter
+                // No template rows at all for this program/week/day type
                 _logger.LogWarning($"No template workouts found, using random fallback");
                 var fallbackWorkouts = await _db.WrkWorkouts
                     .Where(w => w.IsActive == true
@@ -90,36 +98,26 @@ public class WorkoutPlanGenerator
                     && w.Category.ToUpper() != "WARMUP"
                     && w.Category.ToUpper() != "CARDIO")
                 .OrderBy(x => EF.Functions.Random())
-                .Take(8)
+                .Take(WorkoutPoolSelector.MaxMainWorkoutsPerDay) // uses 5
                 .ToListAsync();
 
                 foreach (var w in fallbackWorkouts)
                 {
                     sessionWorkouts.Add(new UsrUserSessionWorkout
                     {
-                    SessionId = sessionId,
-                    WorkoutId = w.WorkoutId,
-                    Sets = 3,
-                    Reps = 10,
-                    OrderNo = order++,
-                    LoadKg = 0 
+                        SessionId = sessionId,
+                        WorkoutId = w.WorkoutId,
+                        Sets = 3,
+                        Reps = 10,
+                        OrderNo = order++,
+                        LoadKg = 0
                     });
                 }
             }
             else
             {
-                foreach (var tw in templateWorkouts)
-                {
-                    sessionWorkouts.Add(new UsrUserSessionWorkout
-                    {
-                        SessionId = sessionId,
-                        WorkoutId = tw.WorkoutId,
-                        Sets = tw.SetsDefault,
-                        Reps = tw.RepsDefault,
-                        OrderNo = order++,
-                        LoadKg = 0
-                    });
-                }
+                sessionWorkouts.AddRange(WorkoutPoolSelector.BuildSessionWorkouts(sessionId, picked, startOrder: order));
+                order += picked.Count;
             }
                 
             // Ensure no duplicate order numbers
@@ -132,7 +130,8 @@ public class WorkoutPlanGenerator
             if (duplicateOrders.Any())
             {
                 _logger.LogWarning($"Found duplicate order numbers, re-sequencing");
-                for (int i = 0; 1 < sessionWorkouts.Count; i++)
+                // Fixed infinite loop bug (changed '1 <' to 'i <')
+                for (int i = 0; i < sessionWorkouts.Count; i++)
                     sessionWorkouts[i].OrderNo = i + 1;
             }
 

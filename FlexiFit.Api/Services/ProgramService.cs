@@ -6,9 +6,16 @@ namespace FlexiFit.Api.Services;
 public class ProgramService
 {
     private readonly FlexiFitDbContext _context;
+    private readonly WorkoutPoolSelector _poolSelector;
 
-    public ProgramService(FlexiFitDbContext context) => _context = context;
-
+    // CONSTRUCTOR
+    public ProgramService(
+        FlexiFitDbContext context, 
+        WorkoutPoolSelector poolSelector)
+    {
+        _context = context;
+        _poolSelector = poolSelector;
+    }
     // ==========================================
     // PROGRAM TRACKING LOGIC 
     // ==========================================
@@ -155,7 +162,7 @@ public class ProgramService
         await _context.SaveChangesAsync();
 
         // 6. Generate New Slots para sa bagong cycle/level
-        await GenerateProgramSlotsForNewCycleAsync(activeProgram.InstanceId, activeProgram.UserId, activeProgram.ProgramId);
+        await GenerateProgramSlotsForNewCycleAsync(activeProgram.InstanceId, activeProgram.UserId, activeProgram.ProgramId, formattedLevel);
 
         return new { 
             message = $"Level Up to {formattedLevel} Success! 🚀 New 28-day cycle generated.",
@@ -164,7 +171,7 @@ public class ProgramService
         };
     }
 
-    private async Task GenerateProgramSlotsForNewCycleAsync(int instanceId, int userId, int programId)
+    private async Task GenerateProgramSlotsForNewCycleAsync(int instanceId, int userId, int programId, string fitnessLevel)
     {
         // 1. Kunin ang Template Days (Structure ng week: e.g., Day 1 = Push, Day 2 = Pull)
         // Ito ay usually 7 days lang (isang weekly template)
@@ -199,7 +206,21 @@ public class ProgramService
         _context.UsrUserWorkoutSessions.AddRange(sessionsToAdd);
         await _context.SaveChangesAsync(); // Save once to generate SessionIds
 
-        // 2. Fetch exercises and map to SessionWorkouts
+        // 3. Load this program's whole pool ONCE and pick per session in memory.
+        var poolRows = await _context.WrkProgramTemplateDaytypeWorkouts
+            .AsNoTracking()
+            .Include(dw => dw.Workout)
+            .Where(dw => dw.ProgramId == programId)
+            .ToListAsync();
+
+        var poolByWeekAndDayType = poolRows
+            .GroupBy(dw => (dw.WeekNo, dw.DayType))
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        double targetBurn = await _poolSelector.GetTargetBurnAsync(userId);
+        var allowedLevels = new[] { fitnessLevel };
+
+        // Fetch exercises and map to SessionWorkouts
         var workoutsToAdd = new List<UsrUserSessionWorkout>();
 
         foreach (var session in sessionsToAdd)
@@ -212,27 +233,15 @@ public class ProgramService
             // Day 1-7 = Week 1 | Day 8-14 = Week 2 | Day 15-21 = Week 3 | Day 22-28 = Week 4
             int currentWeek = ((session.WorkoutDay - 1) / 7) + 1;
 
-            // FILTER BY WEEK NO. + DEDUPLICATE SAFETY NET
-            var exercises = await _context.WrkProgramTemplateDaytypeWorkouts
-                .AsNoTracking()
-                .Where(w => w.ProgramId == programId
-                        && w.DayType == dayDef.DayType
-                        && w.WeekNo == currentWeek) // FOR ROTATION: Filter by current week
-                .GroupBy(w => w.WorkoutId)  // Safety net kung may accidental duplicate sa loob ng Week
-                .Select(g => g.First())    // Kunin lang ang 1 unique copy
-                .OrderBy(w => w.WorkoutOrder)
-                .Take(5) // Limit to 5 exercises per session
-                .ToListAsync();
+            poolByWeekAndDayType.TryGetValue((currentWeek, dayDef.DayType), out var dayPool);
 
-            workoutsToAdd.AddRange(exercises.Select(ex => new UsrUserSessionWorkout
-            {
-                SessionId = session.SessionId,
-                WorkoutId = ex.WorkoutId,
-                Sets = ex.SetsDefault,
-                Reps = ex.RepsDefault,
-                LoadKg = 0,
-                OrderNo = ex.WorkoutOrder
-            }));
+            // USE WORKOUT POOL SELECTOR (4-5 cap, calorie stop, deduplication, level filter)
+            var picked = WorkoutPoolSelector.Pick(
+                dayPool ?? new List<WrkProgramTemplateDaytypeWorkout>(),
+                allowedLevels,
+                targetBurn);
+
+            workoutsToAdd.AddRange(WorkoutPoolSelector.BuildSessionWorkouts(session.SessionId, picked));
         }
 
         _context.UsrUserSessionWorkouts.AddRange(workoutsToAdd);

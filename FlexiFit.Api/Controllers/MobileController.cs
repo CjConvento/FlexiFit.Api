@@ -19,14 +19,19 @@ namespace FlexiFit.Api.Controllers
     {
         private readonly ILogger<MobileController> _logger;
         private readonly MobileService _mobileService;
+        private readonly ProgramService _programService;        
+        private readonly WorkoutPoolSelector _poolSelector;
 
         public MobileController(
             ILogger<MobileController> logger,
-            MobileService mobileService
-            )
+            MobileService mobileService,
+            ProgramService programService,                   
+        WorkoutPoolSelector poolSelector)
         {
             _logger = logger;
             _mobileService = mobileService;
+            _programService = programService;                   
+            _poolSelector = poolSelector;
         }
 
         [Authorize]

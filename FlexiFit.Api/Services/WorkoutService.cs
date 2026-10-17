@@ -56,30 +56,38 @@ public class WorkoutService
 
         if (isRestDay)
         {
+            // REST DAY: Auto-mark WORKOUT only, NOT nutrition
+            // Nutrition remains PENDING until user logs meals
+
             // Handle Rest Day Calendar Logic
-            var calendarDay = await _context.NtrMealPlanCalendars
-                .FirstOrDefaultAsync(c => c.CycleId == activeProgram.CycleNo && c.DayNo == currentDay);
+            var restWorkoutCal = await GetWorkoutCalendarAsync(userId, todayDateOnly, activeProgram.InstanceId);
 
-            if (calendarDay == null || calendarDay.Status != "DONE")
+            if (restWorkoutCal == null)
             {
-                if (calendarDay == null)
-                {
-                    _context.NtrMealPlanCalendars.Add(new NtrMealPlanCalendar { CycleId = activeProgram.CycleNo, PlanDate = todayDateOnly, WeekNo = weekNo, DayNo = currentDay, TemplateId = 1, VariationCode = "A", IsWorkoutDay = false, Status = "DONE", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
-                }
-                else
-                {
-                    calendarDay.Status = "DONE";
-                    calendarDay.UpdatedAt = DateTime.UtcNow;
-                }
-
-                var restWorkoutCal = await _context.WktWorkoutCalendars.FirstOrDefaultAsync(w => w.UserId == userId && w.PlanDate == todayDateOnly);
-                if (restWorkoutCal == null)
-                {
-                    _context.WktWorkoutCalendars.Add(new WktWorkoutCalendar { UserId = userId, CycleId = activeProgram.CycleNo, PlanDate = todayDateOnly, WeekNo = weekNo, DayNo = currentDay, TemplateId = 1, VariationCode = "A", IsWorkoutDay = false, Status = "DONE", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
-                }
+                _context.WktWorkoutCalendars.Add(new WktWorkoutCalendar { 
+                    UserId = userId, 
+                    InstanceId = activeProgram.InstanceId, 
+                    DayType = dayDef.DayType, 
+                    CycleId = activeProgram.CycleNo, 
+                    PlanDate = todayDateOnly, 
+                    WeekNo = weekNo, 
+                    DayNo = currentDay, 
+                    TemplateId = 1, 
+                    VariationCode = "A", 
+                    IsWorkoutDay = false, 
+                    Status = "DONE", // autodone for workout, but nutrition remains PENDING
+                    CreatedAt = DateTime.UtcNow, 
+                    UpdatedAt = DateTime.UtcNow 
+                });
                 await _context.SaveChangesAsync();
-                await _progressionService.TryAdvanceAsync(userId, todayDateOnly);
             }
+            // 2. DO NOT auto-mark nutrition calendar
+            // Nutrition stays PENDING until user logs meals
+            // TryAdvanceAsync will check both workout + nutrition before advancing
+
+            // 3. Try to advance (will only succeed if nutrition is already DONE)
+            await _progressionService.TryAdvanceAsync(userId, todayDateOnly, activeProgram.InstanceId);
+
             return WorkoutMapper.BuildRestDayDto(currentDay, activeProgram.Program?.FitnessLevel, programDto);
         }
 
@@ -133,6 +141,18 @@ public class WorkoutService
             canSkip, canSkip ? "Skipping will mark this day as skipped..." : null,
             session.SessionId, programDto, warmups, workouts);
     }
+
+    // ==========================================
+    // PRIVATE HELPERS
+    // ==========================================
+
+    /// <summary>
+    /// The workout-calendar row for ONE program instance on a date.
+    /// Never matches another program's row, so programs can't interfere with each other.
+    /// </summary>
+    private Task<WktWorkoutCalendar?> GetWorkoutCalendarAsync(int userId, DateOnly date, int instanceId)
+        => _context.WktWorkoutCalendars
+            .FirstOrDefaultAsync(w => w.UserId == userId && w.PlanDate == date && w.InstanceId == instanceId);
 
     /// <summary>
     /// Handles the complete logic for getting a historical workout plan by date.
@@ -216,16 +236,16 @@ public class WorkoutService
 
         // ✅ Use the Mapper for a clean, consistent DTO response
         return WorkoutMapper.BuildDailyWorkoutPlanDto(
-            day, 
-            dayDef.DayType, 
-            status, 
-            template?.FitnessLevel, 
+            day,
+            dayDef.DayType,
+            status,
+            template?.FitnessLevel,
             WorkoutMapper.GetStatusMessage(status),
             false, // Historical days cannot be skipped
             null,  // No skip message for history
-            session?.SessionId ?? 0, 
-            programDto, 
-            warmups, 
+            session?.SessionId ?? 0,
+            programDto,
+            warmups,
             workouts
         );
     }
@@ -300,10 +320,13 @@ public class WorkoutService
 
         return new WorkoutSessionResultDto
         {
-            Message = message, CurrentDay = originalDay, NextDay = nextDay,
+            Message = message,
+            CurrentDay = originalDay,
+            NextDay = nextDay,
             IsProgramFinished = activeProgram.Status == "COMPLETED",
             Status = isSkipped ? "SKIPPED" : (isRestDay ? "REST_COMPLETED" : "COMPLETED"),
-            WasSkipped = isSkipped, SkipMessage = isSkipped ? "Try not to skip too many days for best results." : null,
+            WasSkipped = isSkipped,
+            SkipMessage = isSkipped ? "Try not to skip too many days for best results." : null,
             TotalCalories = req.TotalCalories
         };
     }

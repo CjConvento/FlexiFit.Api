@@ -16,6 +16,8 @@ public class MobileService
     private readonly IMemoryCache _cache;
     private readonly NutritionCalculator _nutritionCalculator;
     private readonly MealPlanGenerator _mealPlanGenerator;
+    private readonly ProgramService _programService;
+    private readonly WorkoutPoolSelector _poolSelector;
 
     public MobileService(
         FlexiFitDbContext context,
@@ -23,7 +25,9 @@ public class MobileService
         ILogger<MobileService> logger,
         IMemoryCache memoryCache,
         NutritionCalculator nutritionCalculator,
-        MealPlanGenerator mealPlanGenerator)
+        MealPlanGenerator mealPlanGenerator,
+        ProgramService programService,
+        WorkoutPoolSelector poolSelector)
     {
         _context = context;
         _contextFactory = contextFactory;
@@ -31,6 +35,8 @@ public class MobileService
         _cache = memoryCache;
         _nutritionCalculator = nutritionCalculator;
         _mealPlanGenerator = mealPlanGenerator;
+        _programService = programService;
+        _poolSelector = poolSelector;
     }
 
     // ── 1. BOOTSTRAP ──────────────────────────────────────────────
@@ -66,7 +72,22 @@ public class MobileService
         var metrics = await _context.UsrUserMetrics.Where(m => m.UserId == userId).OrderByDescending(m => m.RecordedAt).FirstOrDefaultAsync();
         var target = await _context.NtrUserCycleTargets.Where(t => t.UserId == userId).OrderByDescending(t => t.CreatedAt).FirstOrDefaultAsync();
         var latestVersion = await _context.UsrUserProfileVersions.Where(v => v.UserId == userId && v.IsCurrent == true).OrderByDescending(v => v.CreatedAt).FirstOrDefaultAsync();
-        var activeProgram = await _context.UsrUserProgramInstances.FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
+        
+        var activePrograms = await _programService.GetActiveProgramsAsync(userId);
+        UsrUserProgramInstance? activeProgram = null;
+        if (activePrograms.Any())
+        {
+            // Include "SKIPPED" so skipped programs also yield focus to the next one
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var processedInstanceIds = await _context.WktWorkoutCalendars
+                .Where(w => w.UserId == userId && w.PlanDate == today && (w.Status == "DONE" || w.Status == "SKIPPED"))
+                .Select(w => w.InstanceId)
+                .ToListAsync();
+
+            // Kunin ang UNANG program na HINDI pa tapos/skipped today
+            activeProgram = activePrograms.FirstOrDefault(p => !processedInstanceIds.Contains(p.InstanceId)) 
+                        ?? activePrograms.First(); // Fallback: kung tapos na lahat, ipakita ang first program
+        }
 
         var dashboardData = new DashboardResponseDto
         {
@@ -495,19 +516,10 @@ public class MobileService
                 // --- 5. WORKOUT ACTIVATION (OPTIMIZED 4: Iwas Workout N+1 at Excessive Saves) ---
                 if (request.SelectedPrograms != null && request.SelectedPrograms.Any())
                 {
-                    // I-calculate ang targetBurnForSession bago gamitin sa loop
-                    var onboardingData = await _context.UsrUserOnboardingDetails.FirstOrDefaultAsync(o => o.UserId == userId);
-                    var userMetricsData = await _context.UsrUserMetrics.OrderByDescending(m => m.RecordedAt).FirstOrDefaultAsync(m => m.UserId == userId);
-                    
-                    double dailyTarget = userMetricsData?.CalorieTarget ?? 2000;
-                    string actLevel = (onboardingData?.ActivityLevel ?? "Sedentary").ToLower().Replace(" ", "").Replace("_", "");
-                    
-                    double burnMultiplier = actLevel switch {
-                        "sedentary" => 0.12, "lightlyactive" => 0.18, "active" => 0.22, "veryactive" => 0.28, _ => 0.15
-                    };
-                    double targetBurnForSession = dailyTarget * burnMultiplier;
+                    // Let WorkoutPoolSelector handle the target burn calculation
+                    double targetBurnForSession = await _poolSelector.GetTargetBurnAsync(userId);
 
-                    // Ginamit naman ExecuteUpdateAsync imbes na ToList + foreach loop
+                    // Replace existing active programs
                     await _context.UsrUserProgramInstances
                         .Where(p => p.UserId == userId && p.Status == "ACTIVE")
                         .ExecuteUpdateAsync(setters => setters.SetProperty(p => p.Status, "REPLACED"));
@@ -593,14 +605,8 @@ public class MobileService
                             && dw.WeekNo == 1)
                         .ToListAsync();
 
-                    // Group by Week, DayType, AND WorkoutId para deduplicate per week
-                    var uniqueWorkoutPools = workoutPools
-                        .GroupBy(dw => new { dw.ProgramId, dw.WeekNo, DayType = dw.DayType ?? "WORKOUT", dw.WorkoutId })
-                        .Select(g => g.First())
-                        .ToList();
-
                     // Gamitin ang unique list para sa dictionary
-                    var workoutPoolDict = uniqueWorkoutPools
+                    var workoutPoolDict = workoutPools
                         .GroupBy(dw => new { dw.ProgramId, dw.WeekNo, DayType = dw.DayType ?? "WORKOUT" })
                         .ToDictionary(
                             g => (ProgramId: g.Key.ProgramId, WeekNo: g.Key.WeekNo, DayType: g.Key.DayType), 
@@ -654,48 +660,19 @@ public class MobileService
                         int currentWeek = ((wrapper.Session.WorkoutDay - 1) / 7) + 1;
                         var dayStructure = dayStructures[wrapper.Template.ProgramId];
                         var dayType = dayStructure.DayType ?? "WORKOUT";
-    
+
                         // LOOKUP USING THE EXACT SAME 3-PART TUPLE STRUCTURE
                         var key = (ProgramId: wrapper.Template.ProgramId, WeekNo: currentWeek, DayType: dayType);
-
-                        if (!workoutPoolDict.TryGetValue(key, out var dayWorkoutsPool)) continue;
-
-                        // Apply strict level filter IN MEMORY (Super fast)
-                        var filteredPool = dayWorkoutsPool
-                            .Where(dw => (dw.Workout?.DifficultyLevel ?? "Beginner").Trim().ToLower() == requestedLevel)
-                            .ToList();
-
-                        if (!filteredPool.Any())
+    
+                        if (workoutPoolDict.TryGetValue(key, out var dayWorkoutsPool))
                         {
-                            _logger.LogWarning($"[SEEDING] Strict filter returned 0 for {key}. Falling back.");
-                            filteredPool = dayWorkoutsPool.OrderBy(dw => dw.Workout?.DifficultyLevel).ToList();
-                        }
-
-                        var shuffledPool = filteredPool
-                            .GroupBy(dw => dw.WorkoutId)
-                            .Select(g => g.First())
-                            .OrderBy(x => Guid.NewGuid())
-                            .ToList();
-
-                        double currentTotalBurn = 0;
-                        int workoutCount = 0;
-
-                        foreach (var dw in shuffledPool)
-                        {
-                            if (workoutCount >= 5 || currentTotalBurn >= targetBurnForSession) break;
-
-                            sessionWorkoutsToCreate.Add(new UsrUserSessionWorkout
-                            {
-                                SessionId = wrapper.Session.SessionId,
-                                WorkoutId = dw.WorkoutId,
-                                Sets = dw.SetsDefault,
-                                Reps = dw.RepsDefault,
-                                OrderNo = workoutCount + 1,
-                                LoadKg = 0
-                            });
-
-                            currentTotalBurn += dw.Workout?.CaloriesBurned ?? 0;
-                            workoutCount++;
+                            var picked = WorkoutPoolSelector.Pick(
+                                dayWorkoutsPool, 
+                                new[] { requestedLevel }, 
+                                targetBurnForSession, 
+                                logger: _logger);
+                                
+                            sessionWorkoutsToCreate.AddRange(WorkoutPoolSelector.BuildSessionWorkouts(wrapper.Session.SessionId, picked));
                         }
                     }
 

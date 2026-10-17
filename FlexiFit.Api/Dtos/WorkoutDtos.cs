@@ -76,6 +76,10 @@
 
         //  DAGDAG: Optional reason for skipping
         public string? SkipReason { get; set; }
+
+        // MULTI-PROGRAM SUPPORT
+        // Default to 1 para hindi mag-crash ang lumang frontend requests
+        public int ProgramNumber { get; set; } = 1;
     }
 
     // 5.  BAGONG DTO: Response after completing/skipping

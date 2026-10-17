@@ -1,6 +1,7 @@
 using FlexiFit.Api.Entities;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using Microsoft.Extensions.Logging;
 
 namespace FlexiFit.Api.Services;
 
@@ -20,14 +21,20 @@ public class ProgramProgressionService
     }
 
     /// <summary>
-    /// Attempts to advance the program day.
+    /// Attempts to advance program day(s) for a date.
     /// Rule: BOTH workout AND nutrition must be "DONE".
     /// GoalMet is a performance indicator ONLY — hindi blocker.
     /// </summary>
-    public async Task<bool> TryAdvanceAsync(int userId, DateOnly date)
-    {
-        _logger.LogInformation("TryAdvanceAsync: userId={UserId}, date={Date}", userId, date);
+    //  <param name="instanceId">
+    /// The program that was just triggered/completed. Only that program is checked and advanced.
+    /// When null (legacy callers), every program with a DONE workout row for the date is advanced;
+    /// rows without an InstanceId fall back to the first ACTIVE program.
+    /// </param>
 
+    public async Task<bool> TryAdvanceAsync(int userId, DateOnly date, int? instanceId = null)
+    {
+        _logger.LogInformation("TryAdvanceAsync: userId={UserId}, date={Date}, instanceId={InstanceId}", userId, date, instanceId);
+        
         // 1. Get daily log for cycle info
         var dailyLog = await _db.NtrDailyLogs
             .FirstOrDefaultAsync(l => l.UserId == userId && l.PlanDate == date);
@@ -37,30 +44,64 @@ public class ProgramProgressionService
             return false;
         }
 
-        // 2. Check nutrition completion (status-based, NOT GoalMet)
+        // 2. Check nutrition completion (status-based, NOT GoalMet) - date level, shared by all programs
         var nutritionCalendar = await _db.NtrMealPlanCalendars
             .FirstOrDefaultAsync(c => c.CycleId == dailyLog.CycleId && c.PlanDate == date);
         bool nutritionDone = nutritionCalendar?.Status == "DONE";
 
-        // 3. Check workout completion (status-based)
-        var workoutCalendar = await _db.WktWorkoutCalendars
-            .FirstOrDefaultAsync(w => w.UserId == userId && w.PlanDate == date);
-        bool workoutDone = workoutCalendar?.Status == "DONE";
-
-        _logger.LogInformation(
-            "Completion check: Nutrition={NutritionDone}, Workout={WorkoutDone}",
-            nutritionDone, workoutDone);
-
-        // Item 4: GoalMet is NOT checked here — it's just a performance indicator
-        if (!nutritionDone || !workoutDone)
+        if (!nutritionDone)
+        {
+            _logger.LogInformation("Nutrition not DONE yet for {Date}", date);
             return false;
+        }
 
-        // 4. Get active program
+        // 3. Which program instances have a DONE workout row for this date?
+        var doneRows = await _db.WktWorkoutCalendars
+            .AsNoTracking()
+            .Where(w => w.UserId == userId && w.PlanDate == date && (w.Status == "DONE" || w.Status == "SKIPPED")
+                        && (instanceId == null || w.InstanceId == instanceId))
+            .Select(w => w.InstanceId)
+            .ToListAsync();
+
+        if (doneRows.Count == 0)
+        {
+            _logger.LogInformation("No DONE workout row for {Date} (instanceId={InstanceId})", date, instanceId);
+            return false;
+        }
+
+        var targetIds = doneRows.Where(i => i.HasValue).Select(i => i!.Value).Distinct().ToList();
+
+
+       // Legacy rows (no InstanceId) -> first ACTIVE program, same as the old behaviour
+        if (instanceId == null && doneRows.Any(i => !i.HasValue))
+        {
+            var legacyId = await _db.UsrUserProgramInstances
+                .Where(p => p.UserId == userId && p.Status == "ACTIVE")
+                .OrderBy(p => p.CreatedAt).ThenBy(p => p.InstanceId)
+                .Select(p => (int?)p.InstanceId)
+                .FirstOrDefaultAsync();
+            if (legacyId.HasValue && !targetIds.Contains(legacyId.Value))
+                targetIds.Add(legacyId.Value);
+        }
+
+        bool anyAdvanced = false;
+        foreach (var id in targetIds)
+        {
+            if (await AdvanceInstanceAsync(userId, id, dailyLog, date))
+                anyAdvanced = true;
+        }
+
+        return anyAdvanced;
+    }
+
+    /// <summary>Advances ONE program instance by one day (race guard + transaction + progress log).</summary>
+    private async Task<bool> AdvanceInstanceAsync(int userId, int instanceId, NtrDailyLog dailyLog, DateOnly date)
+    {
         var activeProgram = await _db.UsrUserProgramInstances
-            .FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
+            .FirstOrDefaultAsync(p => p.UserId == userId && p.InstanceId == instanceId && p.Status == "ACTIVE");
         if (activeProgram == null) return false;
 
-        // 5. Race condition guard
+        // Race condition guard
         int currentDay = activeProgram.CurrentDayNo;
         var alreadyAdvanced = await _db.DailyProgressLogs
             .AnyAsync(p => p.UserId == userId
@@ -68,11 +109,10 @@ public class ProgramProgressionService
                         && p.DayNo == currentDay);
         if (alreadyAdvanced)
         {
-            _logger.LogWarning("Day {Day} already advanced. Skipping.", currentDay);
+            _logger.LogWarning("Instance {InstanceId} day {Day} already advanced. Skipping.", instanceId, currentDay);
             return false;
         }
 
-        // 6. Advance!
         var cycleTarget = await _db.NtrUserCycleTargets
             .Where(t => t.UserId == userId && t.CycleId == activeProgram.CycleNo)
             .OrderByDescending(t => t.CreatedAt)
@@ -80,6 +120,7 @@ public class ProgramProgressionService
         int totalDays = (cycleTarget?.WeeksInCycle ?? 4) * 7;
 
         using var tx = await _db.Database.BeginTransactionAsync();
+
         try
         {
             activeProgram.CurrentDayNo++;
@@ -97,13 +138,12 @@ public class ProgramProgressionService
             throw;
         }
 
-        // 7. Populate DailyProgressLog
         await PopulateProgressLogAsync(userId, activeProgram, dailyLog, date);
-
-        _logger.LogInformation("Advanced to Day {Day} for user {UserId}",
-            activeProgram.CurrentDayNo, userId);
+        _logger.LogInformation("Advanced instance {InstanceId} to Day {Day} for user {UserId}",
+            instanceId, activeProgram.CurrentDayNo, userId);
         return true;
     }
+
 
     private async Task PopulateProgressLogAsync(
         int userId,
@@ -113,7 +153,7 @@ public class ProgramProgressionService
     {
         int completedDayNo = program.CurrentDayNo - 1;
 
-        // ✅ FIX 1: Gamitin ang ActActivitySummary (Single Source of Truth from Item 1)
+        // Gamitin ang ActActivitySummary (Single Source of Truth from Item 1)
         // Imbes na i-recalculate galing sa session workouts, kunin na lang natin ang 
         // actual na na-log na calories para mag-match sa Nutrition Tab.
         int caloriesBurned = await _db.ActActivitySummaries

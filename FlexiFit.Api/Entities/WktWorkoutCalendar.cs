@@ -44,6 +44,16 @@ namespace FlexiFit.Api.Entities
         [Column("updated_at")]
         public DateTime UpdatedAt { get; set; }
 
+        // Multi-program support
+        [Column("instance_id")]
+        public int? InstanceId { get; set; }
+        
+        [Column("session_id")]
+        public int? SessionId { get; set; }
+        
+        [Column("day_type")]    
+        public string? DayType { get; set; }
+
         // Navigation property (optional)
         [ForeignKey(nameof(UserId))]
         public virtual UsrUser? User { get; set; }
