@@ -48,14 +48,15 @@ namespace FlexiFit.Api.Entities
         [Column("instance_id")]
         public int? InstanceId { get; set; }
         
-        [Column("session_id")]
-        public int? SessionId { get; set; }
-        
         [Column("day_type")]    
         public string? DayType { get; set; }
 
         // Navigation property (optional)
         [ForeignKey(nameof(UserId))]
         public virtual UsrUser? User { get; set; }
+
+        [ForeignKey(nameof(InstanceId))]
+        public virtual UsrUserProgramInstance? Instance { get; set; }
+
     }
 }

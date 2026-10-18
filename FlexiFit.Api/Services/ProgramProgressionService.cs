@@ -13,11 +13,16 @@ public class ProgramProgressionService
 {
     private readonly FlexiFitDbContext _db;
     private readonly ILogger<ProgramProgressionService> _logger;
+    private readonly ProgramService _programService;
 
-    public ProgramProgressionService(FlexiFitDbContext db, ILogger<ProgramProgressionService> logger)
+    public ProgramProgressionService(
+        FlexiFitDbContext db, 
+        ILogger<ProgramProgressionService> logger, 
+        ProgramService programService)
     {
         _db = db;
         _logger = logger;
+        _programService = programService;
     }
 
     /// <summary>
@@ -117,7 +122,8 @@ public class ProgramProgressionService
             .Where(t => t.UserId == userId && t.CycleId == activeProgram.CycleNo)
             .OrderByDescending(t => t.CreatedAt)
             .FirstOrDefaultAsync();
-        int totalDays = (cycleTarget?.WeeksInCycle ?? 4) * 7;
+
+        int totalDays = ProgramConstants.DaysPerCycle; // call from ProgramConstants instead of hardcoding 28
 
         using var tx = await _db.Database.BeginTransactionAsync();
 
@@ -129,6 +135,7 @@ public class ProgramProgressionService
                 activeProgram.Status = "COMPLETED";
                 activeProgram.CompletedAt = DateTime.UtcNow;
             }
+
             await _db.SaveChangesAsync();
             await tx.CommitAsync();
         }
@@ -139,8 +146,14 @@ public class ProgramProgressionService
         }
 
         await PopulateProgressLogAsync(userId, activeProgram, dailyLog, date);
-        _logger.LogInformation("Advanced instance {InstanceId} to Day {Day} for user {UserId}",
-            instanceId, activeProgram.CurrentDayNo, userId);
+
+        // AUTO LEVEL-UP: Trigger level-up immediately upon completion
+        if (activeProgram.Status == "COMPLETED")
+        {
+            _logger.LogInformation("Program {InstanceId} completed. Triggering auto level-up.", instanceId);
+            await _programService.CheckProgressionAsync(userId, instanceId);
+        }
+
         return true;
     }
 
@@ -164,11 +177,29 @@ public class ProgramProgressionService
             .Where(w => w.UserId == userId && w.LogDate == date)
             .SumAsync(w => (int?)w.WaterMl) ?? 0;
 
+        // HYBRID LOGGING LOGIC
+        // Determine if the program is continuous based on the initial fitness level.
+        bool isContinuous = program.FitnessLevelAtStart?.ToUpper() == "ADVANCED" || 
+                            program.FitnessLevelAtStart?.ToUpper() == "REHAB LEVEL";
+
+        int yearNo = 1;
+        int monthNo = 1;
+
+        if (isContinuous)
+        {
+            // Math for continuous tracking (up to 10+ years)
+            yearNo = ((completedDayNo - 1) / ProgramConstants.DaysPerYear) + 1;
+            int dayOfYear = (completedDayNo - 1) % ProgramConstants.DaysPerYear;
+            monthNo = (dayOfYear / 28) + 1;
+        }
+
+
         var progressLog = new DailyProgressLog
         {
             UserId = userId,
             InstanceId = program.InstanceId,
-            MonthNo = ((completedDayNo - 1) / 28) + 1,
+            YearNo = yearNo,
+            MonthNo = monthNo, // DYNAMIC BASED ON CONTINUOUS LOGIC
             WeekNo = ((completedDayNo - 1) / 7) + 1,
             DayNo = completedDayNo,
             CaloriesBurned = caloriesBurned,

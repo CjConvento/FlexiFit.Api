@@ -15,6 +15,7 @@ namespace FlexiFit.Api.Entities
         public int MonthNo { get; set; }
         public int WeekNo { get; set; }
         public int DayNo { get; set; }
+        public int YearNo { get; set; }
         public string? FitnessLevelSnapshot { get; set; }
         public int? CaloriesBurned { get; set; }
         public int? CaloriesIntake { get; set; }

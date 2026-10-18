@@ -44,7 +44,7 @@ public class WorkoutService
         int currentDay = activeProgram.CurrentDayNo;
         int templateDayNo = ((currentDay - 1) % 7) + 1;
         int weekNo = ((currentDay - 1) / 7) + 1;
-        int monthNo = ((currentDay - 1) / 28) + 1;
+        int monthNo = ((currentDay - 1) / ProgramConstants.DaysPerCycle) + 1;
 
         var dayDef = await _context.WrkProgramTemplateDays
             .Where(d => d.ProgramId == activeProgram.ProgramId && d.DayNo == templateDayNo && d.WeekNo == 1)
@@ -202,7 +202,7 @@ public class WorkoutService
 
         int templateDayNo = ((day - 1) % 7) + 1;
         int weekNo = ((day - 1) / 7) + 1;
-        int monthNo = ((day - 1) / 28) + 1;
+        int monthNo = ((day - 1) / ProgramConstants.DaysPerCycle) + 1;
 
         var dayDef = await _context.WrkProgramTemplateDays
             .FirstOrDefaultAsync(d => d.ProgramId == activeProgram.ProgramId && d.DayNo == templateDayNo);
@@ -442,14 +442,14 @@ public class WorkoutService
     // ==========================================
     // WORKOUT SESSION & HISTORY LOGIC
     // ==========================================
-    public async Task<object> CanSkipTodayAsync(int userId)
+    public async Task<object> CanSkipTodayAsync(int userId,int programNumber = 1)
     {
-        var activeProgram = await _context.UsrUserProgramInstances
-            .AsNoTracking()
-            .FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
+        var activePrograms = await _programService.GetActiveProgramsAsync(userId);
+            if (activePrograms.Count == 0)
+                return new { canSkip = false, reason = "No active program", currentDay = 0 };
 
-        if (activeProgram == null)
-            return new { canSkip = false, reason = "No active program", currentDay = 0 };
+        int targetIndex = Math.Clamp(programNumber - 1, 0, activePrograms.Count - 1);
+        var activeProgram = activePrograms[targetIndex];
 
         int templateDayNo = ((activeProgram.CurrentDayNo - 1) % 7) + 1;
         var dayDef = await _context.WrkProgramTemplateDays
@@ -478,15 +478,18 @@ public class WorkoutService
                       "You can skip this workout if needed"
         };
     }
-
-    public async Task<object> GetWorkoutHistoryAsync(int userId)
+    
+    /// <summary>
+    /// Gets workout history for a SPECIFIC program instance.
+    /// </summary>
+    public async Task<object> GetWorkoutHistoryAsync(int userId, int programNumber = 1)
     {
-        var activeProgram = await _context.UsrUserProgramInstances
-            .AsNoTracking()
-            .FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
-
-        if (activeProgram == null)
+        var activePrograms = await _programService.GetActiveProgramsAsync(userId);
+        if (activePrograms.Count == 0)
             return new List<object>();
+
+        int targetIndex = Math.Clamp(programNumber - 1, 0, activePrograms.Count - 1);
+        var activeProgram = activePrograms[targetIndex];
 
         return await _context.UsrUserWorkoutSessions
             .AsNoTracking()

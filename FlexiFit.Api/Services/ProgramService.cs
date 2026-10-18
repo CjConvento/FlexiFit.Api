@@ -55,39 +55,76 @@ public class ProgramService
     // ==========================================
     // PROGRESSION LOGIC 
     // ==========================================
-    public async Task<object> CheckProgressionAsync(int userId)
+    
+    /// <summary>
+    /// Checks progression for a specific program (multi-program safe).
+    /// </summary>
+    public async Task<object> CheckProgressionAsync(int userId, int? instanceId = null)
     {
-        var activeProgram = await GetActiveProgramForProgressionAsync(userId);
-        return await ProcessProgressionLogicAsync(activeProgram);
+        UsrUserProgramInstance? program;
+
+        if (instanceId.HasValue)
+        {
+            program = await _context.UsrUserProgramInstances
+                .Include(p => p.Program)
+                .FirstOrDefaultAsync(p => p.UserId == userId && p.InstanceId == instanceId.Value);
+            
+            if (program == null) 
+                throw new KeyNotFoundException($"Program instance {instanceId.Value} not found.");
+        }
+        else
+        {
+            // Legacy fallback: gets the first active program
+            program = await _context.UsrUserProgramInstances
+                .Include(p => p.Program)
+                .FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
+            
+            if (program == null) 
+                throw new KeyNotFoundException("No active program found.");
+        }
+
+        return await ProcessProgressionLogicAsync(program);
     }
 
-    public async Task<object> FastForwardToEndAsync(int userId)
+    /// <summary>
+    /// ADMIN CHEAT ENGINE: Advances the program by exactly one full cycle (28 days).
+    /// This guarantees crossing the threshold to trigger HandleLevelUpAsync.
+    /// </summary>
+    public async Task<object> FastForwardToEndAsync(int userId, int? instanceId = null)
     {
-        var activeProgram = await GetActiveProgramForProgressionAsync(userId);
+        UsrUserProgramInstance? program;
         
-        // I-set sa Day 29 para ma-trigger ang level up logic
-        activeProgram.CurrentDayNo = 29;
+        if (instanceId.HasValue)
+        {
+            program = await _context.UsrUserProgramInstances
+                .Include(p => p.Program)
+                .FirstOrDefaultAsync(p => p.UserId == userId && p.InstanceId == instanceId.Value);
+        }
+        else
+        {
+            program = await _context.UsrUserProgramInstances
+                .Include(p => p.Program)
+                .FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
+        }
+
+        if (program == null) 
+            throw new KeyNotFoundException("No active program found.");
+
+        // CHEAT ENGINE LOGIC: Add exactly 28 days to simulate completing the current month
+        // Example: Day 1 becomes Day 29. Day 29 becomes Day 57 (Month 3).
+        program.CurrentDayNo += ProgramConstants.DaysPerCycle;
+        
         await _context.SaveChangesAsync();
-        
-        return await ProcessProgressionLogicAsync(activeProgram);
+
+        // This will automatically route to HandleLevelUpAsync since CurrentDayNo > 28
+        return await ProcessProgressionLogicAsync(program);
     }
 
     // ── Private Helpers ──────────────────────────────────────────
-    private async Task<UsrUserProgramInstance> GetActiveProgramForProgressionAsync(int userId)
-    {
-        var program = await _context.UsrUserProgramInstances
-            .FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
-            
-        // Throw KeyNotFoundException para automatic na maging 404 sa Middleware
-        if (program == null) 
-            throw new KeyNotFoundException("No active program found.");
-            
-        return program;
-    }
 
     private async Task<object> ProcessProgressionLogicAsync(UsrUserProgramInstance activeProgram)
     {
-        if (activeProgram.CurrentDayNo > 28)
+        if (activeProgram.CurrentDayNo > ProgramConstants.DaysPerCycle)
         {
             return await HandleLevelUpAsync(activeProgram);
         }
@@ -96,37 +133,50 @@ public class ProgramService
         {
             message = "Consistency is key! Keep going!",
             currentDay = activeProgram.CurrentDayNo,
-            daysRemaining = 28 - activeProgram.CurrentDayNo + 1
+            daysRemaining = ProgramConstants.DaysPerCycle - activeProgram.CurrentDayNo + 1,
+            instanceId = activeProgram.InstanceId
         };
     }
 
     private async Task<object> HandleLevelUpAsync(UsrUserProgramInstance activeProgram)
     {
-        // 1. Kunin ang Profile
-        var profile = await _context.UsrUserProfileVersions
-            .FirstOrDefaultAsync(p => p.UserId == activeProgram.UserId && p.IsCurrent);
-            
-        if (profile == null) 
-            throw new InvalidOperationException("Profile missing.");
+        // 1. Determine Next Level (Beginner -> Intermediate -> Advanced -> Repeat Advanced)
+        string currentLevel = (activeProgram.FitnessLevelAtStart ?? "BEGINNER").Trim().ToUpper();
 
-        // 2. Determine Next Level (Beginner -> Intermediate -> Advanced -> Repeat Advanced)
-        string currentLevel = (profile.FitnessLevelSelected ?? "BEGINNER").Trim().ToUpper();
-        string nextLevel = currentLevel switch
+        bool isRehab = ProgramRules.IsRehabTemplate(activeProgram.Program);
+        
+        string nextLevel; 
+        
+        if (isRehab)
         {
-            "BEGINNER" => "INTERMEDIATE",
-            "INTERMEDIATE" => "ADVANCED",
-            _ => "ADVANCED" // Pag Advanced na, stay lang sa Advanced (Repeat Routine)
+            nextLevel = ProgramRules.RehabLevel;
+        }
+        else
+        {
+            nextLevel = currentLevel switch
+            {
+                "BEGINNER" => "INTERMEDIATE",
+                "INTERMEDIATE" => "ADVANCED",
+                _ => "ADVANCED" // Pag Advanced na, stay lang sa Advanced (Repeat Routine)   
+            };
         };
+
+        // 2 STRICT Category Match (no fallback)
+        var currentCategory = activeProgram.Program?.ProgramCategory;
 
         // 3. Hanapin ang tamang Template
         var nextTemplate = await _context.WrkProgramTemplates
-            .Where(t => t.IsActive && t.FitnessLevel.ToUpper() == nextLevel)
-            .OrderByDescending(t => t.ProgramId) // Kunin ang pinakabagong template ng level na 'yan
+            .Where(t => t.IsActive 
+                && t.FitnessLevel.ToUpper() == nextLevel
+                && (currentCategory == null || t.ProgramCategory == currentCategory))
+            .OrderByDescending(t => t.ProgramId) 
             .FirstOrDefaultAsync();
             
         if (nextTemplate == null) 
-            throw new KeyNotFoundException($"No template found for {nextLevel} level.");
-        
+        {
+            throw new KeyNotFoundException($"No template found for {nextLevel} level and category '{currentCategory}'. Please seed the database.");
+        }        
+
         // 4. BURAHIN ANG LUMANG DATA (Safety First: Workouts -> Sessions -> Instances)
 
         // A. Kunin muna ang Session IDs para mabura ang SessionWorkouts (Iwas FK Error)        
@@ -150,28 +200,67 @@ public class ProgramService
         await _context.UsrUserSessionInstances
             .Where(i => i.InstanceId == activeProgram.InstanceId)
             .ExecuteDeleteAsync();
-    
+
+        await _context.WktWorkoutCalendars
+            .Where(w => w.InstanceId == activeProgram.InstanceId)
+            .ExecuteDeleteAsync();
+
         // 5. Update Level sa Profile at Instance (I-assign ang bagong ProgramId)
-        string formattedLevel = nextLevel.Substring(0, 1).ToUpper() + nextLevel.Substring(1).ToLower();
-        
-        profile.FitnessLevelSelected = formattedLevel;
-        activeProgram.ProgramId = nextTemplate.ProgramId; // Palitan ng bagong program (o same kung Advanced)
+        string formattedLevel = isRehab
+            ?(activeProgram.Program?.FitnessLevel ?? "Rehab Level")
+            : nextLevel.Substring(0, 1).ToUpper() + nextLevel.Substring(1).ToLower();
+
+        activeProgram.ProgramId = nextTemplate.ProgramId;
         activeProgram.FitnessLevelAtStart = formattedLevel;
-        activeProgram.CurrentDayNo = 1; // I-reset sa Day 1 para ulitin ang routine
+
+        // CONTINUOUS VS RESET LOGIC
+        bool isContinuous = (nextLevel == "ADVANCED" || isRehab);
+        
+        if (!isContinuous)
+        {
+            // Beginner/Intermediate: Reset to Day 1 (Start of new month)
+            activeProgram.CurrentDayNo = 1;
+        }
+        else
+        {
+            // ADVANCED/REHAB PLATEAU LOGIC:
+            // Huwag i-reset. Panatilihin ang continuous day count para tumataas ang MonthNo.
+            // (e.g., Day 29 stays 29, or Day 57 stays 57. Math formula will compute Month 2 or Month 3).
+            // CurrentDayNo is already correctly set by FastForwardToEndAsync (+28 days).
+        }
+
+        activeProgram.Status = "ACTIVE";
+        activeProgram.CompletedAt = null;
         
         await _context.SaveChangesAsync();
 
         // 6. Generate New Slots para sa bagong cycle/level
-        await GenerateProgramSlotsForNewCycleAsync(activeProgram.InstanceId, activeProgram.UserId, activeProgram.ProgramId, formattedLevel);
+        // PASS THE CURRENT DAY NO AS START DAY FOR CONTINUOUS PROGRESSION
+        await GenerateProgramSlotsForNewCycleAsync(
+            activeProgram.InstanceId, 
+            activeProgram.UserId, 
+            activeProgram.ProgramId, 
+            formattedLevel,
+            activeProgram.CurrentDayNo);
 
         return new { 
-            message = $"Level Up to {formattedLevel} Success! 🚀 New 28-day cycle generated.",
+            message = isRehab 
+                ? "Rehab cycle completed! 💪 Repeating your rehab routine."
+                : isContinuous 
+                    ? $"Advanced/Rehab mode: Continuing your lifelong fitness journey at Day {activeProgram.CurrentDayNo}! 🚀"
+                    : $"Level Up to {formattedLevel} Success! 🚀 New cycle generated.",
             newLevel = formattedLevel,
-            newProgramId = nextTemplate.ProgramId
+            newProgramId = nextTemplate.ProgramId,
+            instanceId = activeProgram.InstanceId,
+            isContinuous = isContinuous,
+            simulatedMonth = ((activeProgram.CurrentDayNo - 1) / ProgramConstants.DaysPerCycle) + 1 // For admin verification
         };
     }
 
-    private async Task GenerateProgramSlotsForNewCycleAsync(int instanceId, int userId, int programId, string fitnessLevel)
+    /// <summary>
+    /// Generates new workout slots. Supports continuous progression via startDay parameter.
+    /// </summary>
+    private async Task GenerateProgramSlotsForNewCycleAsync(int instanceId, int userId, int programId, string fitnessLevel, int startDay = 1)
     {
         // 1. Kunin ang Template Days (Structure ng week: e.g., Day 1 = Push, Day 2 = Pull)
         // Ito ay usually 7 days lang (isang weekly template)
@@ -184,11 +273,11 @@ public class ProgramService
 
         var sessionsToAdd = new List<UsrUserWorkoutSession>();
 
-        // 1. Create all Main Sessions first (Day 1 to 28)
-        for (int day = 1; day <= 28; day++)
+        // 1. Create all Main Sessions first (from startDay to startDay + 28)
+        for (int day = startDay; day < startDay + ProgramConstants.DaysPerCycle; day++)
         {
             // Gamitin ang module para mag-cycle sa 7-day pattern ng Week 1
-            int dayOfWeek = ((day - 1) % 7) + 1; // Day 1-7 pattern
+            int dayOfWeek = ((day - 1) % ProgramConstants.DaysPerWeek) + 1;
             var workoutForThisDay = templateDays.FirstOrDefault(td => td.DayNo == dayOfWeek);
 
             if (workoutForThisDay == null || workoutForThisDay.DayType == "REST") continue;
@@ -226,12 +315,12 @@ public class ProgramService
         foreach (var session in sessionsToAdd)
         {
             // 1. Map session to template day type (day 1- 7 pattern)
-            int templateDayNo = ((session.WorkoutDay -1) % 7) + 1;  
+            int templateDayNo = ((session.WorkoutDay -1) % ProgramConstants.DaysPerWeek) + 1;  
             var dayDef = templateDays.First(td => td.DayNo == templateDayNo);
 
             // 2. DYNAMIC WEEK CALCULATION: 
             // Day 1-7 = Week 1 | Day 8-14 = Week 2 | Day 15-21 = Week 3 | Day 22-28 = Week 4
-            int currentWeek = ((session.WorkoutDay - 1) / 7) + 1;
+            int currentWeek = ((session.WorkoutDay - 1) / ProgramConstants.DaysPerWeek) + 1;
 
             poolByWeekAndDayType.TryGetValue((currentWeek, dayDef.DayType), out var dayPool);
 

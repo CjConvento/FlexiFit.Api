@@ -243,6 +243,9 @@ public partial class FlexiFitDbContext : DbContext
             entity.Property(e => e.WaterMl).HasColumnName("water_ml");
             entity.Property(e => e.WeekNo).HasColumnName("week_no");
 
+            // Mapping para sa YearNo
+            entity.Property(e => e.YearNo).HasColumnName("year_no");
+
             entity.HasOne(d => d.ProgramInstance).WithMany(p => p.DailyProgressLogs)
                 .HasForeignKey(d => d.InstanceId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
@@ -1143,7 +1146,7 @@ public partial class FlexiFitDbContext : DbContext
                 .HasForeignKey(d => d.InstanceId)
                 .HasConstraintName("FK_usr_user_session_instances_instance");
 
-            // ❌ DO NOT add any relationship to UsrUserSessionWorkout here
+            // No need to add any relationship to UsrUserSessionWorkout here
         });
 
         modelBuilder.Entity<UsrUserSessionWorkout>(entity =>
@@ -1239,8 +1242,8 @@ public partial class FlexiFitDbContext : DbContext
 
             entity.ToTable("wkt_workout_calendars");
 
-            // Unique constraint: isang user, isang plan_date lang
-            entity.HasIndex(e => new { e.UserId, e.PlanDate }, "UX_wkt_workout_calendars_unique").IsUnique();
+            // UNIQUE INDEX: User + Date + Instance (para sa multi-program)
+            entity.HasIndex(e => new { e.UserId, e.PlanDate, e.InstanceId }, "UX_wkt_workout_calendars_unique").IsUnique();
 
             // Properties (gamit ang Column attributes)
             entity.Property(e => e.CalendarId)
@@ -1290,6 +1293,13 @@ public partial class FlexiFitDbContext : DbContext
                 .WithMany() // Wala nang navigation property pabalik sa UsrUser
                 .HasForeignKey(d => d.UserId)
                 .HasConstraintName("FK_wkt_workout_calendars_user")
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // FK to Program Instance
+            entity.HasOne(d => d.Instance)
+                .WithMany()
+                .HasForeignKey(d => d.InstanceId)
+                .HasConstraintName("FK_wkt_calendar_instance")
                 .OnDelete(DeleteBehavior.Cascade);
         });
 

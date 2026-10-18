@@ -13,19 +13,22 @@ public class NutritionService
     private readonly NutritionCalculator _nutritionCalculator;
     private readonly MealPlanGenerator _mealPlanGenerator;
     private readonly ProgramProgressionService _programProgressionService;
+    private readonly NutritionTargetService _nutritionTargetService;
 
     public NutritionService(
         FlexiFitDbContext db,
         ILogger<NutritionService> logger,
         NutritionCalculator nutritionCalculator,
         MealPlanGenerator mealPlanGenerator,
-        ProgramProgressionService programProgressionService)
+        ProgramProgressionService programProgressionService,
+        NutritionTargetService nutritionTargetService)
     {
         _db = db;
         _logger = logger;
         _nutritionCalculator = nutritionCalculator;
         _mealPlanGenerator = mealPlanGenerator;
         _programProgressionService = programProgressionService;
+        _nutritionTargetService = nutritionTargetService;
     }
 
     /// <summary>
@@ -33,28 +36,30 @@ public class NutritionService
     /// </summary>
     public async Task<NutritionScreenDto> GetNutritionHistoryDetailAsync(int userId, int day, int month, string baseUrl)
     {
+        // Compute targetDate internally from day and month
         var targetDate = new DateOnly(DateTime.UtcNow.Year, month, day);
 
-        var activeProgram = await _db.UsrUserProgramInstances
-            .FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
-        if (activeProgram == null) throw new Exception("No active program found.");
+        // DIRECTLY GET THE LATEST NUTRITION CYCLE (Decoupled from Workout Programs)
+        var latestCycle = await _db.NtrUserCycleTargets
+            .Where(t => t.UserId == userId)
+            .OrderByDescending(t => t.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        if (latestCycle == null) throw new Exception("No active nutrition cycle found.");
 
         var calendarDay = await _db.NtrMealPlanCalendars
-            .FirstOrDefaultAsync(c => c.CycleId == activeProgram.CycleNo && c.PlanDate == targetDate);
-        if (calendarDay == null) throw new Exception($"No nutrition data found for Day {day}");
+            .FirstOrDefaultAsync(c => c.CycleId == latestCycle.CycleId && c.PlanDate == targetDate);
+        if (calendarDay == null) throw new Exception($"No nutrition data found for Date {targetDate}");
 
         var dailyLog = await _db.NtrDailyLogs
             .Include(d => d.NtrDailyMealLogs)
             .FirstOrDefaultAsync(l => l.UserId == userId && l.PlanDate == targetDate);
-        if (dailyLog == null) throw new Exception($"No daily log found for Day {day}");
+        if (dailyLog == null) throw new Exception($"No daily log found for Date {targetDate}");
 
         // Fetch meal groups (reusing existing method)
         var mealGroups = await GetMealGroupsAsync(dailyLog.DailyLogId, calendarDay.TemplateId, calendarDay.DayNo, calendarDay.VariationCode, baseUrl);
 
-        var target = await _db.NtrUserCycleTargets
-            .Where(t => t.UserId == userId && t.CycleId == activeProgram.CycleNo)
-            .OrderByDescending(t => t.CreatedAt)
-            .FirstOrDefaultAsync();
+        var target = latestCycle;
 
         var burnedCalories = await _db.ActActivitySummaries
             .Where(a => a.UserId == userId && a.LogDate == targetDate)
@@ -67,11 +72,11 @@ public class NutritionService
         // ==========================================
         // PREPARE VARIABLES (Calculations happen HERE in the Service)
         // ==========================================
-        double baseTarget = (double)(target?.DailyTargetNetCalories ?? 2000);
-        double bonusCalories = burnedCalories;
-        double totalTarget = baseTarget + bonusCalories; // Base + Burn = Total
+        var (baseTarget, bonusCalories, totalTarget) = await _nutritionTargetService.CalculateAndAdjustTargetAsync(
+        userId, targetDate, dailyLog, latestCycle.CycleId);
 
         double targetProt = (double)(target?.ProteinTargetG ?? 150);
+
         double consumedProt = dailyLog?.NtrDailyMealLogs?.Sum(l => (double)l.ProteinG) ?? 0;
 
         double targetCarbsVal = (double)(target?.CarbsTargetG ?? 200);
@@ -98,15 +103,18 @@ public class NutritionService
     /// <summary>
     /// Fetches data, performs calculations, and returns the fully mapped DTO.
     /// </summary>
-    public async Task<NutritionScreenDto> GetNutritionScreenAsync(
-        int userId, DateOnly targetDate, string baseUrl)
+    public async Task<NutritionScreenDto> GetNutritionScreenAsync(int userId, DateOnly targetDate, string baseUrl)
     {
-        var activeProgram = await _db.UsrUserProgramInstances
-            .FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
-        if (activeProgram == null) throw new Exception("No active program found.");
+        // DIRECTLY GET THE LATEST NUTRITION CYCLE (Decoupled from Workout Programs)
+        var latestCycle = await _db.NtrUserCycleTargets
+            .Where(t => t.UserId == userId)
+            .OrderByDescending(t => t.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        if (latestCycle == null) throw new Exception("No active nutrition cycle found.");
 
         var calendarDay = await _db.NtrMealPlanCalendars
-            .FirstOrDefaultAsync(c => c.CycleId == activeProgram.CycleNo && c.PlanDate == targetDate);
+            .FirstOrDefaultAsync(c => c.CycleId == latestCycle.CycleId && c.PlanDate == targetDate);
         if (calendarDay == null) throw new Exception($"No nutrition data found for Date {targetDate}");
 
         var dailyLog = await _db.NtrDailyLogs
@@ -114,10 +122,7 @@ public class NutritionService
             .FirstOrDefaultAsync(l => l.UserId == userId && l.PlanDate == targetDate);
         if (dailyLog == null) throw new Exception($"No daily log found for Date {targetDate}");
 
-        var target = await _db.NtrUserCycleTargets
-            .Where(t => t.UserId == userId && t.CycleId == activeProgram.CycleNo)
-            .OrderByDescending(t => t.CreatedAt)
-            .FirstOrDefaultAsync();
+        var target = latestCycle;
 
         var burnedCalories = await _db.ActActivitySummaries
             .Where(a => a.UserId == userId && a.LogDate == targetDate)
@@ -153,9 +158,8 @@ public class NutritionService
         // ==========================================
         // CALCULATIONS HAPPEN HERE (Service Layer)
         // ==========================================
-        double baseTarget = (double)(target?.DailyTargetNetCalories ?? 2000);
-        double bonusCalories = burnedCalories;
-        double totalTarget = baseTarget + bonusCalories;
+        var (baseTarget, bonusCalories, totalTarget) = await _nutritionTargetService.CalculateAndAdjustTargetAsync(
+        userId, targetDate, dailyLog, latestCycle.CycleId);
         
         double consumedCal = dailyLog.CaloriesConsumed;
         double netCalories = consumedCal - burnedCalories;

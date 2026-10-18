@@ -173,7 +173,7 @@ public class ProfileService
         var profile = await _db.UsrUserProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
         if (profile != null)
         {
-            profile.Name = request.Name;
+            profile.Name = request.Name;    
             profile.Username = request.Username;
             profile.Gender = request.Gender;
             if (request.Age > 0)
@@ -182,6 +182,21 @@ public class ProfileService
             }
             profile.UpdatedAt = DateTime.UtcNow;
         }
+
+        // 1.5 Update Profile Version (CRITICAL: Para mag-reflect agad sa Dashboard)
+        var currentVersion = await _db.UsrUserProfileVersions
+            .FirstOrDefaultAsync(v => v.UserId == userId && v.IsCurrent);
+        
+        if (currentVersion != null)
+        {
+            if (!string.IsNullOrEmpty(request.FitnessLevel))
+                currentVersion.FitnessLevelSelected = request.FitnessLevel;
+            if (!string.IsNullOrEmpty(request.BodyCompGoal))
+                currentVersion.GoalSelected = request.BodyCompGoal;
+                
+            currentVersion.CreatedAt = DateTime.UtcNow; // Update timestamp to reflect latest change
+        }
+
 
         // 2. Update Nutrition Profile
         var nutProfile = await _db.NtrUserNutritionProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
@@ -195,6 +210,29 @@ public class ProfileService
             if (!string.IsNullOrEmpty(request.FitnessLifestyle)) nutProfile.ActivityLevel = request.FitnessLifestyle;
             if (!string.IsNullOrEmpty(request.DietaryType)) nutProfile.DietaryType = request.DietaryType;
             if (!string.IsNullOrEmpty(request.BodyCompGoal)) nutProfile.NutritionGoal = request.BodyCompGoal;
+        }
+
+        // 2.5 Update Onboarding Details (CRITICAL FIX: Dito nag-fail ang dating logic)
+        var onboarding = await _db.UsrUserOnboardingDetails.FirstOrDefaultAsync(o => o.UserId == userId);
+        if (onboarding != null)
+        {
+            onboarding.ActivityLevel = request.FitnessLifestyle ?? onboarding.ActivityLevel;
+            onboarding.FitnessLevel = request.FitnessLevel ?? onboarding.FitnessLevel;
+            onboarding.BodyGoal = request.BodyCompGoal ?? onboarding.BodyGoal;
+            onboarding.DietType = request.DietaryType ?? onboarding.DietType;
+            onboarding.UpperBodyInjury = request.UpperBodyInjury;
+            onboarding.LowerBodyInjury = request.LowerBodyInjury;
+            onboarding.JointProblems = request.JointProblems;
+            onboarding.ShortBreath = request.ShortBreath;
+            onboarding.Environment = request.Environment ?? onboarding.Environment;
+            
+            if (request.FitnessGoals != null)
+                onboarding.FitnessGoals = string.Join(", ", request.FitnessGoals.Where(g => !string.IsNullOrWhiteSpace(g)));
+                
+            if (request.SelectedPrograms != null)
+                onboarding.SelectedPrograms = string.Join(", ", request.SelectedPrograms.Where(p => !string.IsNullOrWhiteSpace(p)));
+                
+            onboarding.UpdatedAt = DateTime.UtcNow;
         }
 
         // 3. Recalculate Cycle Targets
