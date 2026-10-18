@@ -64,20 +64,21 @@ public class WorkoutService
 
             if (restWorkoutCal == null)
             {
-                _context.WktWorkoutCalendars.Add(new WktWorkoutCalendar { 
-                    UserId = userId, 
-                    InstanceId = activeProgram.InstanceId, 
-                    DayType = dayDef.DayType, 
-                    CycleId = activeProgram.CycleNo, 
-                    PlanDate = todayDateOnly, 
-                    WeekNo = weekNo, 
-                    DayNo = currentDay, 
-                    TemplateId = 1, 
-                    VariationCode = "A", 
-                    IsWorkoutDay = false, 
+                _context.WktWorkoutCalendars.Add(new WktWorkoutCalendar
+                {
+                    UserId = userId,
+                    InstanceId = activeProgram.InstanceId,
+                    DayType = dayDef.DayType,
+                    CycleId = activeProgram.CycleNo,
+                    PlanDate = todayDateOnly,
+                    WeekNo = weekNo,
+                    DayNo = currentDay,
+                    TemplateId = 1,
+                    VariationCode = "A",
+                    IsWorkoutDay = false,
                     Status = "DONE", // autodone for workout, but nutrition remains PENDING
-                    CreatedAt = DateTime.UtcNow, 
-                    UpdatedAt = DateTime.UtcNow 
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
                 });
                 await _context.SaveChangesAsync();
             }
@@ -103,7 +104,15 @@ public class WorkoutService
             _context.UsrUserWorkoutSessions.Add(newSession);
             await _context.SaveChangesAsync();
 
-            var generatedWorkouts = await _workoutPlanGenerator.GenerateForSessionAsync(newSession.SessionId, activeProgram.ProgramId, dayDef.DayType, weekNo, activeProgram.Program?.FitnessLevel ?? "Beginner", activeProgram.Program?.ProgramName?.Contains("Rehab", StringComparison.OrdinalIgnoreCase) == true);
+            var generatedWorkouts = await _workoutPlanGenerator.GenerateForSessionAsync(
+                newSession.SessionId,
+                activeProgram.ProgramId,
+                dayDef.DayType,
+                weekNo,
+                activeProgram.Program?.FitnessLevel ?? "Beginner",
+                ProgramRules.IsRehabTemplate(activeProgram.Program),
+                userId);
+
             if (generatedWorkouts.Any())
             {
                 _context.UsrUserSessionWorkouts.AddRange(generatedWorkouts);
@@ -122,7 +131,14 @@ public class WorkoutService
 
         if (!isCompleted && !isSkipped)
         {
-            var newWarmups = await _workoutPlanGenerator.EnsureWarmupsAsync(session.SessionId, activeProgram.ProgramId, dayDef.DayType, weekNo, activeProgram.Program?.FitnessLevel ?? "Beginner", activeProgram.Program?.ProgramName?.Contains("Rehab", StringComparison.OrdinalIgnoreCase) == true);
+            var newWarmups = await _workoutPlanGenerator.EnsureWarmupsAsync(
+                session.SessionId,
+                activeProgram.ProgramId,
+                dayDef.DayType,
+                weekNo,
+                activeProgram.Program?.FitnessLevel ?? "Beginner",
+                ProgramRules.IsRehabTemplate(activeProgram.Program));
+
             if (newWarmups.Any())
             {
                 _context.UsrUserSessionWorkouts.AddRange(newWarmups);
@@ -131,9 +147,21 @@ public class WorkoutService
             }
         }
 
-        var finalWorkouts = await _context.UsrUserSessionWorkouts.Include(sw => sw.Workout).Where(sw => sw.SessionId == session.SessionId).OrderBy(sw => sw.OrderNo).ToListAsync();
-        var warmups = finalWorkouts.Where(w => w.Workout != null && w.Workout.Category?.ToUpper() == "WARMUP").Select(w => WorkoutMapper.ToWorkoutExerciseDto(w, baseUrl, isCompleted)).ToList();
-        var workouts = finalWorkouts.Where(w => w.Workout != null && w.Workout.Category?.ToUpper() != "WARMUP").Select(w => WorkoutMapper.ToWorkoutExerciseDto(w, baseUrl, isCompleted)).ToList();
+        var finalWorkouts = await _context.UsrUserSessionWorkouts
+            .Include(sw => sw.Workout)
+            .Where(sw => sw.SessionId == session.SessionId)
+            .OrderBy(sw => sw.OrderNo)
+            .ToListAsync();
+
+        var warmups = finalWorkouts
+            .Where(w => w.Workout != null && w.Workout.Category?.ToUpper() == "WARMUP")
+            .Select(w => WorkoutMapper.ToWorkoutExerciseDto(w, baseUrl, isCompleted))
+            .ToList();
+
+        var workouts = finalWorkouts
+            .Where(w => w.Workout != null && w.Workout.Category?.ToUpper() != "WARMUP")
+            .Select(w => WorkoutMapper.ToWorkoutExerciseDto(w, baseUrl, isCompleted))
+            .ToList();
 
         return WorkoutMapper.BuildDailyWorkoutPlanDto(
             currentDay, dayDef.DayType, session.Status ?? "PENDING",
@@ -234,7 +262,7 @@ public class WorkoutService
 
         var programDto = WorkoutMapper.BuildProgramDto(activeProgram, currentProgramNo, totalPrograms, monthNo, weekNo, day);
 
-        // ✅ Use the Mapper for a clean, consistent DTO response
+        // Use the Mapper for a clean, consistent DTO response
         return WorkoutMapper.BuildDailyWorkoutPlanDto(
             day,
             dayDef.DayType,
@@ -252,36 +280,101 @@ public class WorkoutService
 
     /// <summary>
     /// Handles the complete logic for completing/skipping a workout session.
+    /// MULTI-PROGRAM SAFE: Per-instance ang lahat ng checks at advancement.
     /// </summary>
     public async Task<WorkoutSessionResultDto> CompleteSessionAsync(int userId, WorkoutSessionCompleteDto req, DateOnly todayDateOnly)
     {
         bool isSkipped = req.Status.ToUpper() == "SKIPPED";
-        var activeProgram = await _context.UsrUserProgramInstances.FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE") ?? throw new KeyNotFoundException("No active program found.");
-        int originalDay = activeProgram.CurrentDayNo;
 
-        var existingCalendar = await _context.WktWorkoutCalendars.FirstOrDefaultAsync(w => w.UserId == userId && w.PlanDate == todayDateOnly);
-        if (existingCalendar?.Status == "DONE") throw new InvalidOperationException("Today's workout has already been completed.");
+        // RESOLUTION ORDER — SessionId (source of truth) → ProgramNumber fallback ──
+        UsrUserWorkoutSession? session = null;
+        UsrUserProgramInstance activeProgram;
 
-        var session = await _context.UsrUserWorkoutSessions.FirstOrDefaultAsync(s => s.UserId == userId && s.ProgramInstanceId == activeProgram.InstanceId && s.WorkoutDay == originalDay);
-        if (session != null && (session.Status?.ToUpper() == "COMPLETED" || session.Status?.ToUpper() == "SKIPPED"))
+        if (req.SessionId > 0)
         {
-            return new WorkoutSessionResultDto { Message = $"This workout has already been {session.Status.ToLower()}.", CurrentDay = session.WorkoutDay, NextDay = activeProgram.CurrentDayNo, IsProgramFinished = activeProgram.Status == "COMPLETED", Status = session.Status, WasSkipped = session.Status?.ToUpper() == "SKIPPED" };
+            session = await _context.UsrUserWorkoutSessions
+                .FirstOrDefaultAsync(s => s.SessionId == req.SessionId && s.UserId == userId);
         }
 
+        if (session != null)
+        {
+            // Alam natin ang exact na program mula sa session mismo
+            activeProgram = await _context.UsrUserProgramInstances
+                .Include(p => p.Program)
+                .FirstOrDefaultAsync(p => p.InstanceId == session.ProgramInstanceId)
+                ?? throw new KeyNotFoundException("Program instance not found for session.");
+
+            if (activeProgram.Status != "ACTIVE")
+                throw new InvalidOperationException("Program is no longer active.");
+        }
+        else
+        {
+            // Fallback: resolve by ProgramNumber (para sa legacy/rest-day calls)
+            var activePrograms = await _programService.GetActiveProgramsAsync(userId);
+            if (activePrograms.Count == 0) throw new KeyNotFoundException("No active program found.");
+            int targetIndex = Math.Clamp(req.ProgramNumber - 1, 0, activePrograms.Count - 1);
+            activeProgram = activePrograms[targetIndex];
+        }
+
+        int originalDay = session?.WorkoutDay ?? activeProgram.CurrentDayNo;
+
+        // Kung hindi pa naka-load ang session via SessionId, hanapin per instance
+        session ??= await _context.UsrUserWorkoutSessions
+            .FirstOrDefaultAsync(s => s.UserId == userId
+                                   && s.ProgramInstanceId == activeProgram.InstanceId
+                                   && s.WorkoutDay == originalDay);
+
+        if (session != null && (session.Status?.ToUpper() == "COMPLETED" || session.Status?.ToUpper() == "SKIPPED"))
+        {
+            return new WorkoutSessionResultDto
+            {
+                Message = $"This workout has already been {session.Status.ToLower()}.",
+                CurrentDay = originalDay,
+                NextDay = activeProgram.CurrentDayNo,
+                IsProgramFinished = activeProgram.Status == "COMPLETED",
+                Status = session.Status,
+                WasSkipped = session.Status?.ToUpper() == "SKIPPED",
+            };
+        }
+
+        // ── PER-INSTANCE calendar check (iwas collision ng 2 programs sa iisang araw) ──
+        var existingCalendar = await GetWorkoutCalendarAsync(userId, todayDateOnly, activeProgram.InstanceId);
+        if (existingCalendar?.Status == "DONE")
+            throw new InvalidOperationException("Today's workout has already been completed");
+
         int templateDayNo = ((originalDay - 1) % 7) + 1;
-        var dayDef = await _context.WrkProgramTemplateDays.FirstOrDefaultAsync(d => d.ProgramId == activeProgram.ProgramId && d.DayNo == templateDayNo && d.WeekNo == 1);
+        var dayDef = await _context.WrkProgramTemplateDays
+            .FirstOrDefaultAsync(d => d.ProgramId == activeProgram.ProgramId && d.DayNo == templateDayNo && d.WeekNo == 1);
         bool isRestDay = dayDef?.DayType?.Contains("REST", StringComparison.OrdinalIgnoreCase) ?? false;
 
-        var workoutCalendar = await _context.WktWorkoutCalendars.FirstOrDefaultAsync(w => w.UserId == userId && w.PlanDate == todayDateOnly);
+        // ── Calendar row na may InstanceId + DayType (isolation per program) ──
+        var workoutCalendar = await GetWorkoutCalendarAsync(userId, todayDateOnly, activeProgram.InstanceId);
         string workoutStatus = isSkipped ? "SKIPPED" : "DONE";
 
         if (workoutCalendar == null)
         {
-            _context.WktWorkoutCalendars.Add(new WktWorkoutCalendar { UserId = userId, CycleId = activeProgram.CycleNo, PlanDate = todayDateOnly, WeekNo = ((originalDay - 1) / 7) + 1, DayNo = originalDay, TemplateId = 1, VariationCode = "A", IsWorkoutDay = !isRestDay, Status = workoutStatus, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+            _context.WktWorkoutCalendars.Add(new WktWorkoutCalendar
+            {
+                UserId = userId,
+                InstanceId = activeProgram.InstanceId,   // KEY NA FIELD para sa isolation
+                DayType = dayDef?.DayType,               // Para sa calendar UI at rest-day detection
+                CycleId = activeProgram.CycleNo,
+                PlanDate = todayDateOnly,
+                WeekNo = ((originalDay - 1) / 7) + 1,
+                DayNo = originalDay,
+                TemplateId = 1,
+                VariationCode = "A",
+                IsWorkoutDay = !isRestDay,
+                Status = workoutStatus,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            });
         }
+
         else
         {
-            if (workoutCalendar.Status == "DONE") throw new InvalidOperationException("Workout already marked as DONE.");
+            if (workoutCalendar.Status == "DONE")
+                throw new InvalidOperationException("Workout already marked as DONE.");
             workoutCalendar.Status = workoutStatus;
             workoutCalendar.UpdatedAt = DateTime.UtcNow;
         }
@@ -290,13 +383,23 @@ public class WorkoutService
         {
             if (session == null && !isSkipped)
             {
-                _context.UsrUserWorkoutSessions.Add(new UsrUserWorkoutSession { UserId = userId, ProgramInstanceId = activeProgram.InstanceId, WorkoutDay = originalDay, Status = "COMPLETED", StartedAt = DateTime.UtcNow.AddMinutes(-(req.TotalMinutes > 0 ? req.TotalMinutes : 30)), CompletedAt = DateTime.UtcNow, CreatedAt = DateTime.UtcNow });
+                _context.UsrUserWorkoutSessions.Add(new UsrUserWorkoutSession
+                {
+                    UserId = userId,
+                    ProgramInstanceId = activeProgram.InstanceId,
+                    WorkoutDay = originalDay,
+                    Status = "COMPLETED",
+                    StartedAt = DateTime.UtcNow.AddMinutes(-(req.TotalMinutes > 0 ? req.TotalMinutes : 30)),
+                    CompletedAt = DateTime.UtcNow,
+                    CreatedAt = DateTime.UtcNow,
+                });
             }
             else if (session != null)
             {
                 session.Status = isSkipped ? "SKIPPED" : "COMPLETED";
                 session.CompletedAt = DateTime.UtcNow;
-                if (!isSkipped && req.TotalMinutes > 0) session.StartedAt = DateTime.UtcNow.AddMinutes(-req.TotalMinutes);
+                if (!isSkipped && req.TotalMinutes > 0)
+                    session.StartedAt = DateTime.UtcNow.AddMinutes(-req.TotalMinutes);
             }
         }
 
@@ -309,10 +412,15 @@ public class WorkoutService
             await UpsertActivitySummaryAsync(userId, todayDateOnly, caloriesToLog, minutesToLog);
         }
 
-        await _progressionService.TryAdvanceAsync(userId, todayDateOnly);
-        activeProgram = await _context.UsrUserProgramInstances.FirstOrDefaultAsync(p => p.UserId == userId && p.Status == "ACTIVE");
-        bool advanced = activeProgram!.CurrentDayNo > originalDay;
-        int nextDay = advanced ? activeProgram.CurrentDayNo : originalDay + 1;
+        // ── I-PASS ANG INSTANCEID para isolated ang advancement ──
+        await _progressionService.TryAdvanceAsync(userId, todayDateOnly, activeProgram.InstanceId);
+
+        // ── Re-fetch ang PAREHONG instance (hindi first-ACTIVE) ──
+        var updatedProgram = await _context.UsrUserProgramInstances
+            .FirstOrDefaultAsync(p => p.InstanceId == activeProgram.InstanceId);
+
+        bool advanced = updatedProgram!.CurrentDayNo > originalDay;
+        int nextDay = advanced ? updatedProgram.CurrentDayNo : originalDay + 1;
 
         string message = isSkipped ? $"Day {originalDay} skipped." : isRestDay ? "Rest day completed!" : $"🎉 Great job! Day {originalDay} completed!";
         if (advanced) message += $" Moving to Day {nextDay}!";

@@ -663,26 +663,66 @@ public class MobileService
                     // BATCH 5: SESSION WORKOUTS (Uses generated SessionId)
                     // ==========================================
                     // 4. Build SessionWorkouts IN-MEMORY (Filtering & Shuffling)
+
+                    // PRE-FETCH ALL ACTIVE WARMUPS ONCE (Iwas N+1 sa loob ng loop)
+
+                    var allWarmups = await _context.WrkWorkouts
+                        .AsNoTracking()
+                        .Where(w => w.Category == "WARMUP" && w.IsActive == true)
+                        .ToListAsync();
+
                     var sessionWorkoutsToCreate = new List<UsrUserSessionWorkout>();
 
                     foreach (var wrapper in sessionWrappers)
                     {
+                        int order = 1;
                         int currentWeek = ((wrapper.Session.WorkoutDay - 1) / 7) + 1;
                         var dayStructure = dayStructures[wrapper.Template.ProgramId];
                         var dayType = dayStructure.DayType ?? "WORKOUT";
 
-                        // LOOKUP USING THE EXACT SAME 3-PART TUPLE STRUCTURE
+                        // ── 1. WARMUP SEEDING (Rehab-aware & Case-insensitive) ──
+                        bool isRehab = ProgramRules.IsRehabTemplate(wrapper.Template) || request.IsRehab;
+                        var warmupLevels = new List<string> { requestedLevel, wrapper.Template.FitnessLevel ?? "Beginner" };
+                        if (isRehab) warmupLevels.Add(ProgramRules.RehabLevel);
+
+                        var warmupNorm = warmupLevels
+                            .Where(l => !string.IsNullOrWhiteSpace(l))
+                            .Select(l => l.Trim().ToLower())
+                            .ToHashSet();
+
+                        var warmups = allWarmups
+                            .Where(w => warmupNorm.Contains((w.DifficultyLevel ?? "").Trim().ToLower()))
+                            .OrderBy(_=> Random.Shared.Next())
+                            .Take(2)
+                            .ToList();
+
+                        foreach (var w in warmups)
+                        {
+                            sessionWorkoutsToCreate.Add(new UsrUserSessionWorkout
+                            {
+                                SessionId = wrapper.Session.SessionId,
+                                WorkoutId = w.WorkoutId,
+                                Sets = 2,
+                                Reps = 12,
+                                OrderNo = order++,
+                                LoadKg = 0
+                            });
+                        }
+
+                        // ── MAIN WORKOUTS (Using WorkoutPoolSelector for consistency) ──
                         var key = (ProgramId: wrapper.Template.ProgramId, WeekNo: currentWeek, DayType: dayType);
     
                         if (workoutPoolDict.TryGetValue(key, out var dayWorkoutsPool))
                         {
+                            // Gumamit ng WorkoutPoolSelector.Pick imbes na manual shuffle/filter
                             var picked = WorkoutPoolSelector.Pick(
                                 dayWorkoutsPool, 
                                 new[] { requestedLevel }, 
                                 targetBurnForSession, 
                                 logger: _logger);
                                 
-                            sessionWorkoutsToCreate.AddRange(WorkoutPoolSelector.BuildSessionWorkouts(wrapper.Session.SessionId, picked));
+                            sessionWorkoutsToCreate.AddRange(
+                                WorkoutPoolSelector.BuildSessionWorkouts(wrapper.Session.SessionId, picked, startOrder: order));
                         }
                     }
 
