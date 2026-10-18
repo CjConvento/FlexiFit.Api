@@ -62,6 +62,7 @@ namespace FlexiFit.Api.Dtos
         public string DietType { get; set; } = "";
 
         [JsonPropertyName("SelectedPrograms")]
+        [MaxLength(3, ErrorMessage = "Maximum of 3 programs allowed during onboarding for your safety.")]
         public List<DetailedProgramDto> SelectedPrograms { get; set; } = new();
 
         [JsonPropertyName("IsRehab")]

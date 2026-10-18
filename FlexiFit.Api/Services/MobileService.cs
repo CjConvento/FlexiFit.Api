@@ -194,6 +194,16 @@ public class MobileService
     // ── 3. ONBOARDING (Massive Transaction) ───────────────────────
     public async Task<object> SubmitOnboardingProfileAsync(int userId, OnboardingProfileRequest request)
     {
+        // ── GUARD CLAUSE (Enforce max 3 programs limit) ──
+        const int maxPrograms = 3;
+        if(request.SelectedPrograms != null && request.SelectedPrograms.Count > maxPrograms)
+        {
+            throw new ArgumentException(
+                $"Maximum of {maxPrograms} programs allowed during onboarding for your safety. " +
+                $"Received: {request.SelectedPrograms.Count}. " +
+                $"Please select at most {maxPrograms} programs.");
+        }
+
         var strategy = _context.Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync(async () =>
         {
