@@ -78,7 +78,17 @@ public static class PipelineExtensions
         // MIDDLEWARE PIPELINE CONFIGURATION
         // =======================================================
         app.UseSwagger();
-        app.UseSwaggerUI();
+
+
+        // CDNs ROUTING: Pinapabilis ang rendering ng Swagger panel.
+        // Sa halip na i-download ang 1.5MB assets, hihilahin ito sa pinakamalapit na node.
+        app.UseSwaggerUI(options =>
+        {
+            options.SwaggerEndpoint("/swagger/v1/swagger.json", "FlexiFit.Api v1");
+            options.InjectStylesheet("https://cloudflare.com"); // Custom CSS for Swagger UI
+            options.ConfigObject.AdditionalItems["jsUrl"] = "https://cloudflare.com"; // Custom JS for Swagger UI
+            options.ConfigObject.AdditionalItems["presetsUrl"] = "https://cloudflare.com";
+        });
 
         app.UseCors("AllowAdminPanel"); // --- Para makausap ang Admin Panel ---
         app.UseStaticFiles();

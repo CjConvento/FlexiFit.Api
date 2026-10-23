@@ -1,31 +1,34 @@
-name: Deploy FlexiFit API to Azure
+name: FlexiFit API Production CI/CD
 
 on:
   push:
-    branches:
-      - master # Triggers the workflow every time there's push to the master branch
+    branches: [ master ] # Mag run tuwing may push sa master branch
 
 jobs:
-  build-and-deploy:
-    runs-on: windows-latest
+  deploy:
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v4
+    - name: Checkout Source Code
+      uses: actions/checkout@v3
 
-      - name: Setup .NET SDK
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x' #.NET 8 framework
+    - name: Setup .NET 8 SDK
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '8.0.x'
 
-      - name: Clean and Publish Project (32-Bit Build)
-        run: |
-          dotnet clean
-          dotnet publish FlexiFit.Api/FlexiFit.Api.csproj -c Release -r win-x86 --self-contained false -o ./publish
+    - name: Compile and Publish .NET API
+      run: dotnet publish "FlexiFit.Api/FlexiFit.Api.csproj" -c Release -r linux-x64 --self-contained true -o ./publish
 
-      - name: Deploy Compiled Core to Azure Web App
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: 'flexifit-api'
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-          package: ./publish
+    - name: Compress Build Artifacts (ZIP)
+      run: zip -r publish.zip ./publish/*
+
+    - name: Automated SFTP Upload, Unzip, and Server Restart
+      env:
+        SSHPASS: '${{ secrets.ALWAYSDATA_SSH_PASSWORD }}'
+      run: |
+        sudo apt-get update && sudo apt-get install -y sshpass
+        sshpass -e scp -o StrictHostKeyChecking=no ./publish.zip flexifitapi@ssh-flexifitapi.alwaysdata.net:www/
+        sshpass -e ssh -o StrictHostKeyChecking=no flexifitapi@ssh-flexifitapi.alwaysdata.net "cd www && unzip -o publish.zip && rm publish.zip"
+
+
