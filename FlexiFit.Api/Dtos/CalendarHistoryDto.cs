@@ -18,5 +18,6 @@
         // BAGONG FIELDS PARA SA CALENDAR LOGIC (Item 11)
         public bool IsCurrentDay { get; set; }
         public bool IsFuture { get; set; }
+        public bool IsPast { get; set; }
     }
 }

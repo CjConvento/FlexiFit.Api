@@ -918,10 +918,19 @@ public class MobileService
                 // ============================================================
                 // STEP 13: PROFILE & PROFILE VERSION
                 // ============================================================
+                // A. I-nullify ang sensitive onboarding data sa Profile
                 await _context.UsrUserProfiles
                     .Where(x => x.UserId == userId)
-                    .ExecuteDeleteAsync();
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(p => p.Name, (string?)null)
+                        .SetProperty(p => p.Username, (string?)null)
+                        .SetProperty(p => p.BirthDate, (DateOnly?)null)
+                        .SetProperty(p => p.Gender, (string?)null)
+                        .SetProperty(p => p.AvatarUrl, (string?)null)
+                        .SetProperty(p => p.UpdatedAt, DateTime.UtcNow)
+                    );
 
+                // B. Ang Profile Version ay pwedeng i-delete dahil ito ay snapshot ng onboarding answers
                 await _context.UsrUserProfileVersions
                     .Where(x => x.UserId == userId)
                     .ExecuteDeleteAsync();
