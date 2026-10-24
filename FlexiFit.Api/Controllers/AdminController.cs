@@ -32,7 +32,7 @@ public class AdminController : ControllerBase
     }
 
     // ==========================================
-    // ADMIN CRUD ENDPOINTS FOR FOODS
+    // ADMIN CRUD ENDPOINTS FOR FOODS / NUTRITION
     // ==========================================
 
     /// <summary>
