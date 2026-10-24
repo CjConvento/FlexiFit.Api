@@ -78,6 +78,7 @@ public static class ApplicationServiceExtensions
     // Workout Planning Logic
     services.AddScoped<WorkoutService>();
     services.AddScoped<WorkoutPlanGenerator>();
+    services.AddScoped<WorkoutPoolSelector>();
 
     // Calendar Logic
     services.AddScoped<CalendarService>();

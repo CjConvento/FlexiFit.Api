@@ -79,7 +79,8 @@ public class CalendarService
                 NutritionStatus = nutritionStatus,
                 Status = GetOverallStatus(workoutSession, nutritionStatus, day, activeProgram.CurrentDayNo, isRestDay),
                 IsCurrentDay = day == activeProgram.CurrentDayNo,
-                IsFuture = day > activeProgram.CurrentDayNo
+                IsFuture = day > activeProgram.CurrentDayNo,
+                IsPast = day < activeProgram.CurrentDayNo
             });
         }
 

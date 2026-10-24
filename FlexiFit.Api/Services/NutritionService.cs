@@ -90,7 +90,7 @@ public class NutritionService
 
         return NutritionMapper.BuildScreenDto(
             baseTarget, bonusCalories, totalTarget,
-            dailyLog.CaloriesConsumed, burnedCalories,
+            dailyLog!.CaloriesConsumed, burnedCalories,
             targetProt, consumedProt,
             targetCarbsVal, consumedCarbsVal,
             targetFatsVal, consumedFatsVal,
@@ -120,16 +120,28 @@ public class NutritionService
         var dailyLog = await _db.NtrDailyLogs
             .Include(d => d.NtrDailyMealLogs)
             .FirstOrDefaultAsync(l => l.UserId == userId && l.PlanDate == targetDate);
-        if (dailyLog == null) throw new Exception($"No daily log found for Date {targetDate}");
 
-        var target = latestCycle;
+        // AUTO-CREATE ang missing daily log (sIMILAR sa WorkoutService)
+        if (dailyLog == null)
+        {
+            _logger.LogWarning("Daily log missing for User {UserId} on {Date}. Auto-creating...", userId, targetDate);
 
-        var burnedCalories = await _db.ActActivitySummaries
-            .Where(a => a.UserId == userId && a.LogDate == targetDate)
-            .SumAsync(a => (double?)a.CaloriesBurned) ?? 0;
+            dailyLog = new NtrDailyLog
+            {
+                UserId = userId,
+                CycleId = latestCycle.CycleId,
+                PlanDate = targetDate,
+                TargetNetCalories = latestCycle.DailyTargetNetCalories,
+                CaloriesConsumed = 0,
+                CaloriesBurned = 0,
+                GoalMet = false
+            };
 
-        var userProfile = await _db.NtrUserNutritionProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
-        string templateName = NutritionCalculator.GetTemplateNameFromDietaryType(userProfile?.DietaryType);
+            _db.NtrDailyLogs.Add(dailyLog);
+            await _db.SaveChangesAsync(); // I-save agad para makuha ang DailyLogId
+            
+            _logger.LogInformation("Successfully auto-created daily log (ID: {LogId}) for User {UserId} on {Date}", dailyLog.DailyLogId, userId, targetDate);
+        }
 
         // ==========================================
         // CRITICAL: Check if meals need to be seeded for today
@@ -144,8 +156,18 @@ public class NutritionService
             // Reload dailyLog to ensure NtrDailyMealLogs are included after seeding
             dailyLog = await _db.NtrDailyLogs
                 .Include(d => d.NtrDailyMealLogs)
-                .FirstOrDefaultAsync(l => l.DailyLogId == dailyLog.DailyLogId);
+                .FirstOrDefaultAsync(l => l.DailyLogId == dailyLog.DailyLogId)
+                ?? throw new Exception("Failed to reload daily log after seeding meals.");
         }
+
+        var target = latestCycle;
+
+        var burnedCalories = await _db.ActActivitySummaries
+            .Where(a => a.UserId == userId && a.LogDate == targetDate)
+            .SumAsync(a => (double?)a.CaloriesBurned) ?? 0;
+
+        var userProfile = await _db.NtrUserNutritionProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
+        string templateName = NutritionCalculator.GetTemplateNameFromDietaryType(userProfile?.DietaryType);
 
         var mealGroups = await GetMealGroupsAsync(
             dailyLog.DailyLogId, calendarDay.TemplateId, calendarDay.DayNo, 
@@ -468,19 +490,25 @@ public class NutritionService
     /// <summary>
     /// Handles the complete logic for a nutrition day.
     /// </summary>
-    public async Task<object> CompleteNutritionDayAsync(int userId, DateOnly todayDateOnly)
+    public async Task<object?> CompleteNutritionDayAsync(int userId, DateOnly todayDateOnly)
     {
         var dailyLog = await _db.NtrDailyLogs
             .Include(d => d.NtrDailyMealLogs)
             .FirstOrDefaultAsync(l => l.UserId == userId && l.PlanDate == todayDateOnly);
 
-        if (dailyLog == null) throw new KeyNotFoundException("No daily log found for today.");
-        if (dailyLog.MarkedDoneAt != null) return null; // Signal that it's already done
+        if (dailyLog == null) 
+            throw new KeyNotFoundException("No daily log found for today.");
+        
+        if (dailyLog.MarkedDoneAt != null) 
+            return null; // Signal that it's already done
 
         await UpdateDailyMealTotalsAsync(dailyLog.DailyLogId);
         
         // Reload to get updated totals
-        dailyLog = await _db.NtrDailyLogs.Include(d => d.NtrDailyMealLogs).FirstOrDefaultAsync(l => l.DailyLogId == dailyLog.DailyLogId);
+        dailyLog = await _db.NtrDailyLogs
+            .Include(d => d.NtrDailyMealLogs)   
+            .FirstOrDefaultAsync(l => l.DailyLogId == dailyLog.DailyLogId)
+            ?? throw new InvalidOperationException("Failed to reload daily log after update.");
 
         var burnedCalories = await _db.ActActivitySummaries
             .Where(a => a.UserId == userId && a.LogDate == todayDateOnly)
