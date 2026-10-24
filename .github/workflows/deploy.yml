@@ -1,4 +1,4 @@
-name: FlexiFit API Production CI/CD
+name: FlexiFit API AlwaysData CI/CD
 
 on:
   push:
@@ -18,17 +18,32 @@ jobs:
         dotnet-version: '8.0.x'
 
     - name: Compile and Publish .NET API
-      run: dotnet publish "FlexiFit.Api/FlexiFit.Api.csproj" -c Release -r linux-x64 --self-contained true -o ./publish
+
+      # Tinanggal ang --self-contained true. Mas maliit (20MB) at mas mabilis ang build.
+      # Gumagamit na ang AlwaysData ng .NET 8 Runtime, kaya sapat na ang DLLs lang.
+      run: dotnet publish "FlexiFit.Api/FlexiFit.Api.csproj" -c Release -o ./publish
 
     - name: Compress Build Artifacts (ZIP)
-      run: zip -r publish.zip ./publish/*
 
-    - name: Automated SFTP Upload, Unzip, and Server Restart
+      # Zipping the CONTENTS ng publish folder directly. 
+      # Iwas sa nested folder na `www/publish/FlexiFit.Api.dll` sa server.
+      run: cd publish && zip -r ../publish.zip .
+
+    - name: Automated SFTP Upload, Unzip, and Cleanup
       env:
         SSHPASS: '${{ secrets.ALWAYSDATA_SSH_PASSWORD }}'
+        SSH_USER: 'flexifitapi'
+        SSH_HOST: 'ssh-flexifitapi.alwaysdata.net'
+
       run: |
         sudo apt-get update && sudo apt-get install -y sshpass
-        sshpass -e scp -o StrictHostKeyChecking=no ./publish.zip flexifitapi@ssh-flexifitapi.alwaysdata.net:www/
-        sshpass -e ssh -o StrictHostKeyChecking=no flexifitapi@ssh-flexifitapi.alwaysdata.net "cd www && unzip -o publish.zip && rm publish.zip"
+
+        echo "Uploading build artifacts..."
+        sshpass -e scp -4 -o StrictHostKeyChecking=no ./publish.zip ${SSH_USER}@${SSH_HOST}:~/
+
+        echo "Extracting files on server..."
+        sshpass -e ssh -4 -o StrictHostKeyChecking=no ${SSH_USER}@${SSH_HOST} "cd ~/www && unzip -o ~/publish.zip && rm ~/publish.zip"
+
+        echo "Deployment successful! Files updated in ~/www"
 
 
