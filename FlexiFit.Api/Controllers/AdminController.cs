@@ -38,20 +38,21 @@ public class AdminController : ControllerBase
     /// <summary>
     /// GET: api/admin/foods
     /// </summary>
-    [HttpGet("admin/foods")]
+    [HttpGet("/api/nutrition/admin/foods")]
     public async Task<ActionResult> AdminGetAllFoods(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10,
-        [FromQuery] string? search = null)
+        [FromQuery] string? search = null,
+        [FromQuery] string? status = "all")
     {
-       var result = await _adminService.GetFoodsAsync(page, pageSize, search);
+       var result = await _adminService.GetFoodsAsync(page, pageSize, search, status);
        return Ok(result);
     }
 
     /// <summary>
     /// GET: api/nutrition/admin/foods/{id}
     /// </summary>
-    [HttpGet("admin/foods/{id}")]
+    [HttpGet("/api/nutrition/admin/foods/{id}")]
     public async Task<ActionResult> AdminGetFood(int id)
     {
         var food = await _adminService.GetFoodByIdAsync(id);
@@ -61,7 +62,7 @@ public class AdminController : ControllerBase
     /// <summary>
     /// POST: api/nutrition/admin/foods
     /// </summary>
-    [HttpPost("admin/foods")]
+    [HttpPost("/api/nutrition/admin/foods")]
     public async Task<ActionResult> AdminCreateFood([FromBody] NtrFoodItem food)
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -72,7 +73,7 @@ public class AdminController : ControllerBase
     /// <summary>
     /// PUT: api/nutrition/admin/foods/{id}
     /// </summary>
-    [HttpPut("admin/foods/{id}")]
+    [HttpPut("/api/nutrition/admin/foods/{id}")]
     public async Task<IActionResult> AdminUpdateFood(int id, [FromBody] NtrFoodItem food)
     {
         if (id != food.FoodId) return BadRequest(new { error = "ID mismatch." });
@@ -85,7 +86,7 @@ public class AdminController : ControllerBase
     /// <summary>
     /// DELETE: api/nutrition/admin/foods/{id}
     /// </summary>
-    [HttpDelete("admin/foods/{id}")]
+    [HttpDelete("/api/nutrition/admin/foods/{id}")]
     public async Task<IActionResult> AdminDeleteFood(int id)
     {
         await _adminService.DeleteFoodAsync(id);
@@ -99,20 +100,21 @@ public class AdminController : ControllerBase
     /// <summary>
     /// GET: api/workout/admin/all
     /// </summary>
-    [HttpGet("admin/all")]
+    [HttpGet("/api/workout/admin/all")]
     public async Task<ActionResult> AdminGetAllWorkouts(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10,
-        [FromQuery] string? search = null)
+        [FromQuery] string? search = null,
+        [FromQuery] string? status = "all")
     {
-        var result = await _adminService.GetWorkoutsAsync(page, pageSize, search);
+        var result = await _adminService.GetWorkoutsAsync(page, pageSize, search, status);
         return Ok(result);
     }
                                                             
     /// <summary>
     /// GET: api/workout/admin/{id}
     /// </summary>
-    [HttpGet("admin/{id}")]
+    [HttpGet("/api/workout/admin/{id}")]
     public async Task<ActionResult> AdminGetWorkout(int id)
     {
         var workout = await _adminService.GetWorkoutByIdAsync(id);
@@ -122,7 +124,7 @@ public class AdminController : ControllerBase
     /// <summary>
     /// POST: api/workout/admin/create
     /// </summary>
-    [HttpPost("admin/create")]
+    [HttpPost("/api/workout/admin/create")]
     public async Task<ActionResult> AdminCreateWorkout([FromBody] WrkWorkout workout)
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -134,7 +136,7 @@ public class AdminController : ControllerBase
     /// <summary>
     /// PUT: api/workout/admin/{id}
     /// </summary>
-    [HttpPut("admin/{id}")]
+    [HttpPut("/api/workout/admin/{id}")]
     public async Task<IActionResult> AdminUpdateWorkout(int id, [FromBody] WrkWorkout workout)
     {
         if (id != workout.WorkoutId) return BadRequest(new { error = "ID mismatch." });
@@ -147,7 +149,7 @@ public class AdminController : ControllerBase
     /// <summary>
     /// DELETE: api/workout/admin/{id}
     /// </summary>
-    [HttpDelete("admin/{id}")]
+    [HttpDelete("/api/workout/admin/{id}")]
     public async Task<IActionResult> AdminDeleteWorkout(int id)
     {
         await _adminService.DeleteWorkoutAsync(id);
@@ -157,7 +159,7 @@ public class AdminController : ControllerBase
     /// <summary>
     /// GET: api/workout/admin/tutorials
     /// </summary>
-    [HttpGet("admin/tutorials")]
+    [HttpGet("/api/workout/admin/tutorials")]
     public async Task<ActionResult<IEnumerable<object>>> AdminGetTutorials()
     {
         var tutorials = await _adminService.GetTutorialsAsync();

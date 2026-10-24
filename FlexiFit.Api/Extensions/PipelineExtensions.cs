@@ -79,15 +79,13 @@ public static class PipelineExtensions
         // =======================================================
         app.UseSwagger();
 
-
         // CDNs ROUTING: Pinapabilis ang rendering ng Swagger panel.
         // Sa halip na i-download ang 1.5MB assets, hihilahin ito sa pinakamalapit na node.
         app.UseSwaggerUI(options =>
         {
             options.SwaggerEndpoint("/swagger/v1/swagger.json", "FlexiFit.Api v1");
-            options.InjectStylesheet("https://cloudflare.com"); // Custom CSS for Swagger UI
-            options.ConfigObject.AdditionalItems["jsUrl"] = "https://cloudflare.com"; // Custom JS for Swagger UI
-            options.ConfigObject.AdditionalItems["presetsUrl"] = "https://cloudflare.com";
+            options.IndexStream = () => typeof(Program).Assembly.GetManifestResourceStream("FlexiFit.Api.wwwroot.swagger.index.html") 
+                                 ?? new System.IO.FileStream(System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "wwwroot", "swagger", "index.html"), System.IO.FileMode.Open, System.IO.FileAccess.Read);
         });
 
         app.UseCors("AllowAdminPanel"); // --- Para makausap ang Admin Panel ---

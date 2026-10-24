@@ -33,13 +33,28 @@ public class AdminService
     // ==========================================
     // FOODS CRUD
     // ==========================================
-    public async Task<object> GetFoodsAsync(int page, int pageSize, string? search)
+    public async Task<object> GetFoodsAsync(int page, int pageSize, string? search, string? status = "all")
     {
         if (page < 1) page = 1;
         if (pageSize < 1) pageSize = 10;
         if (pageSize > 100) pageSize = 100;
 
         var query = _db.NtrFoodItems.AsNoTracking().AsQueryable();
+
+        // filter by status
+        if (!string.IsNullOrWhiteSpace(status) && status != "all")
+        {
+            if (status.ToLower() == "active")
+            {
+                query = query.Where(f => f.IsActive == true);
+            }
+            else if (status.ToLower() == "inactive")
+            {
+                query = query.Where(f => f.IsActive == false);
+            }
+        }
+
+        // filter by search term (case-insensitive)
         if (!string.IsNullOrWhiteSpace(search))
         {
             var lowerSearch = search.ToLower();
@@ -49,6 +64,7 @@ public class AdminService
                                      f.Category!.ToLower().Contains(lowerSearch));
         }
 
+        // pagination for large datasets
         var totalCount = await query.CountAsync();
         var foods = await query.OrderBy(f => f.FoodName).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
 
@@ -108,13 +124,28 @@ public class AdminService
     // ==========================================
     // WORKOUTS CRUD (DRY: Reusing similar patterns)
     // ==========================================
-    public async Task<object> GetWorkoutsAsync(int page, int pageSize, string? search)
+    public async Task<object> GetWorkoutsAsync(int page, int pageSize, string? search, string? status = "all")
     {
         if (page < 1) page = 1;
         if (pageSize < 1) pageSize = 10;
         if (pageSize > 100) pageSize = 100;
 
         var query = _db.WrkWorkouts.AsNoTracking().AsQueryable();
+
+        // 1. FILTER BY STATUS (Boolean IsActive)
+        if (!string.IsNullOrWhiteSpace(status) && status != "all")
+        {
+            if (status.ToLower() == "active")
+            {
+                query = query.Where(w => w.IsActive == true);
+            }
+            else if (status.ToLower() == "inactive")
+            {
+                query = query.Where(w => w.IsActive == false);
+            }
+        }
+
+        // 2. FILTER BY SEARCH
         if (!string.IsNullOrWhiteSpace(search))
         {
             var lowerSearch = search.ToLower();
@@ -123,6 +154,7 @@ public class AdminService
                                      w.Equipment!.ToLower().Contains(lowerSearch));
         }
 
+        // 3. PAGINATION
         var totalCount = await query.CountAsync();
         var workouts = await query.OrderBy(w => w.WorkoutId).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
 
