@@ -87,13 +87,18 @@ public class MealPlanGenerator
                 var carb = food.CarbsG   * qty;
                 var fat  = food.FatsG    * qty;
 
+                // DYNAMIC IS_ADDON CHECK
+                bool isAddon = food.MealType?.Equals("Add-on", StringComparison.OrdinalIgnoreCase) == true 
+                            || food.Category?.Equals("Add-on", StringComparison.OrdinalIgnoreCase) == true
+                            || food.DietaryType?.Contains("ADDON", StringComparison.OrdinalIgnoreCase) == true;
+
                 itemLogs.Add(new NtrDailyMealItemLog
                 {
                     DailyLogId = dailyLogId,
                     MealType   = mealCode,
                     FoodId     = food.FoodId,
                     Qty        = qty,
-                    IsAddon    = false,
+                    IsAddon    = isAddon,
                     Calories   = cal,
                     ProteinG   = prot,
                     CarbsG     = carb,
