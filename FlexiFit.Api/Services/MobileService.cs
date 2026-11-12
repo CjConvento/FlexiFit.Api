@@ -592,22 +592,23 @@ public class MobileService
                     await _context.SaveChangesAsync();
 
                     // ==========================================
-                    // BATCH 4: WORKOUT SESSIONS
+                    // BATCH 4: WORKOUT SESSIONS & SESSION INSTANCES
                     // ==========================================
                     // 3. PRE-FETCH: Kunin ang Day 1 structures at Workout Pools in ONE query
                     var programIds = instanceWrappers.Select(w => w.Template.ProgramId).Distinct().ToList();
-                    
-                    // Use GroupBy to handle multiple Day 1 entries per ProgramId (e.g., across different weeks)
-                    var dayStructuresList = await _context.WrkProgramTemplateDays
-                        .Where(d => programIds.Contains(d.ProgramId) && d.DayNo == 1 && d.WeekNo == 1)
+
+                    var allDayStructures = await _context.WrkProgramTemplateDays
+                        .Where(d => programIds.Contains(d.ProgramId))
                         .ToListAsync();
 
-                    var dayStructures = dayStructuresList
-                        .GroupBy(d => d.ProgramId)
-                        .ToDictionary(g => g.Key, g => g.First()); // Kunin lang ang first occurrence per ProgramId
+                    // Group by ProgramId and DayNo para madaling hanapin ang DayType ng kahit anong araw
+                    var dayStructureDict = allDayStructures
+                        .GroupBy(d => (d.ProgramId, d.DayNo))
+                        .ToDictionary(g => g.Key, g => g.First());
 
-                    var neededDayTypes = dayStructures.Values.Select(d => d.DayType ?? "WORKOUT").Distinct().ToList();
+                    var neededDayTypes = dayStructureDict.Values.Select(d => d.DayType ?? "WORKOUT").Distinct().ToList();
 
+                    // 2. PRE-FETCH: Kunin ang Workout Pools based sa needed DayTypes
                     var workoutPools = await _context.WrkProgramTemplateDaytypeWorkouts
                         .Include(dw => dw.Workout)
                         .Where(dw => programIds.Contains(dw.ProgramId) 
@@ -617,19 +618,20 @@ public class MobileService
 
                     // Gamitin ang unique list para sa dictionary
                     var workoutPoolDict = workoutPools
-                        .GroupBy(dw => new { dw.ProgramId, dw.WeekNo, DayType = dw.DayType ?? "WORKOUT" })
-                        .ToDictionary(
-                            g => (ProgramId: g.Key.ProgramId, WeekNo: g.Key.WeekNo, DayType: g.Key.DayType), 
-                            g => g.ToList());
+                        .GroupBy(dw => (dw.ProgramId, dw.WeekNo, DayType: dw.DayType ?? "WORKOUT" ))
+                        .ToDictionary(g => g.Key, g => g.ToList());
 
                     var sessionWrappers = new List<(UsrUserWorkoutSession Session, WrkProgramTemplate Template)>();
                     var sessionInstancesToCreate = new List<UsrUserSessionInstance>();
 
+                    int totalDaysInCycle = ProgramConstants.DaysPerCycle;
+
                     // Build sessions in memory
                     foreach (var wrapper in instanceWrappers)
                     {
-                        if (!dayStructures.TryGetValue(wrapper.Template.ProgramId, out var dayStructure)) continue;
-                        var dayType = dayStructure.DayType ?? "WORKOUT";
+                        // 1. Create UsrUserWorkoutSession ONLY for Day 1 (Current active session)
+                        var dayfirstStructure = dayStructureDict.GetValueOrDefault((wrapper.Template.ProgramId, 1));
+                        var defaultDayType = dayfirstStructure?.DayType ?? "WORKOUT";   
 
                         var session = new UsrUserWorkoutSession
                         {
@@ -641,16 +643,24 @@ public class MobileService
                         };
                         sessionWrappers.Add((session, wrapper.Template));
 
-                        sessionInstancesToCreate.Add(new UsrUserSessionInstance
+                        // 2. Create UsrUserSessionInstance for ALL days in the cycle (1 to 28)
+                        for (int d = 1; d <= totalDaysInCycle; d++)
                         {
-                            InstanceId = wrapper.Instance.InstanceId,
-                            MonthNo = 1,
-                            WeekNo = 1,
-                            DayNo = 1,
-                            DayType = dayType,
-                            Status = "PENDING",
-                            CreatedAt = DateTime.UtcNow
-                        });
+                            // Kunin ang tamang DayType para sa specific day (e.g., PUSH, PULL, REST)
+                            var dayStruct = dayStructureDict.GetValueOrDefault((wrapper.Template.ProgramId, d));
+                            var dayType = dayStruct?.DayType ?? defaultDayType;
+
+                            sessionInstancesToCreate.Add(new UsrUserSessionInstance
+                            {
+                                InstanceId = wrapper.Instance.InstanceId,
+                                MonthNo = ((d - 1) / 28) + 1,
+                                WeekNo = ((d - 1) / 7) + 1,
+                                DayNo = d,
+                                DayType = dayType,
+                                Status = d == 1 ? "PENDING" : "PLANNED", // Day 1 = PENDING, Day 2-28 = PLANNED
+                                CreatedAt = DateTime.UtcNow
+                            });
+                        }
                     }
 
                     _context.UsrUserWorkoutSessions.AddRange(sessionWrappers.Select(w => w.Session));
@@ -677,8 +687,8 @@ public class MobileService
                     {
                         int order = 1;
                         int currentWeek = ((wrapper.Session.WorkoutDay - 1) / 7) + 1;
-                        var dayStructure = dayStructures[wrapper.Template.ProgramId];
-                        var dayType = dayStructure.DayType ?? "WORKOUT";
+                        var currentDayStruct = dayStructureDict.GetValueOrDefault((wrapper.Template.ProgramId, wrapper.Session.WorkoutDay));
+                        var dayType = currentDayStruct?.DayType ?? "WORKOUT";
 
                         // ── 1. WARMUP SEEDING (Rehab-aware & Case-insensitive) ──
                         bool isRehab = ProgramRules.IsRehabTemplate(wrapper.Template) || request.IsRehab;

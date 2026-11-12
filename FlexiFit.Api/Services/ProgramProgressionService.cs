@@ -16,8 +16,8 @@ public class ProgramProgressionService
     private readonly ProgramService _programService;
 
     public ProgramProgressionService(
-        FlexiFitDbContext db, 
-        ILogger<ProgramProgressionService> logger, 
+        FlexiFitDbContext db,
+        ILogger<ProgramProgressionService> logger,
         ProgramService programService)
     {
         _db = db;
@@ -39,7 +39,7 @@ public class ProgramProgressionService
     public async Task<bool> TryAdvanceAsync(int userId, DateOnly date, int? instanceId = null)
     {
         _logger.LogInformation("TryAdvanceAsync: userId={UserId}, date={Date}, instanceId={InstanceId}", userId, date, instanceId);
-        
+
         // 1. Get daily log for cycle info
         var dailyLog = await _db.NtrDailyLogs
             .FirstOrDefaultAsync(l => l.UserId == userId && l.PlanDate == date);
@@ -62,22 +62,21 @@ public class ProgramProgressionService
 
         // 3. Which program instances have a DONE workout row for this date?
         var doneRows = await _db.WktWorkoutCalendars
-            .AsNoTracking()
-            .Where(w => w.UserId == userId && w.PlanDate == date && (w.Status == "DONE" || w.Status == "SKIPPED")
-                        && (instanceId == null || w.InstanceId == instanceId))
-            .Select(w => w.InstanceId)
-            .ToListAsync();
+                    .AsNoTracking()
+                    .Where(w => w.UserId == userId && w.PlanDate == date && (w.Status == "DONE" || w.Status == "SKIPPED")
+                                && (instanceId == null || w.InstanceId == instanceId))
+                    .Select(w => w.InstanceId)
+                    .ToListAsync();
 
-        if (doneRows.Count == 0)
-        {
-            _logger.LogInformation("No DONE workout row for {Date} (instanceId={InstanceId})", date, instanceId);
-            return false;
-        }
+                if (doneRows.Count == 0)
+                {
+                    _logger.LogInformation("No DONE workout row for {Date} (instanceId={InstanceId})", date, instanceId);
+                    return false;
+                }
 
-        var targetIds = doneRows.Where(i => i.HasValue).Select(i => i!.Value).Distinct().ToList();
+                var targetIds = doneRows.Where(i => i.HasValue).Select(i => i!.Value).Distinct().ToList();
 
-
-       // Legacy rows (no InstanceId) -> first ACTIVE program, same as the old behaviour
+        // Legacy handling (no InstanceId) -> first ACTIVE program, same as the old behaviour
         if (instanceId == null && doneRows.Any(i => !i.HasValue))
         {
             var legacyId = await _db.UsrUserProgramInstances
@@ -125,25 +124,92 @@ public class ProgramProgressionService
 
         int totalDays = ProgramConstants.DaysPerCycle; // call from ProgramConstants instead of hardcoding 28
 
-        using var tx = await _db.Database.BeginTransactionAsync();
-
-        try
+        // Npgsql retry-compatible)
+        var executionStrategy = _db.Database.CreateExecutionStrategy();
+        await executionStrategy.ExecuteAsync(async () =>
         {
-            activeProgram.CurrentDayNo++;
-            if (activeProgram.CurrentDayNo > totalDays)
+            using var tx = await _db.Database.BeginTransactionAsync();
+            try
             {
-                activeProgram.Status = "COMPLETED";
-                activeProgram.CompletedAt = DateTime.UtcNow;
-            }
+                activeProgram.CurrentDayNo++;
+                if (activeProgram.CurrentDayNo > totalDays)
+                {
+                    activeProgram.Status = "COMPLETED";
+                    activeProgram.CompletedAt = DateTime.UtcNow;
+                }
 
-            await _db.SaveChangesAsync();
-            await tx.CommitAsync();
-        }
-        catch
-        {
-            await tx.RollbackAsync();
-            throw;
-        }
+                // Update the session instance status for the completed day
+                var completedSessionInstance = await _db.UsrUserSessionInstances
+                    .FirstOrDefaultAsync(s => s.InstanceId == instanceId && s.DayNo == currentDay);
+
+                if (completedSessionInstance != null)
+                {
+                    completedSessionInstance.Status = "COMPLETED";
+                }
+
+                // Update the NEXT session instance to PENDING (if exists)
+                var nextSessionInstance = await _db.UsrUserSessionInstances
+                .FirstOrDefaultAsync(s => s.InstanceId == instanceId && s.DayNo == activeProgram.CurrentDayNo);
+
+                if (nextSessionInstance == null)
+                {
+                    // Create next day's session instance
+                    int templateDayNo = ((activeProgram.CurrentDayNo - 1) % 7) + 1;
+                    var dayDef = await _db.WrkProgramTemplateDays
+                        .FirstOrDefaultAsync(d => d.ProgramId == activeProgram.ProgramId 
+                                            && d.DayNo == templateDayNo && d.WeekNo == 1);
+                    
+                    nextSessionInstance = new UsrUserSessionInstance
+                    {
+                        InstanceId = instanceId,
+                        MonthNo = ((activeProgram.CurrentDayNo - 1) / 28) + 1,
+                        WeekNo = ((activeProgram.CurrentDayNo - 1) / 7) + 1,
+                        DayNo = activeProgram.CurrentDayNo,
+                        DayType = dayDef?.DayType ?? "WORKOUT",
+                        Status = "PENDING",
+                        CreatedAt = DateTime.UtcNow
+                    };
+                    _db.UsrUserSessionInstances.Add(nextSessionInstance);
+                }
+                else
+                {
+                    nextSessionInstance.Status = "PENDING";
+                }
+
+                // Update nutrition calendar PlanDates
+                var completedDayCalendar = await _db.NtrMealPlanCalendars
+                    .FirstOrDefaultAsync(c => c.CycleId == activeProgram.CycleNo && c.DayNo == currentDay);
+                if (completedDayCalendar != null && completedDayCalendar.PlanDate == date)
+                {
+                    completedDayCalendar.PlanDate = date.AddDays(-1);
+                    completedDayCalendar.UpdatedAt = DateTime.UtcNow;
+                }
+                
+                var nextDayCalendar = await _db.NtrMealPlanCalendars
+                    .FirstOrDefaultAsync(c => c.CycleId == activeProgram.CycleNo && c.DayNo == activeProgram.CurrentDayNo);
+                if (nextDayCalendar != null)
+                {
+                    nextDayCalendar.PlanDate = date;
+                    nextDayCalendar.UpdatedAt = DateTime.UtcNow;
+                }
+                
+                // Update daily log PlanDate
+                var completedDayLog = await _db.NtrDailyLogs
+                    .FirstOrDefaultAsync(l => l.UserId == userId && l.PlanDate == date && l.CycleId == activeProgram.CycleNo);
+                if (completedDayLog != null)
+                {
+                    completedDayLog.PlanDate = date.AddDays(-1);
+                }
+
+                await _db.SaveChangesAsync();
+                await tx.CommitAsync();
+            }
+            catch
+            {
+                await tx.RollbackAsync();
+                throw;
+            }
+        });
 
         await PopulateProgressLogAsync(userId, activeProgram, dailyLog, date);
 
@@ -179,7 +245,7 @@ public class ProgramProgressionService
 
         // HYBRID LOGGING LOGIC
         // Determine if the program is continuous based on the initial fitness level.
-        bool isContinuous = program.FitnessLevelAtStart?.ToUpper() == "ADVANCED" || 
+        bool isContinuous = program.FitnessLevelAtStart?.ToUpper() == "ADVANCED" ||
                             program.FitnessLevelAtStart?.ToUpper() == "REHAB LEVEL";
 
         int yearNo = 1;

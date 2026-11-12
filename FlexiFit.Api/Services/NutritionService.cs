@@ -499,8 +499,10 @@ public class NutritionService
         if (dailyLog == null) 
             throw new KeyNotFoundException("No daily log found for today.");
         
-        if (dailyLog.MarkedDoneAt != null) 
-            return null; // Signal that it's already done
+        if (dailyLog.MarkedDoneAt != null)
+        {
+            return new { message = "Nutrition day already completed", alreadyCompleted = true };
+        }
 
         await UpdateDailyMealTotalsAsync(dailyLog.DailyLogId);
         
@@ -531,7 +533,16 @@ public class NutritionService
         }
 
         await _db.SaveChangesAsync();
-        await _programProgressionService.TryAdvanceAsync(userId, todayDateOnly);
+        
+        var activePrograms = await _db.UsrUserProgramInstances
+            .Include(p => p.Program)
+            .Where(p => p.UserId == userId && p.Status == "ACTIVE")
+            .ToListAsync();
+
+        foreach (var program in activePrograms)
+        {
+            await _programProgressionService.TryAdvanceAsync(userId, todayDateOnly, program.InstanceId);
+        }
 
         return new
         {
